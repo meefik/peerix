@@ -1,0 +1,35 @@
+{
+  "name": "p2p",
+  "version": "0.5.0",
+  "description": "A lightweight library for creating peer-to-peer WebRTC conferencing with custom signaling drivers.",
+  "author": "Anton Skshidlevsky <meefik@gmail.com>",
+  "main": "src/index.js",
+  "types": "types/index.d.ts",
+  "module": "dist/p2p.esm.js",
+  "unpkg": "dist/p2p.umd.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/meefik/p2p.git"
+  },
+  "keywords": [
+    "p2p",
+    "webrtc",
+    "peer-to-peer",
+    "conference"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "web-dev-server --watch --open /"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@rollup/plugin-terser": "^0.4.4",
+    "@stylistic/eslint-plugin": "^5.9.0",
+    "@web/dev-server": "^0.4.6",
+    "eslint": "^10.0.1",
+    "globals": "^17.3.0",
+    "rollup": "^4.58.0"
+  }
+}
