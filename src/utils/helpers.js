@@ -3,12 +3,31 @@
  *
  * @return {string} UUID
  */
-export function uuid() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+export function UUIDv4() {
+  return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
+    (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4)).toString(16),
+  );
+}
+
+/**
+ * Hashes a string to a 16-bit unsigned integer using the FNV-1a algorithm.
+ *
+ * @param {string} str The input string to hash.
+ * @return {number} A 16-bit unsigned integer hash of the input string.
+ */
+export function hashFNV1a(str) {
+  let hash = 2166136261; // 32-bit FNV offset basis
+
+  for (let i = 0; i < str.length; i++) {
+    // XOR the bottom with the current character
+    hash ^= str.charCodeAt(i);
+    // Multiply by 32-bit FNV prime
+    hash = Math.imul(hash, 16777619);
+  }
+
+  // "XOR-folding": Mix the upper 16 bits with the lower 16 bits
+  // This squashes the 32-bit number into a 16-bit number
+  return ((hash >>> 16) ^ (hash & 0xFFFF)) >>> 0;
 }
 
 /**

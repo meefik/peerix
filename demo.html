@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Demo</title>
+</head>
+
+<body>
+  <button id="connect">Connect</button>
+  <button id="disconnect">Disconnect</button>
+  <button id="open">Open</button>
+  <button id="close">Close</button>
+  <button id="publish">Publish</button>
+  <button id="addtrack">Add Track</button>
+  <button id="removetrack">Remove Track</button>
+  <button id="unpublish">Unpublish</button>
+  <button id="send">Send</button>
+
+  <script type="module">
+    import { Peer } from './src/peer.js';
+    import { MemoryDriver } from './src/drivers/memory.js';
+    import { BroadcastChannelDriver } from './src/drivers/broadcastchannel.js';
+    import { Addon } from './src/addons/addon.js';
+
+    const driver = new BroadcastChannelDriver();
+
+    const peer = new Peer(driver);
+
+    peer.on('connect', (e) => {
+      console.log('Peer: connected', e);
+    });
+
+    peer.on('disconnect', (e) => {
+      console.log('Peer: disconnected', e);
+    });
+
+    peer.on('publish', (e) => {
+      console.log('Peer: publish', e);
+    });
+
+    peer.on('unpublish', (e) => {
+      console.log('Peer: unpublish', e);
+    });
+
+    peer.on('message', (e) => {
+      console.log('Peer: message', e);
+    });
+
+    peer.on('open', (e) => {
+      console.log('Peer: open', e);
+    });
+
+    peer.on('close', (e) => {
+      console.log('Peer: close', e);
+    });
+
+    peer.on('error', (e) => {
+      console.error('Peer: error', e);
+    });
+
+    // peer.open(0, { ordered: true });
+    // peer.connect('room-id');
+    // peer.disconnect();
+
+    let stream;
+
+    const connectButton = document.getElementById('connect');
+    connectButton.addEventListener('click', () => {
+      peer.connect('room-id');
+    });
+
+    const disconnectButton = document.getElementById('disconnect');
+    disconnectButton.addEventListener('click', () => {
+      peer.disconnect();
+    });
+
+    const openButton = document.getElementById('open');
+    openButton.addEventListener('click', () => {
+      peer.open(0);
+    });
+
+    const closeButton = document.getElementById('close');
+    closeButton.addEventListener('click', () => {
+      peer.close(0);
+    });
+
+    const publishButton = document.getElementById('publish');
+    publishButton.addEventListener('click', async () => {
+      if (stream) return;
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      peer.publish(stream, 'camera');
+    });
+
+    const addTrackButton = document.getElementById('addtrack');
+    addTrackButton.addEventListener('click', async () => {
+      if (!stream) return;
+      const newStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+      newStream.getTracks().forEach(track => stream.addTrack(track));
+      peer.publish(stream, 'camera');
+    });
+
+    const removeTrackButton = document.getElementById('removetrack');
+    removeTrackButton.addEventListener('click', () => {
+      if (!stream) return;
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        stream.removeTrack(track);
+        peer.publish(stream, 'camera');
+      }
+    });
+
+    const unpublishButton = document.getElementById('unpublish');
+    unpublishButton.addEventListener('click', () => {
+      if (!stream) return;
+      peer.unpublish(stream);
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+    });
+
+    const sendButton = document.getElementById('send');
+    sendButton.addEventListener('click', () => {
+      peer.send('Hello, World!');
+    });
+
+    // DEBUG
+    window.peer = peer;
+  </script>
+</body>
+
+</html>

@@ -1,5 +1,7 @@
 # Peerix
 
+A peer-to-peer media and data sharing library built on top of WebRTC. It provides a simple API for connecting to rooms, publishing media streams, and sending messages between peers.
+
 ```js
 import { Peer } from 'peerix';
 import { Recorder, Store } from 'peerix/addons';
@@ -19,19 +21,26 @@ peer.connect('room-id', { /* metadata */ });
 // peer.disconnect();
 
 // publish a stream
-// const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-peer.publish(stream);
-// peer.unpublish(stream);
+// const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+peer.publish(stream, 'camera'); // stream id is optional, defaults to stream.id
+// peer.unpublish('camera');
+
+// peer.publish(stream); // publish with stream.id as id
+// peer.unpublish(stream); // unpublish by stream object
+
+// const newStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+peer.publish(newStream, 'camera'); // update existing stream with new tracks
 
 // open a channel
-peer.open('chat', { /* options */ });
-// peer.close('chat');
-peer.send(data, 'chat');
+peer.open(0, { /* options */ });
+// peer.close(0);
+peer.send(data, 0);
 
 // peer connect
 peer.on('connect', (e) => {
   const { peer, metadata } = e;
 });
+// peer.off('connect', handler);
 
 // peer disconnect
 peer.on('disconnect', (e) => {

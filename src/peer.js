@@ -1,33 +1,20 @@
 import EventEmitter from './utils/emitter.js';
 
 import {
-  uuid,
+  UUIDv4,
+  hashFNV1a,
   defaultIceServers,
 } from './utils/helpers.js';
 
 /**
- * Peer listens for signaling messages from senders and establishes WebRTC
- * RTCPeerConnection instances for incoming offers. It manages data channels and
- * remote media streams and emits events to notify callers about messages,
- * streams, disposals, and errors.
- *
- * @extends {EventEmitter}
- *
- * @fires Peer#connect Emitted when a peer connection is established.
- * @fires Peer#stream Emitted when a remote media stream is received.
- * @fires Peer#dispose Emitted when a peer connection is closed.
- * @fires Peer#error Emitted when an error occurs.
- * @fires Peer#channel:open Emitted when a data channel is opened.
- * @fires Peer#channel:close Emitted when a data channel is closed.
- * @fires Peer#channel:error Emitted when a data channel error occurs.
- * @fires Peer#channel:message Emitted when a message is received on a data channel.
+ * Peer class for managing WebRTC peer connections and signaling.
  */
 export class Peer extends Map {
   /**
    * Creates an instance of Peer.
    *
    * @param {Object} driver Signaling driver (required).
-   * @param {Object} config Configuration options.
+   * @param {Object} [config] Configuration options.
    * @param {RTCIceServer[]} [config.iceServers] STUN/TURN servers to use for RTCPeerConnection.
    * @param {number} [config.connectionTimeout=30] Connection timeout in seconds.
    * @param {number} [config.pingInterval=30] Ping interval in seconds to re-establish connections.
@@ -43,7 +30,7 @@ export class Peer extends Map {
       pingInterval = 30,
       pingAttempts = 10,
     } = config || {};
-    this.id = id || uuid();
+    this.id = id || UUIDv4();
     this.driver = driver;
     this.iceServers = iceServers;
     this.connectionTimeout = connectionTimeout;
@@ -51,7 +38,7 @@ export class Peer extends Map {
     this.pingAttempts = pingAttempts;
     this.emitter = new EventEmitter(this);
     this.candidateQueues = new Map();
-    this.streams = new Set();
+    this.streams = new Map();
     this.channels = new Map();
     this.addons = new Set();
   }
@@ -112,12 +99,6 @@ export class Peer extends Map {
         this.connectionTimeout * 1000,
       );
 
-      // peer.pc.addEventListener('connectionstatechange', (e) => {
-      //   const { connectionState } = e.target;
-      //   console.log('connectionState', connectionState, id);
-      //   this.emit('state', { peer, state: connectionState });
-      // });
-
       peer.pc.addEventListener('iceconnectionstatechange', (e) => {
         const { iceConnectionState } = e.target;
         console.log('iceConnectionState', iceConnectionState, id);
@@ -133,14 +114,15 @@ export class Peer extends Map {
           // else
           peer.dispose(new Error('ICE connection failed'));
         }
-        // else if (iceConnectionState === 'closed') {
-        //   peer.dispose();
-        // }
+        else if (iceConnectionState === 'closed') {
+          peer.dispose();
+        }
       });
 
       peer.pc.addEventListener('icecandidate', (e) => {
         const { candidate } = e;
         if (!candidate) return;
+
         this.driver.emit([this.room, id], {
           type: 'candidate',
           id: this.id,
@@ -151,8 +133,6 @@ export class Peer extends Map {
       });
 
       peer.pc.addEventListener('negotiationneeded', async () => {
-        console.log('Negotiation needed for peer', id);
-
         try {
           const offer = await peer.pc.createOffer();
           await peer.pc.setLocalDescription(offer);
@@ -173,73 +153,54 @@ export class Peer extends Map {
         }
       });
 
-      peer.pc.addEventListener('datachannel', (e) => {
-        const { channel } = e;
-        if (peer.channels.has(channel.label)) return;
-
-        peer.channels.set(channel.label, channel);
-
-        this.emit(['channel', `channel:${channel.label}`], { peer, channel });
-
-        channel.addEventListener('open', () => {
-          this.emit(['open', `open:${channel.label}`], { peer, channel });
-        });
-
-        channel.addEventListener('close', () => {
-          this.emit(['close', `close:${channel.label}`], { peer, channel });
-        });
-
-        channel.addEventListener('message', (e) => {
-          this.emit(['message', `message:${channel.label}`], { peer, channel, data: e.data });
-        });
-
-        channel.addEventListener('error', (e) => {
-          this.emit(['error', `error:${channel.label}`], { peer, channel, error: e.error });
-        });
-      });
-
       peer.pc.addEventListener('track', (e) => {
-        const { streams } = e;
+        const { track, streams: [stream] } = e;
 
-        for (let stream of streams) {
+        if (!peer.streams.has(stream.id)) {
           peer.streams.set(stream.id, stream);
+          stream.addEventListener('removetrack', (e) => {
+            const { track } = e;
+            if (!stream.getTracks().length) {
+              peer.streams.delete(stream.id);
+            }
+            this.emit('unpublish', { peer, stream, track });
+          });
         }
 
-        this.emit('track', { peer, streams });
+        this.emit('publish', { peer, stream, track });
       });
 
       if (this.streams.size > 0) {
-        for (let stream of this.streams) {
+        for (let stream of this.streams.values()) {
           stream.getTracks().forEach(track => peer.pc.addTrack(track, stream));
           // setPeerConnectionBitrate(peer.connection, this.audioBitrate, this.videoBitrate);
         }
       }
 
       if (this.channels.size > 0) {
-        for (let [channelLabel, channelOptions] of this.channels.entries()) {
-          if (peer.channels.has(channelLabel)) continue;
+        for (let [id, options] of this.channels.entries()) {
+          const defaultLabel = typeof id === 'string' ? id : '';
+          const { label = defaultLabel, ...channelOptions } = options || {};
+          const generatedId = typeof id === 'number' ? id : hashFNV1a(`${id}`);
 
-          if (typeof channelOptions !== 'object') channelOptions = {};
-
-          console.log('Creating data channel', channelLabel);
-          const channel = peer.pc.createDataChannel(channelLabel, channelOptions);
-          peer.channels.set(channelLabel, channel);
-
+          const channel = peer.pc.createDataChannel(
+            label,
+            { ...channelOptions, negotiated: true, id: generatedId },
+          );
           channel.addEventListener('open', () => {
-            this.emit(['open', `open:${channel.label}`], { peer, channel });
+            this.emit('open', { peer, channel });
           });
-
           channel.addEventListener('close', () => {
-            this.emit(['close', `close:${channel.label}`], { peer, channel });
+            this.emit('close', { peer, channel });
           });
-
           channel.addEventListener('message', (e) => {
-            this.emit(['message', `message:${channel.label}`], { peer, channel, data: e.data });
+            this.emit('message', { peer, channel, data: e.data });
+          });
+          channel.addEventListener('error', (e) => {
+            this.emit('error', { peer, channel, error: e.error });
           });
 
-          channel.addEventListener('error', (e) => {
-            this.emit(['error', `error:${channel.label}`], { peer, channel, error: e.error });
-          });
+          peer.channels.set(id, channel);
         }
       }
 
@@ -252,33 +213,18 @@ export class Peer extends Map {
 
       console.log('Received message', e);
 
-      // join the room for receiving only
-      if (type === 'join') {
+      // join to the room
+      if (type === 'join' && data) {
         if (this.has(id)) return;
-        if (!this.streams.size && !this.channels.size) return;
 
-        try {
-          const peer = createRemotePeer(id, metadata);
-          this.set(id, peer);
-        }
-        catch (error) {
-          const peer = this.get(id);
-          if (peer) peer.dispose(error);
-          this.emit('error', { peer, error });
-        }
-
-        return;
-      }
-
-      // request to share data or media
-      if (type === 'invite') {
-        if (this.has(id)) return;
+        const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
+        if (!data && !hasLocalData) return;
 
         try {
           const peer = createRemotePeer(id, metadata);
           this.set(id, peer);
 
-          if (!this.streams.size && !this.channels.size) {
+          if (!hasLocalData) {
             const offer = await peer.pc.createOffer();
             await peer.pc.setLocalDescription(offer);
 
@@ -313,13 +259,13 @@ export class Peer extends Map {
 
           const peer = this.get(id);
 
-          await peer.pc.setRemoteDescription(new RTCSessionDescription(data));
+          await peer.pc.setRemoteDescription(data);
 
           // add queued candidates
           if (this.candidateQueues.has(id)) {
             for (let candidate of this.candidateQueues.get(id)) {
               try {
-                await peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
+                await peer.pc.addIceCandidate(candidate);
               }
               catch (error) {
                 this.emit('error', { peer, error });
@@ -355,15 +301,12 @@ export class Peer extends Map {
         if (!peer) return;
 
         try {
-          await peer.pc.setRemoteDescription(new RTCSessionDescription(data));
+          await peer.pc.setRemoteDescription(data);
         }
         catch (error) {
           peer.dispose(error);
           return;
         }
-
-        clearTimeout(peer.timeout);
-        delete peer.timeout;
 
         // add queued candidates
         if (this.candidateQueues.has(id)) {
@@ -401,7 +344,7 @@ export class Peer extends Map {
         return;
       }
 
-      // close connection
+      // leave the room
       if (type === 'leave') {
         const peer = this.get(id);
 
@@ -417,10 +360,9 @@ export class Peer extends Map {
     this.driver.on([this.room, this.id], this._handler);
 
     this.driver.emit([this.room], {
-      type: !this.streams.size && !this.channels.size
-        ? 'join'
-        : 'invite',
+      type: 'join',
       id: this.id,
+      data: this.streams.size > 0 || this.channels.size > 0,
       metadata: this.metadata,
     });
 
@@ -450,7 +392,9 @@ export class Peer extends Map {
     this.driver.off([this.room], this._handler);
     this.driver.off([this.room, this.id], this._handler);
 
-    this.forEach(peer => peer.dispose());
+    for (const peer of this.values()) {
+      peer.dispose();
+    }
     this.clear();
 
     this.candidateQueues.clear();
@@ -458,128 +402,150 @@ export class Peer extends Map {
     delete this._handler;
   }
 
-  publish(stream) {
-    const isEmpty = !this.streams.size && !this.channels.size;
-    this.streams.add(stream);
+  publish(stream, id) {
+    if (!id) id = stream.id;
+    const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
+    const newStream = this.streams.get(id) || new MediaStream();
+    this.streams.set(id, newStream);
+
+    for (const track of newStream.getTracks()) {
+      if (!stream.getTracks().find(t => t.id === track.id)) {
+        console.log('Removing track', track.id);
+        newStream.removeTrack(track);
+      }
+    }
+    for (const track of stream.getTracks()) {
+      if (!newStream.getTracks().find(t => t.id === track.id)) {
+        console.log('Adding track', track.id);
+        newStream.addTrack(track);
+      }
+    }
 
     if (!this.active) return;
 
-    if (isEmpty) {
+    for (const peer of this.values()) {
+      const { pc } = peer;
+      const senders = pc.getSenders();
+      for (const track of newStream.getTracks()) {
+        const sender = senders.find((sender) => {
+          return sender.track && sender.track.id === track.id
+            && sender.track.readyState !== 'ended';
+        });
+        if (sender) sender.replaceTrack(track);
+        else pc.addTrack(track, newStream);
+      }
+      for (const sender of senders) {
+        if (sender.track && !newStream.getTracks().find(t => t.id === sender.track.id)) {
+          pc.removeTrack(sender);
+        }
+      }
+    }
+
+    if (!hasLocalData) {
       this.driver.emit([this.room], {
-        type: 'invite',
+        type: 'join',
         id: this.id,
+        data: true,
         metadata: this.metadata,
       });
     }
-    else {
-      this.forEach((peer) => {
-        const { pc } = peer;
-        const senders = pc.getSenders();
-        for (const stream of this.streams) {
-          stream.getTracks().forEach((track) => {
-            const sender = senders.find((sender) => {
-              return sender.track && sender.track.kind === track.kind
-                && sender.track.readyState === 'ended';
-            });
-            if (sender) sender.replaceTrack(track);
-            else pc.addTrack(track, stream);
-          });
-        }
-      });
-    }
   }
 
-  unpublish(stream) {
-    this.streams.delete(stream);
-    const isEmpty = !this.streams.size && !this.channels.size;
+  unpublish(id) {
+    if (typeof id === 'object') {
+      id = id.id;
+    }
+    const stream = this.streams.get(id);
+    this.streams.delete(id);
 
     if (!this.active) return;
 
-    if (isEmpty) {
-      this.forEach((peer) => {
-        peer.dispose();
-      });
-    }
-    else {
-      this.forEach((peer) => {
-        const { pc } = peer;
-        const senders = pc.getSenders();
-        for (const stream of this.streams) {
-          stream.getTracks().forEach((track) => {
-            const sender = senders.find(sender => sender.track === track);
-            if (sender) pc.removeTrack(sender);
-          });
-        }
-      });
+    for (const peer of this.values()) {
+      const { pc } = peer;
+      const senders = pc.getSenders();
+      for (const track of stream.getTracks()) {
+        const sender = senders.find((sender) => {
+          return sender.track && sender.track.id === track.id;
+        });
+        if (sender) pc.removeTrack(sender);
+      }
     }
   }
 
-  open(label, options) {
-    const isEmpty = !this.streams.size && !this.channels.size;
-    this.channels.set(label, options);
+  open(id, options = {}) {
+    const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
+    this.channels.set(id, options);
 
     if (!this.active) return;
 
-    if (isEmpty) {
+    for (const peer of this.values()) {
+      if (peer.channels.has(id)) continue;
+
+      const defaultLabel = typeof id === 'string' ? id : '';
+      const { label = defaultLabel, ...channelOptions } = options || {};
+      const generatedId = typeof id === 'number' ? id : hashFNV1a(`${id}`);
+
+      const { pc } = peer;
+      const channel = pc.createDataChannel(
+        label,
+        { ...channelOptions, negotiated: true, id: generatedId },
+      );
+      channel.addEventListener('open', () => {
+        this.emit('open', { peer, channel });
+      });
+      channel.addEventListener('close', () => {
+        this.emit('close', { peer, channel });
+      });
+      channel.addEventListener('message', (e) => {
+        this.emit('message', { peer, channel, data: e.data });
+      });
+      channel.addEventListener('error', (e) => {
+        this.emit('error', { peer, channel, error: e.error });
+      });
+
+      peer.channels.set(id, channel);
+    }
+
+    if (!hasLocalData) {
       this.driver.emit([this.room], {
-        type: 'invite',
+        type: 'join',
         id: this.id,
+        data: true,
         metadata: this.metadata,
       });
     }
-    else {
-      this.forEach((peer) => {
-        if (peer.channels.has(label)) return;
-        // if (peer.channels.has(label)) {
-        //   const channel = peer.channels.get(label);
-        //   if (channel) channel.close();
-        //   peer.channels.delete(label);
-        // }
-        const { pc } = peer;
-        const channel = pc.createDataChannel(label, options);
-        peer.channels.set(label, channel);
-      });
-    }
   }
 
-  close(label) {
-    this.channels.delete(label);
-    const isEmpty = !this.streams.size && !this.channels.size;
+  close(id) {
+    this.channels.delete(id);
 
     if (!this.active) return;
 
-    if (isEmpty) {
-      this.forEach((peer) => {
-        peer.dispose();
-      });
-    }
-    else {
-      this.forEach((peer) => {
-        const channel = peer.channels.get(label);
-        if (channel) channel.close();
-        peer.channels.delete(label);
-      });
+    for (const peer of this.values()) {
+      const channel = peer.channels.get(id);
+      if (channel) channel.close();
+      peer.channels.delete(id);
     }
   }
 
-  send(message, label) {
+  send(message, id) {
     if (!this.active) return;
 
-    this.forEach((peer) => {
-      if (!label) {
-        peer.channels.forEach((channel) => {
+    for (const peer of this.values()) {
+      if (!id) {
+        for (const channel of peer.channels.values()) {
           if (channel.readyState === 'open') {
             channel.send(message);
           }
-        });
+        }
       }
       else {
-        const channel = peer.channels.get(label);
+        const channel = peer.channels.get(id);
         if (channel && channel.readyState === 'open') {
           channel.send(message);
         }
       }
-    });
+    }
   }
 
   async attach(addon) {
