@@ -1,5 +1,9 @@
-export class BroadcastChannelDriver extends Map {
-  constructor(channelName) {
+import { SignalingDriver } from './signaling.js';
+
+export class BroadcastChannelDriver extends Map implements SignalingDriver {
+  bc: BroadcastChannel;
+
+  constructor(channelName: string) {
     super();
     this.bc = new BroadcastChannel(channelName || 'peerix');
     this.bc.onmessage = (e) => {
@@ -9,7 +13,6 @@ export class BroadcastChannelDriver extends Map {
         try {
           handler(data);
         }
-        // eslint-disable-next-line no-unused-vars
         catch (err) {
           /* swallow errors */
         }
@@ -17,13 +20,13 @@ export class BroadcastChannelDriver extends Map {
     };
   }
 
-  on(namespace, handler) {
+  on(namespace: string[], handler: (data: any) => void) {
     const ns = namespace.join(':');
     if (!this.has(ns)) this.set(ns, new Set());
     this.get(ns).add(handler);
   }
 
-  off(namespace, handler) {
+  off(namespace: string[], handler: (data: any) => void) {
     const ns = namespace.join(':');
     if (this.has(ns)) {
       if (handler) this.get(ns).delete(handler);
@@ -32,7 +35,7 @@ export class BroadcastChannelDriver extends Map {
     }
   }
 
-  emit(namespace, data) {
+  emit(namespace: string[], data: any) {
     const ns = namespace.join(':');
     this.bc.postMessage({ ns, data });
   }

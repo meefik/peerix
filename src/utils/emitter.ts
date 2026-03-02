@@ -1,14 +1,16 @@
 export default class EventEmitter extends Map {
-  constructor(context) {
+  context: any;
+
+  constructor(context?: any) {
     super();
     if (context) {
       this.context = context;
     }
   }
 
-  on(event, handler) {
+  on(event: string | string[], handler: (...args: any[]) => void) {
     if (event && handler) {
-      const events = [].concat(event);
+      const events = Array.isArray(event) ? event : [event];
       for (let ev of events) {
         if (!this.has(ev)) {
           this.set(ev, new Map());
@@ -18,9 +20,9 @@ export default class EventEmitter extends Map {
     }
   }
 
-  once(event, handler) {
+  once(event: string | string[], handler: (...args: any[]) => void) {
     if (event && handler) {
-      const events = [].concat(event);
+      const events = Array.isArray(event) ? event : [event];
       for (let ev of events) {
         if (!this.has(ev)) {
           this.set(ev, new Map());
@@ -30,9 +32,9 @@ export default class EventEmitter extends Map {
     }
   }
 
-  off(event, handler) {
+  off(event: string | string[], handler?: (...args: any[]) => void) {
     if (event) {
-      const events = [].concat(event);
+      const events = Array.isArray(event) ? event : [event];
       for (let ev of events) {
         if (this.has(ev)) {
           if (handler) {
@@ -50,9 +52,9 @@ export default class EventEmitter extends Map {
     }
   }
 
-  emit(event, ...args) {
+  emit(event: string | string[], ...args: any[]) {
     if (event) {
-      const events = [].concat(event);
+      const events = Array.isArray(event) ? event : [event];
       for (let ev of events) {
         if (this.has(ev)) {
           for (let [handler, once] of this.get(ev)) {

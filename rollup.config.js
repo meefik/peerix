@@ -1,16 +1,21 @@
+import typescript from '@rollup/plugin-typescript';
 import terser from '@rollup/plugin-terser';
 
-const { NODE_ENV = 'production' } = process.env;
+const { NODE_ENV } = process.env;
+const isProduction = !NODE_ENV || NODE_ENV === 'production';
 
 export default {
-  input: 'src/index.js',
+  input: 'src/index.ts',
   output: [{
-    file: 'dist/p2p.umd.js',
+    file: 'dist/peerix.umd.js',
     format: 'umd',
-    name: 'p2p',
+    name: 'peerix',
   }, {
-    file: 'dist/p2p.esm.js',
+    file: 'dist/peerix.esm.js',
     format: 'esm',
   }],
-  plugins: NODE_ENV === 'production' ? [terser()] : [],
+  plugins: [
+    typescript({ tsconfig: './tsconfig.json' }),
+    isProduction && terser(),
+  ].filter(Boolean),
 };

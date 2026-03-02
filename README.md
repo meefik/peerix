@@ -182,6 +182,61 @@ You can call the `connect` method before or after publishing media streams or op
 
 > Peerix allows you to use a single connection with each other peer in the room to share multiple media streams and data channels in two directions. This means that you can publish multiple media streams and open multiple data channels with the same peer without needing to establish separate connections for each stream or channel. The library will manage the negotiation and sharing of all streams and channels over the single connection, optimizing the communication between peers and reducing load on client resources, signaling, and TURN servers.
 
+
+```js
+const remotePeer = peer.get(peerId);
+remotePeer.open(channelId);
+remotePeer.send('Hello, peer!', channelId);
+remotePeer.publish(mediaStream);
+
+// Data channel management
+
+// default behavior
+peer.open(); // opens a data channel with default id (0)
+peer.close(); // closes the default data channel (0)
+peer.send('Hello, peer!'); // to all channels
+peer.send('Hello, peer!', CHANNEL_ID); // to a specific channel
+peer.send('Hello, peer!', channelInstance); // to a specific RTCDataChannel instance
+peer.send('Hello, peer!', (peer, channel) => channel.id === CHANNEL_ID); // to filtered channels
+
+
+const remotePeer = {
+  id: string,
+  metadata: any,
+  channels: RTCDataChannel[],
+  streams: MediaStream[],
+};
+
+peer.connections.forEach(remotePeer => {
+  remotePeer.channels.forEach(channel => {
+    if (channel.id === CHANNEL_ID && channel.readyState === 'open') {
+      channel.send('Hello, peer!');
+    }
+  });
+});
+
+
+const CHANNEL_ID = 0;
+// 1 version
+peer.open({ id: CHANNEL_ID, label: 'chat', filter: (peer) => true });
+peer.close({ id: CHANNEL_ID });
+// 2 version
+peer.open(CHANNEL_ID, { label: 'chat', filter: (peer) => true });
+peer.close(CHANNEL_ID);
+
+// Media stream management
+
+// default behavior
+peer.publish(mediaStream); // id defaults to mediaStream.id
+peer.unpublish(mediaStream); // unpublish the stream by its instance
+// 1 version
+peer.publish(mediaStream, { id: 'camera', filter: (peer) => true });
+peer.unpublish({ id: 'camera' });
+// 2 version
+peer.publish(mediaStream, 'camera', { filter: (peer) => true });
+peer.unpublish('camera');
+```
+
 ## Media Streams
 
 You can also publish media streams to the room using the `publish` method. This allows other peers in the room to subscribe to your media streams and view or listen to them.
@@ -191,12 +246,12 @@ You can also publish media streams to the room using the `publish` method. This 
 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
 
 // publish the stream to the room with an optional stream ID
-peer.publish(stream, 'camera');
+peer.publish(stream, 'camera', { /* options */ });
 
 // get another media stream from the user's microphone only
 const newStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
 // update the existing stream with new tracks
-peer.publish(newStream, 'camera');
+peer.publish(newStream, 'camera', { /* options */ });
 
 // later, if you want to stop sharing the stream, you can unpublish it
 peer.unpublish('camera');
@@ -221,14 +276,14 @@ You can publish multiple streams with different IDs, and you can also update an 
 You can open data channels to exchange arbitrary data with other peers in the room. Data channels are useful for sending messages, files, or any other type of data that does not fit into media streams.
 
 ```js
-// define a channel ID for the chat channel
-const CHAT_CHANNEL_ID = 0;
+// define a channel ID for the channel
+const CHANNEL_ID = 0;
 
 // open a data channel with a specific ID
-peer.open(CHAT_CHANNEL_ID, { /* options */ });
+peer.open(CHANNEL_ID, { /* options */ });
 
 // later, if you want to close the data channel
-peer.close(CHAT_CHANNEL_ID);
+peer.close(CHANNEL_ID);
 
 // listen for incoming messages on the data channel
 peer.on('message', (e) => {
@@ -316,3 +371,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 ### Commercial License
 
 For proprietary applications or if you do not wish to comply with the GPL license, please contact the [Peerix team](https://peerix.dev) for more information.
+
+## Roadmap
+
+- [ ] TypeScript
+- [ ] NATS Driver
