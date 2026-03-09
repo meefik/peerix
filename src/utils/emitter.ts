@@ -1,6 +1,23 @@
+/**
+ * EventEmitter class for managing event listeners and emitting events.
+ *
+ * This class provides a simple implementation of an event emitter that allows
+ * registering event handlers with `on` and `once`, removing handlers with `off`,
+ * and emitting events with `emit`. It supports multiple events and handlers, as
+ * well as a context for handler execution.
+ */
 export default class EventEmitter extends Map {
-  context: any;
+  /**
+   * Optional context for handler execution. If set, handlers will be invoked with
+   * this context instead of the emitter instance.
+   */
+  readonly context: any;
 
+  /**
+   * Create a new EventEmitter instance.
+   *
+   * @param context Optional context for handler execution.
+   */
   constructor(context?: any) {
     super();
     if (context) {
@@ -8,6 +25,12 @@ export default class EventEmitter extends Map {
     }
   }
 
+  /**
+   * Subscribe to one or more events.
+   *
+   * @param event Event name or list of event names.
+   * @param handler Event handler.
+   */
   on(event: string | string[], handler: (...args: any[]) => void) {
     if (event && handler) {
       const events = Array.isArray(event) ? event : [event];
@@ -20,6 +43,12 @@ export default class EventEmitter extends Map {
     }
   }
 
+  /**
+   * Subscribe to one or more events for a single invocation.
+   *
+   * @param event Event name or list of event names.
+   * @param handler Event handler.
+   */
   once(event: string | string[], handler: (...args: any[]) => void) {
     if (event && handler) {
       const events = Array.isArray(event) ? event : [event];
@@ -32,6 +61,12 @@ export default class EventEmitter extends Map {
     }
   }
 
+  /**
+   * Unsubscribe from one or more events.
+   *
+   * @param event Event name or list of event names.
+   * @param handler Optional event handler to remove. If not provided, all handlers for the event(s) will be removed.
+   */
   off(event: string | string[], handler?: (...args: any[]) => void) {
     if (event) {
       const events = Array.isArray(event) ? event : [event];
@@ -52,6 +87,12 @@ export default class EventEmitter extends Map {
     }
   }
 
+  /**
+   * Emit one or more events.
+   *
+   * @param event Event name or list of event names.
+   * @param args Arguments to pass to the event handlers.
+   */
   emit(event: string | string[], ...args: any[]) {
     if (event) {
       const events = Array.isArray(event) ? event : [event];

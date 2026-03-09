@@ -26,7 +26,7 @@ npm install peerix
 Use the library in your JavaScript or TypeScript code:
 
 ```js
-import { Peer } from 'peerix';
+import { Peer } from 'peerix/core';
 import { BroadcastChannelDriver } from 'peerix/drivers';
 
 // create a signaling driver
@@ -37,24 +37,25 @@ const peer = new Peer(driver);
 
 // listen for open channel event
 peer.on('open', (e) => {
-  const { channel } = e;
+  const { remote, channel } = e;
   // send a message to the connected peer
-  peer.send('Hello, peer!', channel.id);
+  peer.send('Hello, peer!', channel);
 });
 
 // listen for incoming messages
 peer.on('message', (e) => {
-  console.log('Received message:', e.data);
+  const { remote, channel, data } = e;
+  console.log('Received message:', data);
 });
 
 // open a data channel with default id (0)
 peer.open();
 
-// connect to a room
-peer.connect('room-id');
+// join a room
+peer.join('room-id');
 ```
 
-You can run the above code in multiple browser tabs to see the peer-to-peer communication in action. Each tab will represent a peer that can connect to the same room and exchange messages via WebRTC data channels.
+You can run the above code in multiple browser tabs to see the peer-to-peer communication in action. Each tab will represent a peer that can join the same room and exchange messages via WebRTC data channels.
 
 ## Using with CDN
 
@@ -154,88 +155,33 @@ The `quality` option allows you to specify the desired quality level for media s
 
 ## Connection Management
 
-Peerix will automatically handle peer discovery, connection management, and media stream negotiation. To connect to a room and start sharing media streams or sending messages, simply call the `connect` method with the desired room ID:
+Peerix will automatically handle peer discovery, connection management, and media stream negotiation. To connect to a room and start sharing media streams or sending messages, simply call the `join` method with the desired room ID:
 
 ```js
-// connect to a room with an optional metadata
-peer.connect('room-id', { /* metadata */ });
+// join a room with an optional metadata
+peer.join('room-id', { /* metadata */ });
 
-// later, if you want to disconnect from the room
-peer.disconnect();
+// later, if you want to leave the room
+peer.leave();
 
 // listen for peer connections in the room
-peer.on('connect', (e) => {
-  const { peer, metadata } = e;
-  console.log('Connected to peer:', peer.id, 'with metadata:', metadata);
+peer.on('join', (e) => {
+  const { remote, metadata } = e;
+  console.log('Connected to peer:', remote.id, 'with metadata:', metadata);
 });
 
 // listen for peer disconnections in the room
-peer.on('disconnect', (e) => {
-  const { peer, metadata } = e;
-  console.log('Disconnected from peer:', peer.id, 'with metadata:', metadata);
+peer.on('leave', (e) => {
+  const { remote, metadata } = e;
+  console.log('Disconnected from peer:', remote.id, 'with metadata:', metadata);
 });
 ```
 
 Optionally, you can provide metadata that will be shared with other peers in the room. This can include information such as the peer's name, avatar, or any other relevant data.
 
-You can call the `connect` method before or after publishing media streams or opening data channels. If you publish a stream or open a data channel before connecting to a room, the library will automatically handle the negotiation and sharing of the stream once you connect. If you will do it after connecting, the library will immediately share the stream or data channel with all connected peers in the room and start re-negotiating the connections as needed.
+You can call the `join` method before or after publishing media streams or opening data channels. If you publish a stream or open a data channel before joining a room, the library will automatically handle the negotiation and sharing of the stream once you join. If you will do it after joining, the library will immediately share the stream or data channel with all connected peers in the room and start re-negotiating the connections as needed.
 
 > Peerix allows you to use a single connection with each other peer in the room to share multiple media streams and data channels in two directions. This means that you can publish multiple media streams and open multiple data channels with the same peer without needing to establish separate connections for each stream or channel. The library will manage the negotiation and sharing of all streams and channels over the single connection, optimizing the communication between peers and reducing load on client resources, signaling, and TURN servers.
-
-
-```js
-const remotePeer = peer.get(peerId);
-remotePeer.open(channelId);
-remotePeer.send('Hello, peer!', channelId);
-remotePeer.publish(mediaStream);
-
-// Data channel management
-
-// default behavior
-peer.open(); // opens a data channel with default id (0)
-peer.close(); // closes the default data channel (0)
-peer.send('Hello, peer!'); // to all channels
-peer.send('Hello, peer!', CHANNEL_ID); // to a specific channel
-peer.send('Hello, peer!', channelInstance); // to a specific RTCDataChannel instance
-peer.send('Hello, peer!', (peer, channel) => channel.id === CHANNEL_ID); // to filtered channels
-
-
-const remotePeer = {
-  id: string,
-  metadata: any,
-  channels: RTCDataChannel[],
-  streams: MediaStream[],
-};
-
-peer.connections.forEach(remotePeer => {
-  remotePeer.channels.forEach(channel => {
-    if (channel.id === CHANNEL_ID && channel.readyState === 'open') {
-      channel.send('Hello, peer!');
-    }
-  });
-});
-
-
-const CHANNEL_ID = 0;
-// 1 version
-peer.open({ id: CHANNEL_ID, label: 'chat', filter: (peer) => true });
-peer.close({ id: CHANNEL_ID });
-// 2 version
-peer.open(CHANNEL_ID, { label: 'chat', filter: (peer) => true });
-peer.close(CHANNEL_ID);
-
-// Media stream management
-
-// default behavior
-peer.publish(mediaStream); // id defaults to mediaStream.id
-peer.unpublish(mediaStream); // unpublish the stream by its instance
-// 1 version
-peer.publish(mediaStream, { id: 'camera', filter: (peer) => true });
-peer.unpublish({ id: 'camera' });
-// 2 version
-peer.publish(mediaStream, 'camera', { filter: (peer) => true });
-peer.unpublish('camera');
-```
 
 ## Media Streams
 
@@ -246,30 +192,41 @@ You can also publish media streams to the room using the `publish` method. This 
 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
 
 // publish the stream to the room with an optional stream ID
-peer.publish(stream, 'camera', { /* options */ });
-
-// get another media stream from the user's microphone only
-const newStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
-// update the existing stream with new tracks
-peer.publish(newStream, 'camera', { /* options */ });
+peer.publish(stream);
 
 // later, if you want to stop sharing the stream, you can unpublish it
-peer.unpublish('camera');
+peer.unpublish(stream);
 
 // listen for peer publishing a track in a stream
 peer.on('publish', (e) => {
-  const { peer, stream, track } = e;
+  const { remote, stream, track } = e;
   console.log('Peer published a track:', track.id, 'in stream:', stream.id);
 });
 
 // listen for peer unpublishing a track in a stream
 peer.on('unpublish', (e) => {
-  const { peer, stream, track } = e;
+  const { remote, stream, track } = e;
   console.log('Peer unpublished a track:', track.id, 'from stream:', stream.id);
 });
 ```
 
 You can publish multiple streams with different IDs, and you can also update an existing stream by publishing a new stream with the same ID. The library will automatically handle the negotiation and sharing of the updated stream with all connected peers in the room.
+
+```js
+// get a media stream from the user's camera and microphone
+const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+
+// publish the stream to the room with an optional stream ID
+peer.publish({ id: 'camera', stream });
+
+// get another media stream from the user's microphone only
+const newStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+// update the existing stream with new tracks
+peer.publish({ id: 'camera', stream: newStream });
+
+// later, if you want to stop sharing the stream, you can unpublish it
+peer.unpublish('camera');
+```
 
 ## Data Channels
 
@@ -280,34 +237,45 @@ You can open data channels to exchange arbitrary data with other peers in the ro
 const CHANNEL_ID = 0;
 
 // open a data channel with a specific ID
-peer.open(CHANNEL_ID, { /* options */ });
+peer.open(CHANNEL_ID);
 
 // later, if you want to close the data channel
 peer.close(CHANNEL_ID);
 
 // listen for incoming messages on the data channel
 peer.on('message', (e) => {
-  const { peer, channel, data } = e;
-  console.log('Received message from peer:', peer.id, 'on channel:', channel.id, 'data:', data);
+  const { remote, channel, data } = e;
+  console.log('Received message from peer:', remote.id, 'on channel:', channel.id, 'data:', data);
 });
 
 // listen for data channel open event
 peer.on('open', (e) => {
-  const { peer, channel } = e;
+  const { remote, channel } = e;
   // send a message to the connected peer over the data channel
   peer.send('Hello, peer!', channel.id);
 });
 
 // listen for data channel close event
 peer.on('close', (e) => {
-  const { peer, channel } = e;
-  console.log('Data channel closed with peer:', peer.id, 'channel:', channel.id);
+  const { remote, channel } = e;
+  console.log('Data channel closed with peer:', remote.id, 'channel:', channel.id);
 });
 ```
 
 Note that you should open a data channel on each peer manually with the same channel ID to establish a connection between them. Peerix does not automatically open data channels between peers to avoid racing conditions when multiple peers try to open channels simultaneously.
 
 Peerix allows you to open multiple data channels with different IDs, and you can also specify options for each channel, such as the ordered or unordered delivery of messages and other channel-specific settings.
+
+```js
+// define a channel ID for the channel
+const CHANNEL_ID = 0;
+
+// open a data channel with options
+peer.open({ id: CHANNEL_ID, label: 'chat', filter: ({ remote }) => true });
+
+// later, if you want to close the data channel
+peer.close({ id: CHANNEL_ID });
+```
 
 > The data channel ID is a number between 0 and 65535. However, you can set the short string instead that will be hashed to a number in that range. This allows you to use more meaningful identifiers for your data channels while still adhering to the WebRTC specification for channel IDs. In rare cases, this approach may lead to collisions where different string IDs hash to the same channel ID, so it is recommended to use numeric IDs to avoid conflicts.
 
@@ -351,7 +319,7 @@ services:
 
 ### Open Source License
 
-Peerix - A decentralized peer-to-peer communication library.
+PEERIX is a decentralized peer-to-peer communication library.
 
 Copyright (C) 2026 Peerix
 
@@ -374,5 +342,8 @@ For proprietary applications or if you do not wish to comply with the GPL licens
 
 ## Roadmap
 
-- [ ] TypeScript
+- [x] Core
+- [x] TypeScript
+- [x] TypeDoc
 - [ ] NATS Driver
+- [ ] Examples

@@ -1,5 +1,11 @@
-import { SignalingDriver } from './signaling.js';
+import { SignalingDriver } from '../types/signaling.js';
 
+/**
+ * In-memory signaling driver for intra-process communication.
+ *
+ * This driver is useful for testing and debugging purposes, but is not suitable
+ * for production use due to its limitations (e.g. single-process scope).
+ */
 export class MemoryDriver extends Map implements SignalingDriver {
   on(namespace: string[], handler: (data: any) => void) {
     const ns = namespace.join(':');

@@ -1,95 +1,77 @@
 import EventEmitter from './utils/emitter.js';
-import { SignalingDriver } from './drivers/signaling.js';
-
-import {
-  UUIDv4,
-  hashFNV1a,
-} from './utils/helpers.js';
-
-export interface PeerOptions {
-  id?: string;
-  iceServers?: RTCIceServer[];
-  iceTransportPolicy?: 'all' | 'relay';
-  connectionTimeout?: number;
-}
-
-export interface RemotePeer {
-  id: string;
-  metadata?: any;
-  connection: RTCPeerConnection;
-  streams: Map<string | number, MediaStream>;
-  channels: Map<number, RTCDataChannel>;
-  dispose: () => void;
-}
-
-export interface StreamOptions {
-  id: string | number;
-  stream: MediaStream;
-}
-
-export interface ChannelOptions {
-  id: number;
-  label?: string;
-  ordered?: boolean;
-  maxPacketLifeTime?: number;
-  maxRetransmits?: number;
-  protocol?: string;
-}
-
-export interface PublishStreamOptions {
-  verify?: (peer: RemotePeer) => boolean;
-  // placeholder for future options
-}
-
-/**
- * Options for opening a data channel.
- * 
- * @typedef {Object} OpenChannelOptions
- * @property {string} [label=""] - The label for the data channel.
- * @property {boolean} [ordered=true] - Whether the data channel should guarantee ordered delivery.
- * @property {number} [maxPacketLifeTime] - The maximum time in milliseconds that a message can be buffered until it is sent. If both maxPacketLifeTime and maxRetransmits are not set, messages will be retransmitted until they are successfully sent.
- * @property {number} [maxRetransmits] - The maximum number of times a message will be retransmitted if it fails to send. If both maxPacketLifeTime and maxRetransmits are not set, messages will be retransmitted until they are successfully sent.
- * @property {string} [protocol] - The subprotocol name used by the data channel.
- */
-export interface OpenChannelOptions {
-  label?: string;
-  ordered?: boolean;
-  maxPacketLifeTime?: number;
-  maxRetransmits?: number;
-  protocol?: string;
-}
+import { SignalingDriver } from './types/signaling.js';
+import { PeerOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions } from './types/peer.js';
+import { UUIDv4 } from './utils/helpers.js';
 
 /**
  * Peer class for managing WebRTC peer connections and signaling.
  */
 export class Peer {
+  /**
+   * Unique identifier of the local peer.
+   */
   readonly id: string;
-  readonly driver: any;
+  /**
+   * Signaling transport used to exchange SDP and ICE messages.
+   */
+  readonly driver: SignalingDriver;
+  /**
+   * STUN/TURN servers passed to every RTCPeerConnection instance.
+   */
   readonly iceServers: RTCIceServer[];
+  /**
+   * ICE transport policy for created peer connections.
+   */
   readonly iceTransportPolicy: 'all' | 'relay';
+  /**
+   * Maximum time in seconds to wait for ICE connection establishment.
+   */
   readonly connectionTimeout: number;
 
-  room: string | undefined;
-  metadata: any | undefined;
-
+  /**
+   * Active remote peers indexed by remote peer id.
+   */
   readonly connections: Map<string, RemotePeer>;
+  /**
+   * Published local streams indexed by application-level stream id.
+   */
   readonly streams: Map<string | number, StreamOptions>;
+  /**
+   * Configured local data channels indexed by channel id.
+   */
   readonly channels: Map<number, ChannelOptions>;
+  /**
+   * Attachable extensions.
+   */
   readonly addons: Set<any>;
 
+  /**
+   * Current room name. Empty until join() is called.
+   */
+  room: string;
+  /**
+   * Optional metadata announced to other peers in signaling messages.
+   */
+  metadata: any | undefined;
+
+  /**
+   * Internal event emitter used by on/once/off/emit helpers.
+   */
   private _emitter: EventEmitter;
+  /**
+   * ICE candidates received before remote description is applied.
+   */
   private _candidateQueues: Map<string, any[]>
+  /**
+   * Active signaling handler registered on the signaling driver.
+   */
   private _handler: undefined | ((e: any) => void);
 
   /**
    * Creates an instance of Peer.
    *
-   * @param {Object} driver Signaling driver (required).
-   * @param {Object} [options] Configuration options.
-   * @param {string} [options.id=UUIDv4()] Unique identifier for the peer. If not provided, a random UUID will be generated.
-   * @param {RTCIceServer[]} [options.iceServers] STUN/TURN servers to use for RTCPeerConnection. If not provided, a default Google STUN server will be used.
-   * @param {string} [options.iceTransportPolicy='all'] Optional iceTransportPolicy for RTCPeerConnection.
-   * @param {number} [options.connectionTimeout=30] Connection timeout in seconds. If a connection is not established within this time, it will be closed. Set to 0 to disable timeout.
+   * @param driver Signaling driver instance for message exchange between peers.
+   * @param options Peer configuration options.
    * @throws {Error} If the driver is not provided.
    */
   constructor(driver: SignalingDriver, options?: PeerOptions) {
@@ -104,6 +86,7 @@ export class Peer {
     } = options || {};
     this.driver = driver;
     this.id = id;
+    this.room = '';
     this.iceServers = iceServers;
     this.iceTransportPolicy = iceTransportPolicy;
     this.connectionTimeout = connectionTimeout;
@@ -116,22 +99,22 @@ export class Peer {
   }
 
   /**
-   * Indicates whether the Receiver is currently active.
+   * Indicates whether the peer is currently active.
    *
-   * @returns {boolean} True if the Receiver is started, false otherwise.
+   * @returns True if the Peer is joined to a room, false otherwise.
    */
   get active(): boolean {
     return !!this._handler;
   }
 
   /**
-   * Start listening for incoming connections.
+   * Join a room and start listening for incoming connections.
    *
-   * @param {string} [room='default'] Room name to join.
-   * @param {Object} [metadata] Metadata for the connection.
+   * @param room Room name to join. Defaults to `default` if omitted.
+   * @param metadata Optional metadata to announce to other peers in the room via signaling.
    */
-  connect(room?: string, metadata?: any) {
-    if (this.active) return;
+  join(room?: string, metadata?: any) {
+    if (this._handler) return;
 
     this.room = room || 'default';
     this.metadata = metadata;
@@ -447,16 +430,16 @@ export class Peer {
   }
 
   /**
-   * Close all connections and clean up resources.
+    * Leave the current room and close all active remote connections.
    */
-  disconnect() {
-    if (!this.active) return;
+  leave() {
+    if (!this._handler) return;
 
     this.driver.off([this.room], this._handler);
     this.driver.off([this.room, this.id], this._handler);
 
-    for (const remotePeer of this.connections.values()) {
-      remotePeer.dispose();
+    for (const remote of this.connections.values()) {
+      remote.dispose();
     }
     this.connections.clear();
 
@@ -465,13 +448,24 @@ export class Peer {
     delete this._handler;
   }
 
-  publish(stream: MediaStream, id?: string | number, options: PublishStreamOptions = {}) {
-    if (!id) id = stream.id;
+  /**
+   * Publish or update a local media stream.
+   *
+   * When already active, this updates senders on every current connection and
+   * triggers negotiation where applicable.
+   *
+   * @param options Stream descriptor or MediaStream instance.
+   */
+  publish(options: StreamOptions | MediaStream) {
+    if (options instanceof MediaStream) {
+      options = { id: options.id, stream: options };
+    }
+    const { id, stream, ...opts } = options;
 
     const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
     const existingStream = this.streams.get(id)?.stream;
     const newStream = existingStream || new MediaStream();
-    this.streams.set(id, { id, stream: newStream, ...options });
+    this.streams.set(id, { id, stream: newStream, ...opts });
 
     for (const track of newStream.getTracks()) {
       if (!stream.getTracks().find(t => t.id === track.id)) {
@@ -516,7 +510,12 @@ export class Peer {
     }
   }
 
-  unpublish(id: string | number | MediaStream) {
+  /**
+   * Stop publishing a previously published local stream.
+   *
+   * @param id Stream identifier or object containing `id`.
+   */
+  unpublish(id: string | number | { id: string | number }) {
     if (typeof id === 'object') id = id.id;
 
     const stream = this.streams.get(id)?.stream;
@@ -525,8 +524,8 @@ export class Peer {
 
     if (!this.active) return;
 
-    for (const remotePeer of this.connections.values()) {
-      const { connection } = remotePeer;
+    for (const remote of this.connections.values()) {
+      const { connection } = remote;
       const senders = connection.getSenders();
       for (const track of tracks) {
         const sender = senders.find((sender) => {
@@ -537,36 +536,46 @@ export class Peer {
     }
   }
 
-  open(id: number, options: OpenChannelOptions = {}) {
+  /**
+   * Register or create a negotiated data channel with all remote peers.
+   *
+   * @param options Channel options or channel id.
+   */
+  open(options: ChannelOptions | number) {
+    if (typeof options === 'number') {
+      options = { id: options };
+    }
+    const { id, ...opts } = options;
+
     const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
-    this.channels.set(id, { id, ...options });
+    this.channels.set(id, { id, ...opts });
 
     if (!this.active) return;
 
-    for (const remotePeer of this.connections.values()) {
-      if (remotePeer.channels.has(id)) continue;
+    for (const remote of this.connections.values()) {
+      if (remote.channels.has(id)) continue;
 
       const { label = '', ...channelOptions } = options;
-      const { connection } = remotePeer;
+      const { connection } = remote;
 
       const channel = connection.createDataChannel(
         label,
         { ...channelOptions, negotiated: true, id: id || 0 },
       );
       channel.addEventListener('open', () => {
-        this.emit('open', { id, channel });
+        this.emit('open', { remote, channel });
       });
       channel.addEventListener('close', () => {
-        this.emit('close', { id, channel });
+        this.emit('close', { remote, channel });
       });
       channel.addEventListener('message', (e) => {
-        this.emit('message', { id, channel, data: e.data });
+        this.emit('message', { remote, channel, data: e.data });
       });
       channel.addEventListener('error', (e) => {
-        this.emit('error', { id, channel, error: e.error });
+        this.emit('error', { remote, channel, error: e.error });
       });
 
-      remotePeer.channels.set(id, channel);
+      remote.channels.set(id, channel);
     }
 
     if (!hasLocalData) {
@@ -579,38 +588,55 @@ export class Peer {
     }
   }
 
-  close(id: number) {
+  /**
+   * Close and unregister a negotiated data channel by id.
+   *
+   * @param id Channel id or object containing `id`.
+   */
+  close(id: number | { id: number }) {
+    if (typeof id === 'object') id = id.id;
     this.channels.delete(id);
 
     if (!this.active) return;
 
-    for (const remotePeer of this.connections.values()) {
-      const channel = remotePeer.channels.get(id);
+    for (const remote of this.connections.values()) {
+      const channel = remote.channels.get(id);
       if (channel) channel.close();
-      remotePeer.channels.delete(id);
+      remote.channels.delete(id);
     }
   }
 
-  send(message: any, id?: number | RTCDataChannel) {
+  /**
+   * Send a message through data channels.
+   *
+   * If `options` is omitted, the message is sent to all open channels for every
+   * connected remote peer. If `options` is a number, it is treated as channel id.
+   * If `options` is an RTCDataChannel, the message is sent through that channel.
+   *
+   * @param message Message payload to send.
+   * @param options Optional send options or RTCDataChannel or channel id.
+   */
+  send(message: any, options?: SendOptions | RTCDataChannel | number) {
     if (!this.active) return;
 
-    if (id instanceof RTCDataChannel) {
-      const channel = id;
+    if (options instanceof RTCDataChannel) {
+      const channel = options;
       if (channel.readyState === 'open') {
         channel.send(message);
       }
       return;
     }
 
-    for (const remotePeer of this.connections.values()) {
-      if (typeof id === 'number') {
-        const channel = remotePeer.channels.get(id);
+    for (const remote of this.connections.values()) {
+      if (typeof options === 'number') {
+        const id = options;
+        const channel = remote.channels.get(id);
         if (channel && channel.readyState === 'open') {
           channel.send(message);
         }
       }
-      else if (!id) {
-        for (const channel of remotePeer.channels.values()) {
+      else if (!options) {
+        for (const channel of remote.channels.values()) {
           if (channel && channel.readyState === 'open') {
             channel.send(message);
           }
@@ -619,29 +645,63 @@ export class Peer {
     }
   }
 
-  // async attach(addon) {
-  //   await addon.attach(this);
-  //   this.addons.add(addon);
-  // }
+  /**
+   * Attach an addon/extension to the peer instance.
+   * 
+   * @param addon Addon instance to attach.
+   */
+  async attach(addon: any) {
+    await addon.attach(this);
+    this.addons.add(addon);
+  }
 
-  // async detach(addon) {
-  //   await addon.detach(this);
-  //   this.addons.delete(addon);
-  // }
+  /**
+   * Detach a previously attached addon/extension from the peer instance.
+   * 
+   * @param addon Addon instance to detach.
+   */
+  async detach(addon: any) {
+    await addon.detach(this);
+    this.addons.delete(addon);
+  }
 
-  on(event: string, handler: (...args: any[]) => void) {
+  /**
+   * Subscribe to one or more peer events.
+   *
+   * @param event Event name or list of event names.
+   * @param handler Event handler.
+   */
+  on(event: string | string[], handler: (...args: any[]) => void) {
     this._emitter.on(event, handler);
   }
 
-  once(event: string, handler: (...args: any[]) => void) {
+  /**
+   * Subscribe to an event and auto-unsubscribe after first invocation.
+   *
+   * @param event Event name or list of event names.
+   * @param handler Event handler.
+   */
+  once(event: string | string[], handler: (...args: any[]) => void) {
     this._emitter.once(event, handler);
   }
 
-  off(event: string, handler: (...args: any[]) => void) {
+  /**
+   * Remove a previously registered event listener.
+   *
+   * @param event Event name or list of event names.
+   * @param handler Event handler to remove. If omitted, all handlers for the given event(s) will be removed.
+   */
+  off(event: string | string[], handler: (...args: any[]) => void) {
     this._emitter.off(event, handler);
   }
 
-  emit(event: string, ...args: any[]) {
+  /**
+   * Emit one or more events.
+   *
+   * @param event Event name or list of event names.
+   * @param args Event payload.
+   */
+  emit(event: string | string[], ...args: any[]) {
     this._emitter.emit(event, ...args);
   }
 }

@@ -1,8 +1,22 @@
-import { SignalingDriver } from './signaling.js';
+import { SignalingDriver } from '../types/signaling.js';
 
+/**
+ * BroadcastChannel-based signaling driver for intra-origin communication.
+ *
+ * This driver is useful for testing and debugging purposes, but is not suitable
+ * for production use due to its limitations (e.g. same-origin restriction).
+ */
 export class BroadcastChannelDriver extends Map implements SignalingDriver {
-  bc: BroadcastChannel;
+  /**
+   * BroadcastChannel instance used for message exchange.
+   */
+  readonly bc: BroadcastChannel;
 
+  /**
+   * Create a new BroadcastChannelDriver instance.
+   *
+   * @param channelName Optional BroadcastChannel name (defaults to 'peerix').
+   */
   constructor(channelName: string) {
     super();
     this.bc = new BroadcastChannel(channelName || 'peerix');
