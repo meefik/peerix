@@ -1,3 +1,4 @@
+import type { AddonEvents } from '../types/index.js';
 import EventEmitter from '../utils/emitter.js';
 import { Peer } from '../peer.js';
 
@@ -8,10 +9,10 @@ import { Peer } from '../peer.js';
  * provide additional functionality or integrate with external services.
  */
 export class Addon {
-  private _emitter: EventEmitter;
+  private _emitter: EventEmitter<AddonEvents>;
 
   constructor() {
-    this._emitter = new EventEmitter(this);
+    this._emitter = new EventEmitter<AddonEvents>(this);
   }
 
   /**
@@ -40,7 +41,7 @@ export class Addon {
    * @param event Event name or list of event names.
    * @param handler Event handler.
    */
-  on(event: string | string[], handler: (...args: any[]) => void) {
+  on<K extends keyof AddonEvents>(event: K | K[], handler: (...args: AddonEvents[K]) => void) {
     this._emitter.on(event, handler);
   }
 
@@ -50,7 +51,7 @@ export class Addon {
    * @param event Event name or list of event names.
    * @param handler Event handler.
    */
-  once(event: string | string[], handler: (...args: any[]) => void) {
+  once<K extends keyof AddonEvents>(event: K | K[], handler: (...args: AddonEvents[K]) => void) {
     this._emitter.once(event, handler);
   }
 
@@ -60,7 +61,7 @@ export class Addon {
    * @param event Event name or list of event names.
    * @param handler Optional event handler to remove. If not provided, all handlers for the event(s) will be removed.
    */
-  off(event: string | string[], handler?: (...args: any[]) => void) {
+  off<K extends keyof AddonEvents>(event: K | K[], handler?: (...args: AddonEvents[K]) => void) {
     this._emitter.off(event, handler);
   }
 
@@ -70,7 +71,7 @@ export class Addon {
    * @param event Event name or list of event names.
    * @param args Arguments to pass to the event handlers.
    */
-  emit(event: string | string[], ...args: any[]) {
+  emit<K extends keyof AddonEvents>(event: K | K[], ...args: AddonEvents[K]) {
     this._emitter.emit(event, ...args);
   }
 }

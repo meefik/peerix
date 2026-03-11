@@ -175,3 +175,41 @@ export interface SendOptions {
    */
   filter?: (options: ChannelFilterOptions) => Promise<boolean> | boolean;
 }
+
+/**
+ * Events emitted by {@link Peer} instances.
+ */
+export interface PeerEvents {
+  /**
+   * Emitted when a remote peer connects.
+   */
+  join: [{ remote: RemotePeer }];
+  /**
+   * Emitted when a remote peer disconnects.
+   */
+  leave: [{ remote: RemotePeer }];
+  /**
+   * Emitted when a remote peer publishes a media stream.
+   */
+  publish: [{ remote: RemotePeer; stream: MediaStream; track: MediaStreamTrack }];
+  /**
+   * Emitted when a remote peer unpublishes a media stream.
+   */
+  unpublish: [{ remote: RemotePeer; stream: MediaStream; track?: MediaStreamTrack }];
+  /**
+   * Emitted when a data channel is opened.
+   */
+  open: [{ remote: RemotePeer; channel: RTCDataChannel }];
+  /**
+   * Emitted when a data channel is closed.
+   */
+  close: [{ remote: RemotePeer; channel: RTCDataChannel }];
+  /**
+   * Emitted when a message is received on a data channel.
+   */
+  message: [{ remote: RemotePeer; channel: RTCDataChannel; data: any }];
+  /**
+   * Emitted when an error occurs with a remote peer connection or channel.
+   */
+  error: [{ remote?: RemotePeer; channel?: RTCDataChannel; error: any }];
+}

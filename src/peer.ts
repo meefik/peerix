@@ -1,6 +1,5 @@
+import type { SignalingDriver, PeerOptions, StreamOptions, ChannelOptions, SendOptions, RemotePeer, PeerEvents } from './types/index.js';
 import EventEmitter from './utils/emitter.js';
-import { SignalingDriver } from './types/signaling.js';
-import { PeerOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions } from './types/peer.js';
 import { UUIDv4 } from './utils/helpers.js';
 
 /**
@@ -57,7 +56,7 @@ export class Peer {
   /**
    * Internal event emitter used by on/once/off/emit helpers.
    */
-  private _emitter: EventEmitter;
+  private _emitter: EventEmitter<PeerEvents>;
   /**
    * ICE candidates received before remote description is applied.
    */
@@ -94,7 +93,7 @@ export class Peer {
     this.streams = new Map();
     this.channels = new Map();
     this.addons = new Set();
-    this._emitter = new EventEmitter(this);
+    this._emitter = new EventEmitter<PeerEvents>(this);
     this._candidateQueues = new Map();
   }
 
@@ -119,7 +118,7 @@ export class Peer {
     this.room = room || 'default';
     this.metadata = metadata;
 
-    const createRemotePeer = (id: string, metadata: any): RemotePeer => {
+    const createremote = (id: string, metadata: any): RemotePeer => {
       const streams = new Map();
       const channels = new Map();
       const connection = new RTCPeerConnection({
@@ -142,14 +141,16 @@ export class Peer {
           id: this.id,
         });
 
-        this.emit('disconnect', { id });
+        this.emit('leave', { remote });
       };
+
+      const remote = { id, metadata, connection, streams, channels, dispose };
 
       const timeout = this.connectionTimeout > 0 ? setTimeout(
         () => {
           dispose();
           const error = new Error('Connection timeout');
-          this.emit('error', { id, error });
+          this.emit('error', { remote, error });
         },
         this.connectionTimeout * 1000,
       ) : undefined;
@@ -159,7 +160,7 @@ export class Peer {
 
         if (iceConnectionState === 'connected') {
           clearTimeout(timeout);
-          this.emit('connect', { id });
+          this.emit('join', { remote });
         }
         else if (iceConnectionState === 'disconnected') {
           dispose();
@@ -167,7 +168,7 @@ export class Peer {
         else if (iceConnectionState === 'failed') {
           dispose();
           const error = new Error('ICE connection failed');
-          this.emit('error', { id, error });
+          this.emit('error', { remote, error });
         }
         else if (iceConnectionState === 'closed') {
           dispose();
@@ -204,7 +205,7 @@ export class Peer {
         }
         catch (error) {
           dispose();
-          this.emit('error', { id, error });
+          this.emit('error', { remote, error });
         }
       });
 
@@ -218,11 +219,11 @@ export class Peer {
             if (!stream.getTracks().length) {
               streams.delete(stream.id);
             }
-            this.emit('unpublish', { id, stream, track });
+            this.emit('unpublish', { remote, stream, track });
           });
         }
 
-        this.emit('publish', { id, stream, track });
+        this.emit('publish', { remote, stream, track });
       });
 
       if (this.streams.size > 0) {
@@ -240,23 +241,23 @@ export class Peer {
             { ...channelOptions, negotiated: true, id: id || 0 },
           );
           channel.addEventListener('open', () => {
-            this.emit('open', { id, channel });
+            this.emit('open', { remote, channel });
           });
           channel.addEventListener('close', () => {
-            this.emit('close', { id, channel });
+            this.emit('close', { remote, channel });
           });
           channel.addEventListener('message', (e) => {
-            this.emit('message', { id, channel, data: e.data });
+            this.emit('message', { remote, channel, data: e.data });
           });
           channel.addEventListener('error', (e) => {
-            this.emit('error', { id, channel, error: e.error });
+            this.emit('error', { remote, channel, error: e.error });
           });
 
           channels.set(id, channel);
         }
       }
 
-      return { id, metadata, connection, streams, channels, dispose };
+      return remote;
     };
 
     this._handler = async (e) => {
@@ -273,11 +274,11 @@ export class Peer {
         if (!data && !hasLocalData) return;
 
         try {
-          const remotePeer = createRemotePeer(id, metadata);
-          this.connections.set(id, remotePeer);
+          const remote = createremote(id, metadata);
+          this.connections.set(id, remote);
 
           if (!hasLocalData) {
-            const { connection } = remotePeer;
+            const { connection } = remote;
             const offer = await connection.createOffer();
             await connection.setLocalDescription(offer);
 
@@ -293,9 +294,9 @@ export class Peer {
           }
         }
         catch (error) {
-          const remotePeer = this.connections.get(id);
-          if (remotePeer) remotePeer.dispose();
-          this.emit('error', { id, error });
+          const remote = this.connections.get(id);
+          if (remote) remote.dispose();
+          this.emit('error', { remote, error });
         }
 
         return;
@@ -306,16 +307,16 @@ export class Peer {
         try {
           // create new connection if it doesn't exist
           if (!this.connections.has(id)) {
-            const remotePeer = createRemotePeer(id, metadata);
-            this.connections.set(id, remotePeer);
+            const remote = createremote(id, metadata);
+            this.connections.set(id, remote);
           }
 
-          const remotePeer = this.connections.get(id);
-          if (!remotePeer) {
+          const remote = this.connections.get(id);
+          if (!remote) {
             throw new Error('Remote peer not found');
           }
 
-          const { connection } = remotePeer;
+          const { connection } = remote;
           await connection.setRemoteDescription(data);
 
           // add queued candidates
@@ -325,7 +326,7 @@ export class Peer {
                 await connection.addIceCandidate(candidate);
               }
               catch (error) {
-                this.emit('error', { id, error });
+                this.emit('error', { remote, error });
               }
             }
             this._candidateQueues.delete(id);
@@ -344,9 +345,9 @@ export class Peer {
           });
         }
         catch (error) {
-          const remotePeer = this.connections.get(id);
-          if (remotePeer) remotePeer.dispose();
-          this.emit('error', { id, error });
+          const remote = this.connections.get(id);
+          if (remote) remote.dispose();
+          this.emit('error', { remote, error });
         }
 
         return;
@@ -354,17 +355,17 @@ export class Peer {
 
       // set remote description
       if (type === 'answer' && data) {
-        const remotePeer = this.connections.get(id);
-        if (!remotePeer) return;
+        const remote = this.connections.get(id);
+        if (!remote) return;
 
-        const { connection } = remotePeer;
+        const { connection } = remote;
 
         try {
           await connection.setRemoteDescription(data);
         }
         catch (error) {
-          remotePeer.dispose();
-          this.emit('error', { id, error });
+          remote.dispose();
+          this.emit('error', { remote, error });
           return;
         }
 
@@ -375,7 +376,7 @@ export class Peer {
               await connection.addIceCandidate(candidate);
             }
             catch (error) {
-              this.emit('error', { id, error });
+              this.emit('error', { remote, error });
             }
           }
           this._candidateQueues.delete(id);
@@ -386,21 +387,21 @@ export class Peer {
 
       // add ice candidate
       if (type === 'candidate' && data) {
-        const remotePeer = this.connections.get(id);
+        const remote = this.connections.get(id);
 
-        if (!remotePeer) {
+        if (!remote) {
           if (!this._candidateQueues.has(id)) this._candidateQueues.set(id, []);
           this._candidateQueues.get(id)?.push(data);
           return;
         }
 
-        const { connection } = remotePeer;
+        const { connection } = remote;
 
         try {
           await connection.addIceCandidate(data);
         }
         catch (error) {
-          this.emit('error', { id, error });
+          this.emit('error', { remote, error });
         }
 
         return;
@@ -408,10 +409,10 @@ export class Peer {
 
       // leave the room
       if (type === 'leave') {
-        const remotePeer = this.connections.get(id);
+        const remote = this.connections.get(id);
 
-        if (remotePeer) {
-          remotePeer.dispose();
+        if (remote) {
+          remote.dispose();
         }
 
         return;
@@ -482,11 +483,11 @@ export class Peer {
 
     if (!this.active) return;
 
-    for (const remotePeer of this.connections.values()) {
-      const { connection } = remotePeer;
+    for (const remote of this.connections.values()) {
+      const { connection } = remote;
       const senders = connection.getSenders();
       for (const track of newStream.getTracks()) {
-        const sender = senders.find((sender) => {
+        const sender = senders.find((sender: RTCRtpSender) => {
           return sender.track && sender.track.id === track.id
             && sender.track.readyState !== 'ended';
         });
@@ -494,7 +495,8 @@ export class Peer {
         else connection.addTrack(track, newStream);
       }
       for (const sender of senders) {
-        if (sender.track && !newStream.getTracks().find(t => t.id === sender.track?.id)) {
+        const track = newStream.getTracks().find((track) => track.id === sender.track?.id);
+        if (sender.track && !track) {
           connection.removeTrack(sender);
         }
       }
@@ -528,7 +530,7 @@ export class Peer {
       const { connection } = remote;
       const senders = connection.getSenders();
       for (const track of tracks) {
-        const sender = senders.find((sender) => {
+        const sender = senders.find((sender: RTCRtpSender) => {
           return sender.track && sender.track.id === track.id;
         });
         if (sender) connection.removeTrack(sender);
@@ -671,7 +673,7 @@ export class Peer {
    * @param event Event name or list of event names.
    * @param handler Event handler.
    */
-  on(event: string | string[], handler: (...args: any[]) => void) {
+  on<K extends keyof PeerEvents>(event: K | K[], handler: (...args: PeerEvents[K]) => void) {
     this._emitter.on(event, handler);
   }
 
@@ -681,7 +683,7 @@ export class Peer {
    * @param event Event name or list of event names.
    * @param handler Event handler.
    */
-  once(event: string | string[], handler: (...args: any[]) => void) {
+  once<K extends keyof PeerEvents>(event: K | K[], handler: (...args: PeerEvents[K]) => void) {
     this._emitter.once(event, handler);
   }
 
@@ -691,7 +693,7 @@ export class Peer {
    * @param event Event name or list of event names.
    * @param handler Event handler to remove. If omitted, all handlers for the given event(s) will be removed.
    */
-  off(event: string | string[], handler: (...args: any[]) => void) {
+  off<K extends keyof PeerEvents>(event: K | K[], handler?: (...args: PeerEvents[K]) => void) {
     this._emitter.off(event, handler);
   }
 
@@ -701,7 +703,7 @@ export class Peer {
    * @param event Event name or list of event names.
    * @param args Event payload.
    */
-  emit(event: string | string[], ...args: any[]) {
+  emit<K extends keyof PeerEvents>(event: K | K[], ...args: PeerEvents[K]) {
     this._emitter.emit(event, ...args);
   }
 }

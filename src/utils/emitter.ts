@@ -6,7 +6,7 @@
  * and emitting events with `emit`. It supports multiple events and handlers, as
  * well as a context for handler execution.
  */
-export default class EventEmitter extends Map {
+export default class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<keyof T, Map<(...args: any[]) => void, boolean>> {
   /**
    * Optional context for handler execution. If set, handlers will be invoked with
    * this context instead of the emitter instance.
@@ -31,14 +31,14 @@ export default class EventEmitter extends Map {
    * @param event Event name or list of event names.
    * @param handler Event handler.
    */
-  on(event: string | string[], handler: (...args: any[]) => void) {
+  on<K extends keyof T>(event: K | K[], handler: (...args: T[K]) => void) {
     if (event && handler) {
       const events = Array.isArray(event) ? event : [event];
-      for (let ev of events) {
+      for (const ev of events) {
         if (!this.has(ev)) {
           this.set(ev, new Map());
         }
-        this.get(ev).set(handler, false);
+        this.get(ev)?.set(handler, false);
       }
     }
   }
@@ -49,14 +49,14 @@ export default class EventEmitter extends Map {
    * @param event Event name or list of event names.
    * @param handler Event handler.
    */
-  once(event: string | string[], handler: (...args: any[]) => void) {
+  once<K extends keyof T>(event: K | K[], handler: (...args: T[K]) => void) {
     if (event && handler) {
       const events = Array.isArray(event) ? event : [event];
-      for (let ev of events) {
+      for (const ev of events) {
         if (!this.has(ev)) {
           this.set(ev, new Map());
         }
-        this.get(ev).set(handler, true);
+        this.get(ev)?.set(handler, true);
       }
     }
   }
@@ -67,19 +67,19 @@ export default class EventEmitter extends Map {
    * @param event Event name or list of event names.
    * @param handler Optional event handler to remove. If not provided, all handlers for the event(s) will be removed.
    */
-  off(event: string | string[], handler?: (...args: any[]) => void) {
+  off<K extends keyof T>(event: K | K[], handler?: (...args: T[K]) => void) {
     if (event) {
       const events = Array.isArray(event) ? event : [event];
-      for (let ev of events) {
+      for (const ev of events) {
         if (this.has(ev)) {
           if (handler) {
-            this.get(ev).delete(handler);
-            if (!this.get(ev).size) {
+            this.get(ev)?.delete(handler);
+            if (!this.get(ev)?.size) {
               this.delete(ev);
             }
           }
           else {
-            this.get(ev).clear();
+            this.get(ev)?.clear();
             this.delete(ev);
           }
         }
@@ -93,12 +93,12 @@ export default class EventEmitter extends Map {
    * @param event Event name or list of event names.
    * @param args Arguments to pass to the event handlers.
    */
-  emit(event: string | string[], ...args: any[]) {
+  emit<K extends keyof T>(event: K | K[], ...args: T[K]) {
     if (event) {
       const events = Array.isArray(event) ? event : [event];
-      for (let ev of events) {
+      for (const ev of events) {
         if (this.has(ev)) {
-          for (let [handler, once] of this.get(ev)) {
+          for (const [handler, once] of this.get(ev) || []) {
             if (once) {
               this.off(ev, handler);
             }
