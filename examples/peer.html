@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    video {
+      width: 120px;
+      height: 90px;
+      border: 1px solid #ccc;
+    }
+
+    #streams {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    #streams:empty::before {
+      content: 'No streams';
+      color: #888;
+    }
+
+    #events {
+      border: 1px solid #ccc;
+      height: 200px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Peer Example</h1>
+
+  <div class="container">
+    <label>
+      <legend>Room</legend>
+      <input type="text" id="room" placeholder="Room ID" value="demo" />
+      <button id="join">Join</button>
+      <button id="leave">Leave</button>
+    </label>
+
+    <label>
+      <legend>Channels</legend>
+      <input id="channel" type="number" placeholder="Channel" value="0" min="0" max="65535" />
+      <button id="open">Open</button>
+      <button id="close">Close</button>
+    </label>
+
+    <label>
+      <legend>Messages</legend>
+      <input id="message" type="text" placeholder="Message" />
+      <input id="send-channel" type="number" placeholder="Channel" min="0" max="65535" />
+      <button id="send">Send</button>
+    </label>
+
+    <label>
+      <legend>Streams</legend>
+      <button id="publish">Publish</button>
+      <button id="unpublish">Unpublish</button>
+      <button id="republish">Re-publish</button>
+    </label>
+
+    <label>
+      <legend>Remote Streams</legend>
+      <div id="streams"></div>
+    </label>
+
+    <label>
+      <legend>Events</legend>
+      <div id="events"></div>
+    </label>
+  </div>
+
+  <script type="module">
+    import { Peer, BroadcastChannelDriver } from 'peerix';
+
+    const driver = new BroadcastChannelDriver('peerix-demo');
+
+    const peer = new Peer(driver);
+
+    const events = document.getElementById('events');
+    const log = (message) => {
+      const el = document.createElement('div');
+      el.textContent = message;
+      events.appendChild(el);
+    };
+    const streams = document.getElementById('streams');
+    const addStream = (stream) => {
+      const video = document.getElementById(stream.id)
+        || document.createElement('video');
+      video.srcObject = stream;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.id = stream.id;
+      streams.appendChild(video);
+    };
+    const removeStream = (stream) => {
+      const video = document.getElementById(stream.id);
+      if (video) {
+        streams.removeChild(video);
+      }
+    };
+
+    peer.on('join', (e) => {
+      const { remote } = e;
+      log(`join with peer ${remote.id}`);
+    });
+
+    peer.on('leave', (e) => {
+      const { remote } = e;
+      log(`leave with peer ${remote.id}`);
+    });
+
+    peer.on('error', (e) => {
+      const { remote, channel, error } = e;
+      log(`error with peer ${remote?.id} on channel ${channel?.id}: ${error.message}`);
+    });
+
+    peer.on('open', (e) => {
+      const { remote, channel } = e;
+      log(`open channel ${channel.id} with peer ${remote.id}`);
+    });
+
+    peer.on('close', (e) => {
+      const { remote, channel } = e;
+      log(`close channel ${channel.id} with peer ${remote.id}`);
+    });
+
+    peer.on('message', (e) => {
+      const { remote, channel, data } = e;
+      log(`message from peer ${remote.id} on channel ${channel.id}: ${data}`);
+    });
+
+    peer.on('publish', (e) => {
+      const { remote, stream, track } = e;
+      log(`peer ${remote.id} published a stream: ${stream.id} with track ${track.id}`);
+      addStream(stream);
+    });
+
+    peer.on('unpublish', (e) => {
+      const { remote, stream, track } = e;
+      log(`peer ${remote.id} unpublished a stream: ${stream.id} with track ${track.id}`);
+      const isEmpty = !stream.getTracks().length;
+      if (isEmpty) removeStream(stream);
+    });
+
+    const joinButton = document.getElementById('join');
+    joinButton.addEventListener('click', () => {
+      peer.join('demo');
+    });
+
+    const leaveButton = document.getElementById('leave');
+    leaveButton.addEventListener('click', () => {
+      peer.leave();
+    });
+
+    const openButton = document.getElementById('open');
+    openButton.addEventListener('click', () => {
+      const channel = document.getElementById('channel').value;
+      peer.open(+channel);
+    });
+
+    const closeButton = document.getElementById('close');
+    closeButton.addEventListener('click', () => {
+      const channel = document.getElementById('channel').value;
+      peer.close(+channel);
+    });
+
+    const sendButton = document.getElementById('send');
+    sendButton.addEventListener('click', () => {
+      const channel = document.getElementById('send-channel').value;
+      const message = document.getElementById('message').value;
+      if (channel) peer.send(message, +channel);
+      else peer.send(message);
+    });
+
+    const publishButton = document.getElementById('publish');
+    publishButton.addEventListener('click', async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      peer.publish({ id: 'default', stream });
+    });
+
+    const unpublishButton = document.getElementById('unpublish');
+    unpublishButton.addEventListener('click', () => {
+      peer.unpublish({ id: 'default' });
+    });
+
+    const republishButton = document.getElementById('republish');
+    republishButton.addEventListener('click', async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+      peer.publish({ id: 'default', stream });
+    });
+
+    window.peer = peer; // Expose peer for debugging
+  </script>
+</body>
+
+</html>

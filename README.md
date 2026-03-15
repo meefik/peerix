@@ -26,8 +26,7 @@ npm install peerix
 Use the library in your JavaScript or TypeScript code:
 
 ```js
-import { Peer } from 'peerix/core';
-import { BroadcastChannelDriver } from 'peerix/drivers';
+import { Peer, BroadcastChannelDriver } from 'peerix';
 
 // create a signaling driver
 const driver = new BroadcastChannelDriver();
@@ -48,8 +47,9 @@ peer.on('message', (e) => {
   console.log('Received message:', data);
 });
 
-// open a data channel with default id (0)
-peer.open();
+// open a data channel
+const CHANNEL_ID = 0;
+peer.open(CHANNEL_ID);
 
 // join a room
 peer.join('room-id');
@@ -87,7 +87,7 @@ Peerix supports multiple signaling drivers for peer discovery and connection man
 You can import and use any of the built-in drivers as follows:
 
 ```js
-import { MemoryDriver } from 'peerix/drivers';
+import { MemoryDriver } from 'peerix';
 
 const driver = new MemoryDriver();
 ```
@@ -145,13 +145,10 @@ import { Peer } from 'peerix';
 // create the Peer instance
 const peer = new Peer(driver, {
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-  quality: 'auto', // 'low', 'medium', 'high', 'auto'
 });
 ```
 
 By default, Peerix uses a STUN server at `stun.l.google.com:19302` for NAT traversal. However, for better connectivity, especially in restrictive network environments, it is recommended to use a TURN server. You can specify your own TURN/STUN servers in the `iceServers` configuration option.
-
-The `quality` option allows you to specify the desired quality level for media streams. The library will automatically adjust the bitrate and resolution of the published streams based on the selected quality level and network conditions.
 
 ## Connection Management
 
@@ -222,7 +219,7 @@ peer.publish({ id: 'camera', stream });
 // get another media stream from the user's microphone only
 const newStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
 // update the existing stream with new tracks
-peer.publish({ id: 'camera', stream: newStream });
+peer.publish({ id: 'camera', stream: newStream, filter: ({ remote }) => true });
 
 // later, if you want to stop sharing the stream, you can unpublish it
 peer.unpublish('camera');
@@ -281,10 +278,10 @@ peer.close({ id: CHANNEL_ID });
 
 ## Add-ons
 
-Peerix supports add-ons that can extend the functionality of the core library. Add-ons are separate modules that can be imported and used alongside the main `Peer` class to provide additional features such as recording, storage, or synchronization. You can find the available add-ons in the `peerix/addons` directory. To use an add-on, simply import it and use it with your `Peer` instance:
+Peerix supports add-ons that can extend the functionality of the core library. Add-ons are separate modules that can be imported and used alongside the main `Peer` class to provide additional features such as recording, storage, or synchronization. To use an add-on, simply import it and use it with your `Peer` instance:
 
 ```js
-import { Addon } from 'peerix/addons';
+import { Addon } from 'peerix';
 
 // create the add-on instance
 const addon = new Addon({ /* options */ });

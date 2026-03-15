@@ -1,4 +1,4 @@
-import { SignalingDriver } from '../types/signaling.js';
+import type { SignalingDriver } from '../types/signaling.js';
 
 /**
  * BroadcastChannel-based signaling driver for intra-origin communication.

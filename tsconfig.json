@@ -6,6 +6,9 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
-    "declaration": true,
-  }
+    "declaration": true
+  },
+  "include": [
+    "src/**/*"
+  ]
 }

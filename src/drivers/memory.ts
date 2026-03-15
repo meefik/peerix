@@ -1,4 +1,4 @@
-import { SignalingDriver } from '../types/signaling.js';
+import type { SignalingDriver } from '../types/signaling.js';
 
 /**
  * In-memory signaling driver for intra-process communication.

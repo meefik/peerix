@@ -1,4 +1,5 @@
-import type { SignalingDriver, PeerOptions, StreamOptions, ChannelOptions, SendOptions, RemotePeer, PeerEvents } from './types/index.js';
+import type { SignalingDriver } from './types/signaling.js';
+import type { PeerOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents } from './types/peer.js';
 import EventEmitter from './utils/emitter.js';
 import { UUIDv4 } from './utils/helpers.js';
 
@@ -79,9 +80,9 @@ export class Peer {
     }
     const {
       id = UUIDv4(),
-      iceServers = [{ urls: 'stun:stun.l.google.com:19302' }],
+      iceServers = [],
       iceTransportPolicy = 'all',
-      connectionTimeout = 10,
+      connectionTimeout = 30,
     } = options || {};
     this.driver = driver;
     this.id = id;
@@ -118,7 +119,7 @@ export class Peer {
     this.room = room || 'default';
     this.metadata = metadata;
 
-    const createremote = (id: string, metadata: any): RemotePeer => {
+    const createRemote = (id: string, metadata: any): RemotePeer => {
       const streams = new Map();
       const channels = new Map();
       const connection = new RTCPeerConnection({
@@ -197,9 +198,6 @@ export class Peer {
             type: 'offer',
             id: this.id,
             data: offer,
-            // data: typeof offer.toJSON === 'function'
-            //   ? offer.toJSON()
-            //   : offer,
             metadata,
           });
         }
@@ -264,17 +262,15 @@ export class Peer {
       const { type, id, data, metadata } = e;
       if (!type || !id || this.id === id) return;
 
-      console.log('Received message', e);
-
       // join to the room
-      if (type === 'join' && data) {
+      if (type === 'join') {
         if (this.connections.has(id)) return;
 
         const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
         if (!data && !hasLocalData) return;
 
         try {
-          const remote = createremote(id, metadata);
+          const remote = createRemote(id, metadata);
           this.connections.set(id, remote);
 
           if (!hasLocalData) {
@@ -286,9 +282,6 @@ export class Peer {
               type: 'offer',
               id: this.id,
               data: offer,
-              // data: typeof offer.toJSON === 'function'
-              //   ? offer.toJSON()
-              //   : offer,
               metadata,
             });
           }
@@ -307,7 +300,7 @@ export class Peer {
         try {
           // create new connection if it doesn't exist
           if (!this.connections.has(id)) {
-            const remote = createremote(id, metadata);
+            const remote = createRemote(id, metadata);
             this.connections.set(id, remote);
           }
 
@@ -339,9 +332,6 @@ export class Peer {
             type: 'answer',
             id: this.id,
             data: answer,
-            // data: typeof answer.toJSON === 'function'
-            //   ? answer.toJSON()
-            //   : answer,
           });
         }
         catch (error) {
@@ -461,7 +451,7 @@ export class Peer {
     if (options instanceof MediaStream) {
       options = { id: options.id, stream: options };
     }
-    const { id, stream, ...opts } = options;
+    const { id = 'default', stream, ...opts } = options;
 
     const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
     const existingStream = this.streams.get(id)?.stream;
@@ -470,13 +460,11 @@ export class Peer {
 
     for (const track of newStream.getTracks()) {
       if (!stream.getTracks().find(t => t.id === track.id)) {
-        console.log('Removing track', track.id);
         newStream.removeTrack(track);
       }
     }
     for (const track of stream.getTracks()) {
       if (!newStream.getTracks().find(t => t.id === track.id)) {
-        console.log('Adding track', track.id);
         newStream.addTrack(track);
       }
     }
@@ -515,10 +503,11 @@ export class Peer {
   /**
    * Stop publishing a previously published local stream.
    *
-   * @param id Stream identifier or object containing `id`.
+   * @param options Stream identifier or object containing `id`.
    */
-  unpublish(id: string | number | { id: string | number }) {
-    if (typeof id === 'object') id = id.id;
+  unpublish(options: string | number | { id: string | number }) {
+    const { id = 'default' } = typeof options === 'object'
+      ? options : { id: options };
 
     const stream = this.streams.get(id)?.stream;
     const tracks = stream?.getTracks() || [];
@@ -544,25 +533,24 @@ export class Peer {
    * @param options Channel options or channel id.
    */
   open(options: ChannelOptions | number) {
-    if (typeof options === 'number') {
-      options = { id: options };
-    }
-    const { id, ...opts } = options;
+    const { id = 0, ...opts } = typeof options === 'object'
+      ? options : { id: options };
 
     const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
     this.channels.set(id, { id, ...opts });
 
     if (!this.active) return;
 
+    const { label = '', ...channelOptions } = (opts as ChannelOptions);
+
     for (const remote of this.connections.values()) {
       if (remote.channels.has(id)) continue;
 
-      const { label = '', ...channelOptions } = options;
       const { connection } = remote;
 
       const channel = connection.createDataChannel(
         label,
-        { ...channelOptions, negotiated: true, id: id || 0 },
+        { ...channelOptions, negotiated: true, id },
       );
       channel.addEventListener('open', () => {
         this.emit('open', { remote, channel });
@@ -593,10 +581,12 @@ export class Peer {
   /**
    * Close and unregister a negotiated data channel by id.
    *
-   * @param id Channel id or object containing `id`.
+   * @param options Channel id or object containing `id`.
    */
-  close(id: number | { id: number }) {
-    if (typeof id === 'object') id = id.id;
+  close(options: number | { id: number }) {
+    const { id = 0 } = typeof options === 'object'
+      ? options : { id: options };
+
     this.channels.delete(id);
 
     if (!this.active) return;
@@ -613,21 +603,12 @@ export class Peer {
    *
    * If `options` is omitted, the message is sent to all open channels for every
    * connected remote peer. If `options` is a number, it is treated as channel id.
-   * If `options` is an RTCDataChannel, the message is sent through that channel.
    *
    * @param message Message payload to send.
-   * @param options Optional send options or RTCDataChannel or channel id.
+   * @param options Optional send options or channel id.
    */
-  send(message: any, options?: SendOptions | RTCDataChannel | number) {
+  send(message: any, options?: SendOptions | number) {
     if (!this.active) return;
-
-    if (options instanceof RTCDataChannel) {
-      const channel = options;
-      if (channel.readyState === 'open') {
-        channel.send(message);
-      }
-      return;
-    }
 
     for (const remote of this.connections.values()) {
       if (typeof options === 'number') {
