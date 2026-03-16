@@ -97,11 +97,18 @@ export interface StreamOptions {
    */
   stream: MediaStream;
   /**
-   * Preferred audio bitrate in kbps (if used by an addon/driver).
+   * Whether the peer should manage the lifecycle of the stream's tracks.
+   * If true, tracks will be stopped when the stream is unpublished or replaced.
+   */
+  managed?: boolean;
+  /**
+   * Preferred audio bitrate in bits per second.
+   * For example, 16000 for 16 kbps.
    */
   audioBitrate?: number;
   /**
-   * Preferred video bitrate in kbps (if used by an addon/driver).
+   * Preferred video bitrate in bits per second.
+   * For example, 64000 for 64 kbps.
    */
   videoBitrate?: number;
   /**

@@ -1,7 +1,7 @@
 import type { SignalingDriver } from './types/signaling.js';
 import type { PeerOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents } from './types/peer.js';
 import EventEmitter from './utils/emitter.js';
-import { UUIDv4 } from './utils/helpers.js';
+import { UUIDv4, setPeerConnectionBitrate } from './utils/helpers.js';
 
 /**
  * Peer class for managing WebRTC peer connections and signaling.
@@ -225,8 +225,11 @@ export class Peer {
       });
 
       if (this.streams.size > 0) {
-        for (const { stream } of this.streams.values()) {
+        for (const { stream, audioBitrate, videoBitrate } of this.streams.values()) {
           stream.getTracks().forEach(track => connection.addTrack(track, stream));
+          if (audioBitrate || videoBitrate) {
+            setPeerConnectionBitrate(connection, audioBitrate, videoBitrate);
+          }
         }
       }
 
@@ -454,13 +457,16 @@ export class Peer {
     const { id = 'default', stream, ...opts } = options;
 
     const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
-    const existingStream = this.streams.get(id)?.stream;
-    const newStream = existingStream || new MediaStream();
+    const {
+      stream: newStream = new MediaStream(),
+      managed
+    } = this.streams.get(id) || {};
     this.streams.set(id, { id, stream: newStream, ...opts });
 
     for (const track of newStream.getTracks()) {
       if (!stream.getTracks().find(t => t.id === track.id)) {
         newStream.removeTrack(track);
+        if (managed) track.stop();
       }
     }
     for (const track of stream.getTracks()) {
@@ -470,6 +476,8 @@ export class Peer {
     }
 
     if (!this.active) return;
+
+    const { audioBitrate, videoBitrate } = opts;
 
     for (const remote of this.connections.values()) {
       const { connection } = remote;
@@ -483,10 +491,15 @@ export class Peer {
         else connection.addTrack(track, newStream);
       }
       for (const sender of senders) {
-        const track = newStream.getTracks().find((track) => track.id === sender.track?.id);
+        const track = newStream.getTracks().find((track) => {
+          return track.id === sender.track?.id;
+        });
         if (sender.track && !track) {
           connection.removeTrack(sender);
         }
+      }
+      if (audioBitrate || videoBitrate) {
+        setPeerConnectionBitrate(connection, audioBitrate, videoBitrate);
       }
     }
 
@@ -509,9 +522,15 @@ export class Peer {
     const { id = 'default' } = typeof options === 'object'
       ? options : { id: options };
 
-    const stream = this.streams.get(id)?.stream;
+    const { stream, managed } = this.streams.get(id) || {};
     const tracks = stream?.getTracks() || [];
     this.streams.delete(id);
+
+    if (managed) {
+      for (const track of tracks) {
+        track.stop();
+      }
+    }
 
     if (!this.active) return;
 

@@ -184,7 +184,7 @@
     const publishButton = document.getElementById('publish');
     publishButton.addEventListener('click', async () => {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      peer.publish({ id: 'default', stream });
+      peer.publish({ id: 'default', stream, managed: true });
     });
 
     const unpublishButton = document.getElementById('unpublish');
@@ -195,7 +195,7 @@
     const republishButton = document.getElementById('republish');
     republishButton.addEventListener('click', async () => {
       const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
-      peer.publish({ id: 'default', stream });
+      peer.publish({ id: 'default', stream, managed: true });
     });
 
     window.peer = peer; // Expose peer for debugging
