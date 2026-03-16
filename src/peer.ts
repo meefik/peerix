@@ -629,17 +629,21 @@ export class Peer {
   send(message: any, options?: SendOptions | number) {
     if (!this.active) return;
 
+    const { id, label } = typeof options === 'object'
+      ? options : { id: options };
+
     for (const remote of this.connections.values()) {
-      if (typeof options === 'number') {
-        const id = options;
+      if (typeof id === 'number') {
         const channel = remote.channels.get(id);
         if (channel && channel.readyState === 'open') {
+          if (label && channel.label !== label) continue;
           channel.send(message);
         }
       }
       else if (!options) {
         for (const channel of remote.channels.values()) {
           if (channel && channel.readyState === 'open') {
+            if (label && channel.label !== label) continue;
             channel.send(message);
           }
         }
