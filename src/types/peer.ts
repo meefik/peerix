@@ -35,7 +35,8 @@ export interface PeerOptions {
    */
   iceTransportPolicy?: 'all' | 'relay';
   /**
-   * Connection timeout in seconds. By default, it is set to 30 seconds. Use 0 to disable timeout.
+   * Connection timeout in seconds.
+   * By default, it is set to 30 seconds. Use 0 to disable timeout.
    */
   connectionTimeout?: number;
   /**
@@ -43,6 +44,11 @@ export interface PeerOptions {
    */
   verify?: (options: PeerVerifyOptions) => Promise<boolean> | boolean;
 }
+
+/**
+ * Possible peer connection states.
+ */
+export type PeerConnectionState = 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
 
 /**
  * Runtime state for one connected remote peer.
@@ -61,6 +67,10 @@ export interface RemotePeer {
    */
   connection: RTCPeerConnection;
   /**
+   * Peer connection state, updated on connection state changes.
+   */
+  state: PeerConnectionState;
+  /**
    * Remote media streams keyed by stream id.
    */
   streams: Map<string | number, MediaStream>;
@@ -72,6 +82,18 @@ export interface RemotePeer {
    * Cleanup routine that closes channel and connection resources.
    */
   dispose: () => void;
+}
+
+export interface JoinOptions {
+  /**
+   * Room name to join.
+   * If omitted, the peer will join a room with the `default` name.
+   */
+  room?: string;
+  /**
+   * Optional metadata to advertise to the remote peer.
+   */
+  metadata?: any;
 }
 
 /**
@@ -195,6 +217,10 @@ export interface PeerEvents {
    * Emitted when a remote peer disconnects.
    */
   leave: [{ remote: RemotePeer }];
+  /**
+   * Emitted when a remote peer connection state changes.
+   */
+  state: [{ remote: RemotePeer; state: PeerConnectionState }];
   /**
    * Emitted when a remote peer publishes a media stream.
    */

@@ -1,5 +1,5 @@
 import type { SignalingDriver } from './types/signaling.js';
-import type { PeerOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents } from './types/peer.js';
+import type { PeerOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents, PeerConnectionState } from './types/peer.js';
 import EventEmitter from './utils/emitter.js';
 import { UUIDv4, setPeerConnectionBitrate } from './utils/helpers.js';
 
@@ -110,13 +110,14 @@ export class Peer {
   /**
    * Join a room and start listening for incoming connections.
    *
-   * @param room Room name to join. Defaults to `default` if omitted.
-   * @param metadata Optional metadata to announce to other peers in the room via signaling.
+   * @param options Room name or join options.
    */
-  join(room?: string, metadata?: any) {
+  join(options?: string | JoinOptions) {
     if (this._handler) return;
 
-    this.room = room || 'default';
+    const { room = 'default', metadata } = typeof options === 'string'
+      ? { room: options } : options || {};
+    this.room = room;
     this.metadata = metadata;
 
     const createRemote = (id: string, metadata: any): RemotePeer => {
@@ -145,7 +146,15 @@ export class Peer {
         this.emit('leave', { remote });
       };
 
-      const remote = { id, metadata, connection, streams, channels, dispose };
+      const remote: RemotePeer = {
+        id,
+        metadata,
+        connection,
+        state: 'new',
+        streams,
+        channels,
+        dispose,
+      };
 
       const timeout = this.connectionTimeout > 0 ? setTimeout(
         () => {
@@ -155,6 +164,22 @@ export class Peer {
         },
         this.connectionTimeout * 1000,
       ) : undefined;
+
+      const isConnectionStateSupported = typeof connection.connectionState !== 'undefined';
+      const stateMap: { [key: string]: PeerConnectionState } = {
+        'checking': 'connecting',
+        'connected': 'connected',
+        'disconnected': 'disconnected',
+        'failed': 'failed',
+        'closed': 'closed',
+      };
+      if (isConnectionStateSupported) {
+        connection.addEventListener('connectionstatechange', (e) => {
+          const { connectionState } = e.target as RTCPeerConnection;
+          remote.state = connectionState;
+          this.emit('state', { remote, state: connectionState });
+        });
+      }
 
       connection.addEventListener('iceconnectionstatechange', (e) => {
         const { iceConnectionState } = e.target as RTCPeerConnection;
@@ -173,6 +198,12 @@ export class Peer {
         }
         else if (iceConnectionState === 'closed') {
           dispose();
+        }
+
+        // fallback for browsers that don't support connectionState
+        if (!isConnectionStateSupported) {
+          remote.state = stateMap[iceConnectionState] || 'new';
+          this.emit('state', { remote, state: remote.state });
         }
       });
 
