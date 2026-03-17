@@ -336,16 +336,13 @@ export class Peer {
       // set remote description and create answer
       if (type === 'offer' && data) {
         try {
-          // create new connection if it doesn't exist
-          if (!this.connections.has(id)) {
-            const remote = createRemote(id, metadata);
+          let remote = this.connections.get(id);
+          if (!remote) {
+            remote = createRemote(id, metadata);
             this.connections.set(id, remote);
           }
 
-          const remote = this.connections.get(id);
-          if (!remote) {
-            throw new Error('Remote peer not found');
-          }
+          this.emit('join', { remote });
 
           const { connection } = remote;
           await connection.setRemoteDescription(data);
