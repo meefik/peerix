@@ -186,7 +186,6 @@ export class Peer {
 
         if (iceConnectionState === 'connected') {
           clearTimeout(timeout);
-          this.emit('join', { remote });
         }
         else if (iceConnectionState === 'disconnected') {
           dispose();
@@ -306,6 +305,8 @@ export class Peer {
         try {
           const remote = createRemote(id, metadata);
           this.connections.set(id, remote);
+
+          this.emit('join', { remote });
 
           if (!hasLocalData) {
             const { connection } = remote;
