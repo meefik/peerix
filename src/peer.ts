@@ -2,6 +2,7 @@ import type { SignalingDriver } from './types/signaling.js';
 import type { PeerOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents, PeerConnectionState } from './types/peer.js';
 import EventEmitter from './utils/emitter.js';
 import { UUIDv4, setPeerConnectionBitrate } from './utils/helpers.js';
+import log from './utils/logger.js';
 
 /**
  * Peer class for managing WebRTC peer connections and signaling.
@@ -65,7 +66,7 @@ export class Peer {
   /**
    * Active signaling handler registered on the signaling driver.
    */
-  private _handler: undefined | ((e: any) => void);
+  private _signal: undefined | ((e: any) => void);
 
   /**
    * Creates an instance of Peer.
@@ -104,7 +105,7 @@ export class Peer {
    * @returns True if the Peer is joined to a room, false otherwise.
    */
   get active(): boolean {
-    return !!this._handler;
+    return !!this._signal;
   }
 
   /**
@@ -113,10 +114,10 @@ export class Peer {
    * @param options Room name or join options.
    */
   join(options?: string | JoinOptions) {
-    if (this._handler) return;
+    if (this._signal) return;
 
-    const { room = 'default', metadata } = typeof options === 'string'
-      ? { room: options } : options || {};
+    const { room = 'default', metadata } = typeof options === 'object'
+      ? options : { room: options };
     this.room = room;
     this.metadata = metadata;
 
@@ -291,9 +292,11 @@ export class Peer {
       return remote;
     };
 
-    this._handler = async (e) => {
+    this._signal = async (e) => {
       const { type, id, data, metadata } = e;
       if (!type || !id || this.id === id) return;
+
+      log('peer:signal', e);
 
       // join to the room
       if (type === 'join') {
@@ -444,8 +447,8 @@ export class Peer {
       }
     };
 
-    this.driver.on([this.room], this._handler);
-    this.driver.on([this.room, this.id], this._handler);
+    this.driver.on([this.room], this._signal);
+    this.driver.on([this.room, this.id], this._signal);
 
     this.driver.emit([this.room], {
       type: 'join',
@@ -453,16 +456,18 @@ export class Peer {
       data: this.streams.size > 0 || this.channels.size > 0,
       metadata: this.metadata,
     });
+
+    log('peer:join', { room: this.room, metadata: this.metadata });
   }
 
   /**
     * Leave the current room and close all active remote connections.
    */
   leave() {
-    if (!this._handler) return;
+    if (!this._signal) return;
 
-    this.driver.off([this.room], this._handler);
-    this.driver.off([this.room, this.id], this._handler);
+    this.driver.off([this.room], this._signal);
+    this.driver.off([this.room, this.id], this._signal);
 
     for (const remote of this.connections.values()) {
       remote.dispose();
@@ -471,7 +476,9 @@ export class Peer {
 
     this._candidateQueues.clear();
 
-    delete this._handler;
+    delete this._signal;
+
+    log('peer:leave', { room: this.room });
   }
 
   /**
@@ -543,6 +550,8 @@ export class Peer {
         metadata: this.metadata,
       });
     }
+
+    log('peer:publish', { id, options });
   }
 
   /**
@@ -576,6 +585,8 @@ export class Peer {
         if (sender) connection.removeTrack(sender);
       }
     }
+
+    log('peer:unpublish', { id });
   }
 
   /**
@@ -627,6 +638,8 @@ export class Peer {
         metadata: this.metadata,
       });
     }
+
+    log('peer:open', { id, options });
   }
 
   /**
@@ -647,6 +660,8 @@ export class Peer {
       if (channel) channel.close();
       remote.channels.delete(id);
     }
+
+    log('peer:close', { id });
   }
 
   /**
@@ -681,6 +696,8 @@ export class Peer {
         }
       }
     }
+
+    log('peer:send', { message, options });
   }
 
   /**
@@ -741,5 +758,6 @@ export class Peer {
    */
   emit<K extends keyof PeerEvents>(event: K | K[], ...args: PeerEvents[K]) {
     this._emitter.emit(event, ...args);
+    log(`peer:emit:${event}`, ...args);
   }
 }
