@@ -1,5 +1,5 @@
 import type { SignalingDriver } from './types/signaling.js';
-import type { PeerOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents, PeerConnectionState } from './types/peer.js';
+import type { PeerOptions, PeerVerifyOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents, PeerConnectionState } from './types/peer.js';
 import EventEmitter from './utils/emitter.js';
 import { UUIDv4, setPeerConnectionBitrate } from './utils/helpers.js';
 import log from './utils/logger.js';
@@ -87,11 +87,15 @@ export class Peer {
   /**
    * ICE candidates received before remote description is applied.
    */
-  private _candidateQueues: Map<string, any[]>
+  private _candidateQueues: Map<string, any[]>;
   /**
    * Active signaling handler registered on the signaling driver.
    */
   private _signal: undefined | ((e: any) => void);
+  /**
+   * Optional callback to accept or reject incoming peer connections.
+   */
+  private _verify?: (options: PeerVerifyOptions) => Promise<boolean> | boolean;
 
   /**
    * Creates an instance of Peer.
@@ -109,6 +113,7 @@ export class Peer {
       iceServers = [],
       iceTransportPolicy = 'all',
       connectionTimeout = 30,
+      verify,
     } = options || {};
     this.driver = driver;
     this.id = id;
@@ -122,6 +127,7 @@ export class Peer {
     this.addons = new Set();
     this._emitter = new EventEmitter<PeerEvents>(this);
     this._candidateQueues = new Map();
+    this._verify = verify;
   }
 
   /**
@@ -331,6 +337,14 @@ export class Peer {
         if (!data && !hasLocalData) return;
 
         try {
+          if (this._verify) {
+            const verified = await this._verify({ id, metadata });
+
+            log('peer:verify', { id, metadata, verified });
+
+            if (!verified) return;
+          }
+
           const remote = createRemote(id, metadata);
           this.connections.set(id, remote);
 
