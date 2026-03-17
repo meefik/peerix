@@ -5,6 +5,11 @@ import type { SignalingDriver } from '../types/signaling.js';
  *
  * This driver is useful for testing and debugging purposes, but is not suitable
  * for production use due to its limitations (e.g. single-process scope).
+ * 
+ * @example
+ * ```javascript
+ * const driver = new MemoryDriver();
+ * ```
  */
 export class MemoryDriver extends Map implements SignalingDriver {
   on(namespace: string[], handler: (data: any) => void) {

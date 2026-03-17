@@ -6,6 +6,31 @@ import log from './utils/logger.js';
 
 /**
  * Peer class for managing WebRTC peer connections and signaling.
+ * 
+ * @example
+ * ```javascript
+ * // create a new peer with a signaling driver
+ * const peer = new Peer(driver);
+ *
+ * // listen for open channel event
+ * peer.on('open', (e) => {
+ *   const { remote, channel } = e;
+ *   // send a message to the connected peer
+ *   channel.send('Hello, peer!');
+ * });
+ *
+ * // listen for incoming messages
+ * peer.on('message', (e) => {
+ *   const { remote, channel, data } = e;
+ *   console.log('Received message:', data);
+ * });
+ *
+ * // open a data channel
+ * peer.open({ id: 0 });
+ *
+ * // join a room
+ * peer.join('room-id');
+ * ```
  */
 export class Peer {
   /**
