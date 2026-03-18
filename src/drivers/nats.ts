@@ -3,10 +3,13 @@ import type { SignalingDriver } from '../types/signaling.js';
 /**
  * NATS-based signaling driver for inter-process communication.
  *
- * This driver uses NATS as the underlying messaging system, allowing for
- * distributed signaling across multiple browsers or devices. It supports
- * optional encryption of messages using AES-GCM with a secret key and
- * namespace hashing using SHA-256 for obfuscation.
+ * This driver uses [NATS](https://nats.io/) as the underlying messaging system, 
+ * allowing for distributed signaling across multiple browsers and devices. 
+ * It supports optional encryption of messages using AES-GCM with a secret key 
+ * and namespace hashing using SHA-256 for obfuscation.
+ * 
+ * > This driver requires the `nats.ws` library for WebSocket-based NATS connections 
+ * > directly in the browser.
  * 
  * @example
  * ```javascript
@@ -59,6 +62,7 @@ export class NatsDriver extends Map implements SignalingDriver {
   async close() {
     if (this._nc) {
       await this._nc.close();
+      delete this._nc;
     }
     if (this._cryptoKey) {
       delete this._cryptoKey;

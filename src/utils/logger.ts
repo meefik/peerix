@@ -20,7 +20,7 @@ let deny: RegExp[];
  * Possible log levels: debug, info, warn, error.
  *
  * Example usage:
- * ```js
+ * ```javascript
  * import log from 'utils/logger.js';
  * log('module:submodule', 'This is a debug message');
  * log('module:submodule', () => 'This is a message inside a function');

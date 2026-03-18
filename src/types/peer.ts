@@ -19,8 +19,15 @@ export interface PeerOptions {
    * If this isn't specified, the connection attempt will be made 
    * with no STUN or TURN server available, which limits the connection 
    * to local peers.
+   * 
+   * @example
+   * ```javascript
+   * iceServers: [{
+   *   urls: 'stun:stun.l.google.com:19302'
+   * }]
+   * ```
    */
-  iceServers?: RTCIceServer[];
+  iceServers?: { urls: string | string[]; username?: string; credential?: string }[];
   /**
    * ICE policy used by created RTCPeerConnection instances. 
    * If set to 'relay', only relay candidates will be used, 
@@ -29,7 +36,7 @@ export interface PeerOptions {
   iceTransportPolicy?: 'all' | 'relay';
   /**
    * Connection timeout in seconds.
-   * By default, it is set to 30 seconds. Use 0 to disable timeout.
+   * By default, it is set to 30 seconds. Use 0 to disable the timeout.
    */
   connectionTimeout?: number;
   /**

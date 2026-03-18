@@ -49,7 +49,7 @@ export class Peer {
   /**
    * STUN/TURN servers passed to every RTCPeerConnection instance.
    */
-  readonly iceServers: RTCIceServer[];
+  readonly iceServers: { urls: string | string[]; username?: string; credential?: string }[];
   /**
    * ICE transport policy for created peer connections.
    */
