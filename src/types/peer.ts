@@ -1,18 +1,4 @@
 /**
- * Input passed to `PeerOptions.verify` for validating remote peers.
- */
-export interface PeerVerifyOptions {
-  /**
-   * Remote peer identifier received from signaling.
-   */
-  id: string;
-  /**
-   * Remote peer metadata received from signaling.
-   */
-  metadata?: any;
-}
-
-/**
  * Configuration options for creating a {@link Peer} instance.
  */
 export interface PeerOptions {
@@ -42,7 +28,7 @@ export interface PeerOptions {
   /**
    * Optional callback to accept or reject incoming peer connections.
    */
-  verify?: (options: PeerVerifyOptions) => Promise<boolean> | boolean;
+  verify?: (options: { id: string; metadata?: any }) => Promise<boolean> | boolean;
 }
 
 /**
@@ -97,16 +83,6 @@ export interface JoinOptions {
 }
 
 /**
- * Context passed to stream-level filters.
- */
-export interface StreamFilterOptions {
-  /**
-   * Target remote peer for stream filtering.
-   */
-  remote: RemotePeer;
-}
-
-/**
  * Local stream publication options.
  */
 export interface StreamOptions {
@@ -136,21 +112,7 @@ export interface StreamOptions {
   /**
    * Optional callback to allow or block publishing to a remote peer.
    */
-  filter?: (options: StreamFilterOptions) => Promise<boolean> | boolean;
-}
-
-/**
- * Context passed to channel-level filters.
- */
-export interface ChannelFilterOptions {
-  /**
-   * Target remote peer for channel filtering.
-   */
-  remote: RemotePeer;
-  /**
-   * Target channel for filtering.
-   */
-  channel: RTCDataChannel;
+  filter?: (options: { remote: RemotePeer }) => boolean;
 }
 
 /**
@@ -184,7 +146,7 @@ export interface ChannelOptions {
   /**
    * Optional callback to allow or block this channel for a remote peer.
    */
-  filter?: (options: ChannelFilterOptions) => Promise<boolean> | boolean;
+  filter?: (options: { remote: RemotePeer }) => boolean;
 }
 
 /**
@@ -202,7 +164,7 @@ export interface SendOptions {
   /**
    * Optional callback to allow or block sending to a remote channel.
    */
-  filter?: (options: ChannelFilterOptions) => Promise<boolean> | boolean;
+  filter?: (options: { remote: RemotePeer; channel: RTCDataChannel }) => boolean;
 }
 
 /**
@@ -210,11 +172,11 @@ export interface SendOptions {
  */
 export interface PeerEvents {
   /**
-   * Emitted when a remote peer connects.
+   * Emitted when a remote peer creates a new connection.
    */
   join: [{ remote: RemotePeer }];
   /**
-   * Emitted when a remote peer disconnects.
+   * Emitted when a remote peer leaves the room and disconnects.
    */
   leave: [{ remote: RemotePeer }];
   /**

@@ -1,5 +1,5 @@
 import type { SignalingDriver } from './types/signaling.js';
-import type { PeerOptions, PeerVerifyOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents, PeerConnectionState } from './types/peer.js';
+import type { PeerOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents, PeerConnectionState } from './types/peer.js';
 import EventEmitter from './utils/emitter.js';
 import { UUIDv4, setPeerConnectionBitrate } from './utils/helpers.js';
 import log from './utils/logger.js';
@@ -95,7 +95,7 @@ export class Peer {
   /**
    * Optional callback to accept or reject incoming peer connections.
    */
-  private _verify?: (options: PeerVerifyOptions) => Promise<boolean> | boolean;
+  private _verify?: (options: { id: string; metadata?: any }) => Promise<boolean> | boolean;
 
   /**
    * Creates an instance of Peer.
@@ -287,8 +287,16 @@ export class Peer {
       });
 
       if (this.streams.size > 0) {
-        for (const { stream, audioBitrate, videoBitrate } of this.streams.values()) {
+        for (const options of this.streams.values()) {
+          const { stream, audioBitrate, videoBitrate, filter } = options;
+
+          if (typeof filter === 'function') {
+            const allowed = filter({ remote });
+            if (!allowed) continue;
+          }
+
           stream.getTracks().forEach(track => connection.addTrack(track, stream));
+
           if (audioBitrate || videoBitrate) {
             setPeerConnectionBitrate(connection, audioBitrate, videoBitrate);
           }
@@ -297,7 +305,12 @@ export class Peer {
 
       if (this.channels.size > 0) {
         for (let [id, options] of this.channels.entries()) {
-          const { label = '', ...channelOptions } = options || {};
+          const { label = '', filter, ...channelOptions } = options || {};
+
+          if (typeof filter === 'function') {
+            const allowed = filter({ remote });
+            if (!allowed) continue;
+          }
 
           const channel = connection.createDataChannel(
             label,
@@ -552,9 +565,14 @@ export class Peer {
 
     if (!this.active) return;
 
-    const { audioBitrate, videoBitrate } = opts;
+    const { audioBitrate, videoBitrate, filter } = opts;
 
     for (const remote of this.connections.values()) {
+      if (typeof filter === 'function') {
+        const allowed = filter({ remote });
+        if (!allowed) continue;
+      }
+
       const { connection } = remote;
       const senders = connection.getSenders();
       for (const track of newStream.getTracks()) {
@@ -573,6 +591,7 @@ export class Peer {
           connection.removeTrack(sender);
         }
       }
+
       if (audioBitrate || videoBitrate) {
         setPeerConnectionBitrate(connection, audioBitrate, videoBitrate);
       }
@@ -630,7 +649,7 @@ export class Peer {
    *
    * @param options Channel options or channel id.
    */
-  open(options: ChannelOptions | number) {
+  open(options: number | ChannelOptions) {
     const { id = 0, ...opts } = typeof options === 'object'
       ? options : { id: options };
 
@@ -639,10 +658,15 @@ export class Peer {
 
     if (!this.active) return;
 
-    const { label = '', ...channelOptions } = (opts as ChannelOptions);
+    const { label = '', filter, ...channelOptions } = (opts as ChannelOptions);
 
     for (const remote of this.connections.values()) {
       if (remote.channels.has(id)) continue;
+
+      if (typeof filter === 'function') {
+        const allowed = filter({ remote });
+        if (!allowed) continue;
+      }
 
       const { connection } = remote;
 
@@ -709,10 +733,10 @@ export class Peer {
    * @param message Message payload to send.
    * @param options Optional send options or channel id.
    */
-  send(message: any, options?: SendOptions | number) {
+  send(message: any, options?: number | SendOptions) {
     if (!this.active) return;
 
-    const { id, label } = typeof options === 'object'
+    const { id, label, filter } = typeof options === 'object'
       ? options : { id: options };
 
     for (const remote of this.connections.values()) {
@@ -720,6 +744,10 @@ export class Peer {
         const channel = remote.channels.get(id);
         if (channel && channel.readyState === 'open') {
           if (label && channel.label !== label) continue;
+          if (typeof filter === 'function') {
+            const allowed = filter({ remote, channel });
+            if (!allowed) continue;
+          }
           channel.send(message);
         }
       }
@@ -727,6 +755,10 @@ export class Peer {
         for (const channel of remote.channels.values()) {
           if (channel && channel.readyState === 'open') {
             if (label && channel.label !== label) continue;
+            if (typeof filter === 'function') {
+              const allowed = filter({ remote, channel });
+              if (!allowed) continue;
+            }
             channel.send(message);
           }
         }
