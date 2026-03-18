@@ -1,3 +1,5 @@
+import type { SignalingDriver } from './signaling.js';
+
 /**
  * Configuration options for creating a {@link Peer} instance.
  */
@@ -6,6 +8,11 @@ export interface PeerOptions {
    * Unique peer identifier. A random UUID is generated when omitted.
    */
   id?: string;
+  /**
+   * Signaling driver instance for message exchange between peers.
+   * If omitted, a default in-memory driver is used, which is suitable for testing purposes only.
+   */
+  driver?: SignalingDriver;
   /**
    * An array of objects, each describing one server which may be used 
    * by the ICE agent; these are typically STUN and/or TURN servers. 

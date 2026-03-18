@@ -1,16 +1,21 @@
 import type { SignalingDriver } from './types/signaling.js';
 import type { PeerOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents, PeerConnectionState } from './types/peer.js';
+import { MemoryDriver } from './drivers/memory.js';
 import EventEmitter from './utils/emitter.js';
 import { UUIDv4, setPeerConnectionBitrate } from './utils/helpers.js';
 import log from './utils/logger.js';
+
+// All peers without a driver will share the same in-memory signaling bus
+const defaultDriver = new MemoryDriver();
 
 /**
  * Peer class for managing WebRTC peer connections and signaling.
  * 
  * @example
  * ```javascript
- * // create a new peer with a signaling driver
- * const peer = new Peer(driver);
+ * // create a new peer
+ * // using default in-memory signaling driver
+ * const peer = new Peer();
  *
  * // listen for open channel event
  * peer.on('open', (e) => {
@@ -100,16 +105,12 @@ export class Peer {
   /**
    * Creates an instance of Peer.
    *
-   * @param driver Signaling driver instance for message exchange between peers.
    * @param options Peer configuration options.
-   * @throws {Error} If the driver is not provided.
    */
-  constructor(driver: SignalingDriver, options?: PeerOptions) {
-    if (!driver) {
-      throw new Error('Signaling driver is required');
-    }
+  constructor(options?: PeerOptions) {
     const {
       id = UUIDv4(),
+      driver = defaultDriver,
       iceServers = [],
       iceTransportPolicy = 'all',
       connectionTimeout = 30,
