@@ -11,24 +11,23 @@ import type { SignalingDriver } from '../types/signaling.js';
  * const driver = new BroadcastChannelDriver('my-channel');
  * ```
  */
-export class BroadcastChannelDriver extends Map implements SignalingDriver {
-  /**
-   * BroadcastChannel instance used for message exchange.
-   */
+export class BroadcastChannelDriver implements SignalingDriver {
+  private _events: Map<string, Set<(data: any) => void>>;
   private _bc: BroadcastChannel;
 
   /**
-   * Create a new BroadcastChannelDriver instance.
+   * Create a new instance of the driver.
    *
    * @param channelName Optional BroadcastChannel name (defaults to 'peerix').
    */
   constructor(channelName: string) {
-    super();
+    this._events = new Map();
     this._bc = new BroadcastChannel(channelName || 'peerix');
     this._bc.onmessage = (e) => {
       const { ns, data } = e.data;
-      if (!ns || !this.has(ns)) return;
-      for (const handler of this.get(ns)) {
+      const handlers = this._events.get(ns);
+      if (!ns || !handlers) return;
+      for (const handler of handlers) {
         try {
           handler(data);
         }
@@ -41,16 +40,21 @@ export class BroadcastChannelDriver extends Map implements SignalingDriver {
 
   on(namespace: string[], handler: (data: any) => void) {
     const ns = namespace.join(':');
-    if (!this.has(ns)) this.set(ns, new Set());
-    this.get(ns).add(handler);
+    let handlers = this._events.get(ns);
+    if (!handlers) {
+      handlers = new Set();
+      this._events.set(ns, handlers);
+    }
+    handlers.add(handler);
   }
 
   off(namespace: string[], handler: (data: any) => void) {
     const ns = namespace.join(':');
-    if (this.has(ns)) {
-      if (handler) this.get(ns).delete(handler);
-      else this.get(ns).clear();
-      if (!this.get(ns).size) this.delete(ns);
+    const handlers = this._events.get(ns);
+    if (handlers) {
+      if (handler) handlers.delete(handler);
+      else handlers.clear();
+      if (!handlers.size) this._events.delete(ns);
     }
   }
 

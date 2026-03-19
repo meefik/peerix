@@ -11,26 +11,41 @@ import type { SignalingDriver } from '../types/signaling.js';
  * const driver = new MemoryDriver();
  * ```
  */
-export class MemoryDriver extends Map implements SignalingDriver {
+export class MemoryDriver implements SignalingDriver {
+  private _events: Map<string, Set<(data: any) => void>>;
+
+  /**
+   * Create a new instance of the driver.
+   */
+  constructor() {
+    this._events = new Map();
+  }
+
   on(namespace: string[], handler: (data: any) => void) {
-    const ns = namespace.join(':');
-    if (!this.has(ns)) this.set(ns, new Set());
-    this.get(ns).add(handler);
+    const ns = namespace.join(':') as string;
+    let handlers = this._events.get(ns);
+    if (!handlers) {
+      handlers = new Set();
+      this._events.set(ns, handlers);
+    }
+    handlers.add(handler);
   }
 
   off(namespace: string[], handler: (data: any) => void) {
-    const ns = namespace.join(':');
-    if (this.has(ns)) {
-      if (handler) this.get(ns).delete(handler);
-      else this.get(ns).clear();
-      if (!this.get(ns).size) this.delete(ns);
+    const ns = namespace.join(':') as string;
+    const handlers = this._events.get(ns);
+    if (handlers) {
+      if (handler) handlers.delete(handler);
+      else handlers.clear();
+      if (!handlers.size) this._events.delete(ns);
     }
   }
 
   emit(namespace: string[], message: any) {
     const ns = namespace.join(':');
-    if (!this.has(ns)) return;
-    for (const handler of this.get(ns)) {
+    const handlers = this._events.get(ns);
+    if (!handlers) return;
+    for (const handler of handlers) {
       try {
         handler(message);
       }

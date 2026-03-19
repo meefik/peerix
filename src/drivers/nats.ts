@@ -23,24 +23,28 @@ import type { SignalingDriver } from '../types/signaling.js';
  * await driver.open();
  * ```
  */
-export class NatsDriver extends Map implements SignalingDriver {
-  private _connect: (config?: object) => Promise<any>;
-  private _secret?: string;
+export class NatsDriver implements SignalingDriver {
+  private _connect: (config?: any) => Promise<any>;
   private _nc?: any;
+  private _prefix: string;
+  private _secret?: string;
   private _cryptoKey?: CryptoKey;
+  private _events: Map<string, Map<(...args: any[]) => void, any>>;
 
   /**
-   * Creates a new NatsDriver instance.
+   * Create a new instance of the driver.
    *
    * @param options Configuration options for the driver.
    * @param options.connect A function that returns a promise resolving to a NATS connection instance.
    * @param options.secret An optional secret key for encrypting messages.
+   * @param options.prefix An optional prefix for NATS subjects.
    */
-  constructor(options: { connect: (config?: object) => Promise<any>; secret?: string }) {
-    super();
-    const { connect, secret } = options || {};
+  constructor(options: { connect: (config?: any) => Promise<any>; secret?: string; prefix?: string }) {
+    const { connect, secret, prefix = '' } = options || {};
     this._connect = connect;
     this._secret = secret;
+    this._prefix = prefix;
+    this._events = new Map();
   }
 
   /**
@@ -49,7 +53,7 @@ export class NatsDriver extends Map implements SignalingDriver {
    * 
    * @param config Optional configuration options.
    */
-  async open(config?: object) {
+  async open(config?: any) {
     this._nc = await this._connect(config);
     if (this._secret) {
       this._cryptoKey = await createEncryptionKey(this._secret);
@@ -70,9 +74,7 @@ export class NatsDriver extends Map implements SignalingDriver {
   }
 
   async on(namespace: string[], handler: (data: any) => void) {
-    const ns = this._cryptoKey
-      ? await sha256(namespace.join(':'))
-      : namespace.join(':');
+    const ns = await getNS(namespace, this._prefix, !!this._cryptoKey);
     const sub = this._nc.subscribe(ns, {
       callback: async (err: Error, msg: any) => {
         if (err) {
@@ -87,30 +89,29 @@ export class NatsDriver extends Map implements SignalingDriver {
         handler(payload);
       },
     });
-    if (!this.has(ns)) {
-      this.set(ns, new Map());
+    let handlers = this._events.get(ns);
+    if (!handlers) {
+      handlers = new Map();
+      this._events.set(ns, handlers);
     }
-    this.get(ns).set(handler, sub);
+    handlers.set(handler, sub);
   }
 
   async off(namespace: string[], handler: (data: any) => void) {
-    const ns = this._cryptoKey
-      ? await sha256(namespace.join(':'))
-      : namespace.join(':');
-    const sub = this.get(ns)?.get(handler);
+    const ns = await getNS(namespace, this._prefix, !!this._cryptoKey);
+    const handlers = this._events.get(ns);
+    const sub = handlers?.get(handler);
     if (sub) {
       sub.unsubscribe();
-      this.get(ns).delete(handler);
+      handlers?.delete(handler);
     }
-    if (!this.get(ns)?.size) {
-      this.delete(ns);
+    if (!handlers?.size) {
+      this._events.delete(ns);
     }
   }
 
   async emit(namespace: string[], message: any) {
-    const ns = this._cryptoKey
-      ? await sha256(namespace.join(':'))
-      : namespace.join(':');
+    const ns = await getNS(namespace, this._prefix, !!this._cryptoKey);
     if (this._nc) {
       let data = new TextEncoder().encode(JSON.stringify(message));
       if (this._cryptoKey) {
@@ -119,6 +120,15 @@ export class NatsDriver extends Map implements SignalingDriver {
       this._nc.publish(ns, data);
     }
   }
+}
+
+async function getNS(namespace: string[], prefix: string, hash: boolean) {
+  const parts = await Promise.all(
+    [prefix, ...namespace]
+      .filter(Boolean)
+      .map(async part => hash ? await sha256(part) : part)
+  );
+  return parts.join('.');
 }
 
 async function sha256(msg: string) {

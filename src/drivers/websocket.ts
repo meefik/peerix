@@ -51,7 +51,7 @@ export class WebSocketDriver extends Map implements SignalingDriver {
    * @param options.queueLimit Maximum number of queued messages when socket is not opened (default: 100).
    */
   constructor(options?: {
-    url: string;
+    url?: string;
     protocols?: string | string[],
     reconnection?: boolean,
     reconnectionDelay?: number,
