@@ -15,7 +15,7 @@ export class BroadcastChannelDriver extends Map implements SignalingDriver {
   /**
    * BroadcastChannel instance used for message exchange.
    */
-  readonly bc: BroadcastChannel;
+  private _bc: BroadcastChannel;
 
   /**
    * Create a new BroadcastChannelDriver instance.
@@ -24,8 +24,8 @@ export class BroadcastChannelDriver extends Map implements SignalingDriver {
    */
   constructor(channelName: string) {
     super();
-    this.bc = new BroadcastChannel(channelName || 'peerix');
-    this.bc.onmessage = (e) => {
+    this._bc = new BroadcastChannel(channelName || 'peerix');
+    this._bc.onmessage = (e) => {
       const { ns, data } = e.data;
       if (!ns || !this.has(ns)) return;
       for (const handler of this.get(ns)) {
@@ -56,6 +56,6 @@ export class BroadcastChannelDriver extends Map implements SignalingDriver {
 
   emit(namespace: string[], data: any) {
     const ns = namespace.join(':');
-    this.bc.postMessage({ ns, data });
+    this._bc.postMessage({ ns, data });
   }
 }

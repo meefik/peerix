@@ -261,7 +261,7 @@ export class Peer {
             type: 'offer',
             id: this.id,
             data: offer,
-            metadata,
+            metadata: this.metadata,
           });
         }
         catch (error) {
@@ -373,7 +373,7 @@ export class Peer {
               type: 'offer',
               id: this.id,
               data: offer,
-              metadata,
+              metadata: this.metadata,
             });
           }
         }
