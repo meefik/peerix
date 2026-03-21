@@ -731,7 +731,7 @@ export class Peer {
    * If `options` is omitted, the message is sent to all open channels for every
    * connected remote peer. If `options` is a number, it is treated as channel id.
    *
-   * @param message Message payload to send.
+   * @param message Message payload to send. This may be a string, a Blob, an ArrayBuffer, a TypedArray or a DataView object.
    * @param options Optional send options or channel id.
    */
   send(message: any, options?: number | SendOptions) {

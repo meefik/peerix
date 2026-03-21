@@ -9,9 +9,13 @@
     "url": "https://github.com/peerix-dev/peerix.git"
   },
   "keywords": [
-    "p2p",
+    "peerix",
     "webrtc",
-    "peer-to-peer"
+    "p2p",
+    "peer-to-peer",
+    "conferencing",
+    "signaling",
+    "real-time"
   ],
   "type": "module",
   "main": "dist/peerix.esm.js",

@@ -1,21 +1,37 @@
 # Peerix
 
-It is a peer-to-peer media and data sharing JavaScript library. Peerix uses WebRTC for peer-to-peer communication and relies on a signaling mechanism to facilitate peer discovery and connection management. The library abstracts away the complexities of WebRTC and provides a simple API for developers to create real-time applications with media streaming and data sharing capabilities.
+It is a peer-to-peer media and data sharing JavaScript library. Peerix uses WebRTC for peer-to-peer communication and relies on a signaling mechanism to facilitate peer discovery and connection management. The library abstracts away the complexities of WebRTC and provides a minimalistic API for developers to create real-time applications with media streaming and data sharing capabilities.
 
-## Content
+Read the full documentation and API reference on the official website:
+- [Documentation](https://peerix.dev/docs)
+- [API Reference](https://api.peerix.dev)
+- [Discussions](https://github.com/peerix-dev/peerix/discussions)
+- [Issues](https://github.com/peerix-dev/peerix/issues)
 
-- [Getting Started](#getting-started)
-- [Using with CDN](#using-with-cdn)
-- [Signaling Drivers](#signaling-drivers)
-- [Peer Instance](#peer-instance)
-- [Connection Management](#connection-management)
-- [Media Streams](#media-streams)
-- [Data Channels](#data-channels)
-- [Add-ons](#add-ons)
-- [Server Infrastructure](#server-infrastructure)
-- [License](#license)
+## How It Works
 
-## Getting Started
+Peerix is a front-end library that runs entirely in the browser, which allows for low-latency media streaming and data sharing between peers. The library abstracts away the complexities of WebRTC and provides a simple API for developers to create real-time peer-to-peer applications with media streaming and data sharing capabilities.
+
+It is designed to work in a decentralized manner, allowing peers to connect directly to each other without relying on a central server for media relay. However, it does require a signaling server for peers to discover each other and establish connections. You can use various built-in signaling drivers, or you can implement your own custom driver to fit your application's needs.
+
+Peerix uses ICE (Interactive Connectivity Establishment) to establish peer-to-peer connections. You can use public STUN servers for NAT traversal. However, for better connectivity and performance, especially in restrictive network environments, it is recommended to use your own TURN server or a third-party TURN service.
+
+Here is a high-level overview of the Peerix architecture:
+
+```mermaid
+graph TD
+  PX{{Peerix}} --> SD(Signaling Driver)
+  SD --> SS[Signaling Server]
+  PX --> ICE[STUN/TURN Servers]
+  PX --> PC(Peers)
+  PC --> MS(Media Streams)
+  PC --> DC(Data Channels)
+  PX --> ADD(Add-ons)
+```
+
+Peerix is not an SFU (Selective Forwarding Unit) or MCU (Multipoint Control Unit), and it does not provide server-side media processing or routing capabilities. Instead, it focuses on enabling direct peer-to-peer communication between clients, allowing you to build applications that leverage the full potential of WebRTC without the need for a central media server.
+
+## Quick Start
 
 Install the Peerix library via NPM:
 
@@ -23,7 +39,7 @@ Install the Peerix library via NPM:
 npm install peerix
 ```
 
-Use the library in your JavaScript or TypeScript code:
+Use the library in your JavaScript or TypeScript code to create peer-to-peer connections, exchange messages, and share media streams:
 
 ```js
 import { Peer, BroadcastChannelDriver } from 'peerix';
@@ -32,65 +48,124 @@ import { Peer, BroadcastChannelDriver } from 'peerix';
 const driver = new BroadcastChannelDriver();
 
 // create the Peer instance
-const peer = new Peer(driver);
+const peer = new Peer({ driver });
 
+// listen for peer connections
+peer.on('join', (e) => {
+  const { remote } = e;
+  console.log(
+    'Connected to peer:', remote.id, 
+    'with metadata:', remote.metadata
+  );
+});
+
+// listen for peer disconnections
+peer.on('leave', (e) => {
+  const { remote } = e;
+  console.log(
+    'Disconnected from peer:', remote.id
+  );
+});
+
+// join a room
+peer.join({
+  room: 'room-id',
+  metadata: { /* optional metadata */ }
+});
+
+// later, if you want to leave the room
+// peer.leave();
+```
+
+Work with data channels to exchange messages with other peers:
+
+```js
 // listen for open channel event
 peer.on('open', (e) => {
   const { remote, channel } = e;
+  console.log(
+    'Channel opened with peer:', remote.id, 
+    'channel:', channel.id
+  );
   // send a message to the connected peer
-  peer.send('Hello, peer!', channel);
+  channel.send('Hello, peer!');
+});
+
+// listen for close channel event
+peer.on('close', (e) => {
+  const { remote, channel } = e;
+  console.log(
+    'Channel closed with peer:', remote.id, 
+    'channel:', channel.id
+  );
 });
 
 // listen for incoming messages
 peer.on('message', (e) => {
   const { remote, channel, data } = e;
-  console.log('Received message:', data);
+  console.log(
+    'Received message from peer:', remote.id,
+    'channel:', channel.id,
+    'data:', data
+  );
 });
 
-// open a data channel
-const CHANNEL_ID = 0;
-peer.open(CHANNEL_ID);
+// open a data channel with a specific id
+peer.open({ id: 0, label: 'chat' });
 
-// join a room
-peer.join('room-id');
+// send a message to each connected peer via a specific data channel
+peer.send('Hello, peers!', { id: 0 });
+
+// later, if you want to close the data channel
+// peer.close({ id: 0 });
 ```
 
-You can run the above code in multiple browser tabs to see the peer-to-peer communication in action. Each tab will represent a peer that can join the same room and exchange messages via WebRTC data channels.
+Work with media streams to share audio and video with other peers:
 
-## Using with CDN
+```js
+// listen for peer publishing a track in a stream
+peer.on('publish', (e) => {
+  const { remote, stream, track } = e;
+  console.log(
+    'Peer published a track:', track.id,
+    'in stream:', stream.id,
+    'from peer:', remote.id
+  );
+});
 
-If you prefer to use Peerix via a CDN, you can include the following script tag in your HTML file:
+// listen for peer unpublishing a track in a stream
+peer.on('unpublish', (e) => {
+  const { remote, stream, track } = e;
+  console.log(
+    'Peer unpublished a track:', track.id,
+    'from stream:', stream.id,
+    'from peer:', remote.id
+  );
+});
 
-```html
-<script src="https://unpkg.com/peerix"></script>
-<script>
-  const { Peer, BroadcastChannelDriver } = window.peerix;
-</script>
-```
+// get a media stream from the user's camera and microphone
+const stream = await navigator.mediaDevices.getUserMedia(
+  { video: true, audio: true }
+);
 
-Or, if you want to use ES modules with a CDN, you can import the library as follows:
+// publish or update the stream to the room
+peer.publish({ id: 'camera', stream });
 
-```html
-<script type="module">
-  import { Peer, BroadcastChannelDriver } from 'https://esm.sh/peerix';
-</script>
+// later, if you want to stop sharing the stream, you can unpublish it
+// peer.unpublish({ id: 'camera' });
 ```
 
 ## Signaling Drivers
 
 Peerix supports multiple signaling drivers for peer discovery and connection management. You can choose the driver that best fits your application's needs:
-
 - `MemoryDriver`: A simple in-memory driver for testing and development. It allows several peer instances to discover each other within one browser page.
 - `BroadcastChannelDriver`: Uses the BroadcastChannel API for communication between tabs in the same browser.
-- `NatsDriver`: Uses NATS messaging system for communication between peers across different browsers and devices over the internet. It supports E2EE to protect the privacy of your users' data. You can use the public NATS server at `demo.nats.io:4222` for testing purposes, but it is recommended to set up your own NATS server for production applications.
+- `NatsDriver`: Uses [NATS](https://nats.io/) messaging system for communication between peers across different browsers and devices over the internet. It supports E2EE to protect the privacy of signaling messages and is recommended for production applications.
 
-You can import and use any of the built-in drivers as follows:
-
-```js
-import { MemoryDriver } from 'peerix';
-
-const driver = new MemoryDriver();
-```
+We also plan to add more built-in drivers in the future, such as:
+- `WebSocketDriver`: A simple [WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)-based driver that can be used with any WebSocket server. This driver is useful for applications that already have a WebSocket backend in place or for those who want to implement their own custom signaling server.
+- `SocketIoDriver`: A driver that uses [Socket.IO](https://socket.io/) for signaling. This driver is suitable for applications that use Socket.IO for real-time communication and want to integrate Peerix with their existing Socket.IO infrastructure.
+- `SupabaseDriver`: A driver that uses [Supabase](https://supabase.com/realtime)'s real-time features for signaling. This driver is ideal for applications that use Supabase as their backend and want to leverage its real-time capabilities for peer discovery and connection management.
 
 You can also implement your own custom signaling driver by adhering to the following interface:
 
@@ -102,215 +177,59 @@ class CustomDriver {
 }
 ```
 
-This driver interface allows you to integrate Peerix with any signaling mechanism you prefer, such as WebSockets or even a REST API.
+This driver interface allows you to integrate Peerix with any signaling mechanism you prefer.
 
-To better illustrate how to implement a custom signaling driver, here is an example of a minimal in-memory driver that can be used for testing purposes:
+> [!TIP]
+> Use NATS for production applications. It is a high-performance messaging system that enables efficient communication between peers for signaling purposes directly from the browser.
 
-```js
-// Minimal in-memory signaling driver
-class MemoryDriver extends Map {
-  constructor() { super(); }
-  on(namespace, handler) {
-    const k = namespace.join(':');
-    if (!this.has(k)) {
-      this.set(k, new Set());
-    }
-    this.get(k).add(handler);
-  }
-  off(namespace, handler) {
-    const k = namespace.join(':');
-    this.get(k)?.delete(handler);
-  }
-  emit(namespace, message) {
-    const k = namespace.join(':');
-    if (!this.has(k)) return;
-    for (const handler of this.get(k)) {
-      try {
-        handler(message);
-      } catch (e) {
-        /* swallow errors */
-      }
-    }
-  }
-}
-```
-
-## Peer Instance
-
-The `Peer` class is the core of the Peerix library. It manages peer connections, media streams, and data channels. You can create an instance of `Peer` by providing a signaling driver and optional configuration parameters:
+If you do not want to create your own signaling server, you can use the NATS driver with a public NATS server or set up your own NATS server for better performance and reliability. Using NATS allows you to use Peerix without any server-side code because all signaling is handled through NATS servers directly from the browser.
 
 ```js
-import { Peer } from 'peerix';
+import { NatsDriver } from 'peerix';
+import { connect } from 'nats.ws';
 
-// create the Peer instance
-const peer = new Peer(driver, {
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+// create the NATS driver instance
+const driver = new NatsDriver({
+  // NATS connection instance
+  connect: async () => {
+    // to create a connection to a nats-server
+    // (the public NATS server is not for production use)
+    return await connect({ servers: ['wss://demo.nats.io:8443'] });
+  },
+  // optional secret for E2EE of signaling messages
+  secret: 'my-secret-key',
 });
 ```
 
-By default, Peerix uses a STUN server at `stun.l.google.com:19302` for NAT traversal. However, for better connectivity, especially in restrictive network environments, it is recommended to use a TURN server. You can specify your own TURN/STUN servers in the `iceServers` configuration option.
+You should install the `nats.ws` package to use the NATS Driver, as it provides a WebSocket client for connecting to NATS servers from the browser.
 
-## Connection Management
+## ICE Servers
 
-Peerix will automatically handle peer discovery, connection management, and media stream negotiation. To connect to a room and start sharing media streams or sending messages, simply call the `join` method with the desired room ID:
+ICE (Interactive Connectivity Establishment) is a framework used in WebRTC to find the best path to connect peers. It involves using STUN (Session Traversal Utilities for NAT) servers for NAT traversal and TURN (Traversal Using Relays around NAT) servers for relaying media when direct peer-to-peer connections are not possible.
 
-```js
-// join a room with an optional metadata
-peer.join('room-id', { /* metadata */ });
+> [!TIP]
+> Use TURN servers for better connectivity in restrictive network environments.
 
-// later, if you want to leave the room
-peer.leave();
-
-// listen for peer connections in the room
-peer.on('join', (e) => {
-  const { remote, metadata } = e;
-  console.log('Connected to peer:', remote.id, 'with metadata:', metadata);
-});
-
-// listen for peer disconnections in the room
-peer.on('leave', (e) => {
-  const { remote, metadata } = e;
-  console.log('Disconnected from peer:', remote.id, 'with metadata:', metadata);
-});
-```
-
-Optionally, you can provide metadata that will be shared with other peers in the room. This can include information such as the peer's name, avatar, or any other relevant data.
-
-You can call the `join` method before or after publishing media streams or opening data channels. If you publish a stream or open a data channel before joining a room, the library will automatically handle the negotiation and sharing of the stream once you join. If you will do it after joining, the library will immediately share the stream or data channel with all connected peers in the room and start re-negotiating the connections as needed.
-
-> Peerix allows you to use a single connection with each other peer in the room to share multiple media streams and data channels in two directions. This means that you can publish multiple media streams and open multiple data channels with the same peer without needing to establish separate connections for each stream or channel. The library will manage the negotiation and sharing of all streams and channels over the single connection, optimizing the communication between peers and reducing load on client resources, signaling, and TURN servers.
-
-## Media Streams
-
-You can also publish media streams to the room using the `publish` method. This allows other peers in the room to subscribe to your media streams and view or listen to them.
+Peerix allows you to specify ICE servers for better connectivity and performance, especially in restrictive network environments. Use `iceServers` option when creating the `Peer` instance to provide custom STUN and TURN servers:
 
 ```js
-// get a media stream from the user's camera and microphone
-const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-
-// publish the stream to the room with an optional stream ID
-peer.publish(stream);
-
-// later, if you want to stop sharing the stream, you can unpublish it
-peer.unpublish(stream);
-
-// listen for peer publishing a track in a stream
-peer.on('publish', (e) => {
-  const { remote, stream, track } = e;
-  console.log('Peer published a track:', track.id, 'in stream:', stream.id);
-});
-
-// listen for peer unpublishing a track in a stream
-peer.on('unpublish', (e) => {
-  const { remote, stream, track } = e;
-  console.log('Peer unpublished a track:', track.id, 'from stream:', stream.id);
+// create the Peer instance with custom ICE servers
+const peer = new Peer({
+  // use signaling driver, such as NATS
+  driver,
+  // specify custom ICE servers for better connectivity
+  iceServers: [
+    // public STUN server
+    { urls: 'stun:stun.l.google.com:19302' },
+    // custom TURN server (replace with your own TURN server for production use)
+    {
+      urls: 'turn:turn.peerix.app:3478',
+      username: 'peerix',
+      credential: 'sandbox'
+    },
+  ],
 });
 ```
-
-You can publish multiple streams with different IDs, and you can also update an existing stream by publishing a new stream with the same ID. The library will automatically handle the negotiation and sharing of the updated stream with all connected peers in the room.
-
-```js
-// get a media stream from the user's camera and microphone
-const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-
-// publish the stream to the room with an optional stream ID
-peer.publish({ id: 'camera', stream });
-
-// get another media stream from the user's microphone only
-const newStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
-// update the existing stream with new tracks
-peer.publish({ id: 'camera', stream: newStream, filter: ({ remote }) => true });
-
-// later, if you want to stop sharing the stream, you can unpublish it
-peer.unpublish('camera');
-```
-
-## Data Channels
-
-You can open data channels to exchange arbitrary data with other peers in the room. Data channels are useful for sending messages, files, or any other type of data that does not fit into media streams.
-
-```js
-// define a channel ID for the channel
-const CHANNEL_ID = 0;
-
-// open a data channel with a specific ID
-peer.open(CHANNEL_ID);
-
-// later, if you want to close the data channel
-peer.close(CHANNEL_ID);
-
-// listen for incoming messages on the data channel
-peer.on('message', (e) => {
-  const { remote, channel, data } = e;
-  console.log('Received message from peer:', remote.id, 'on channel:', channel.id, 'data:', data);
-});
-
-// listen for data channel open event
-peer.on('open', (e) => {
-  const { remote, channel } = e;
-  // send a message to the connected peer over the data channel
-  peer.send('Hello, peer!', channel.id);
-});
-
-// listen for data channel close event
-peer.on('close', (e) => {
-  const { remote, channel } = e;
-  console.log('Data channel closed with peer:', remote.id, 'channel:', channel.id);
-});
-```
-
-Note that you should open a data channel on each peer manually with the same channel ID to establish a connection between them. Peerix does not automatically open data channels between peers to avoid racing conditions when multiple peers try to open channels simultaneously.
-
-Peerix allows you to open multiple data channels with different IDs, and you can also specify options for each channel, such as the ordered or unordered delivery of messages and other channel-specific settings.
-
-```js
-// define a channel ID for the channel
-const CHANNEL_ID = 0;
-
-// open a data channel with options
-peer.open({ id: CHANNEL_ID, label: 'chat', filter: ({ remote }) => true });
-
-// later, if you want to close the data channel
-peer.close({ id: CHANNEL_ID });
-```
-
-> The data channel ID is a number between 0 and 65535. However, you can set the short string instead that will be hashed to a number in that range. This allows you to use more meaningful identifiers for your data channels while still adhering to the WebRTC specification for channel IDs. In rare cases, this approach may lead to collisions where different string IDs hash to the same channel ID, so it is recommended to use numeric IDs to avoid conflicts.
-
-## Add-ons
-
-Peerix supports add-ons that can extend the functionality of the core library. Add-ons are separate modules that can be imported and used alongside the main `Peer` class to provide additional features such as recording, storage, or synchronization. To use an add-on, simply import it and use it with your `Peer` instance:
-
-```js
-import { Addon } from 'peerix';
-
-// create the add-on instance
-const addon = new Addon({ /* options */ });
-// attach the add-on to the peer instance
-peer.attach(addon);
-// later, if you want to detach the add-on from the peer instance
-peer.detach(addon);
-```
-
-## Server Infrastructure
-
-Peerix is designed to work in a decentralized manner, allowing peers to connect directly to each other without relying on a central server for media relay. However, it does require a signaling server for peers to discover each other and establish connections. For better connectivity and performance, especially in restrictive network environments, it is recommended to use a TURN server for media relay when direct peer-to-peer connections are not possible.
-
-You can set up open-source self-hosted NATS and TURN servers using the following Docker Compose configuration:
-
-```yaml
-services:
-  nats:
-    image: nats:latest
-    ports:
-      - '4222:4222'
-  coturn:
-    image: coturn/coturn:latest
-    ports:
-      - '3478:3478'
-      - '3478:3478/udp'
-```
-
-> Peerix provides NATS and TURN servers that you can use in your applications with production-ready performance and reliability. Visit the [Peerix Cloud](https://peerix.tech) website for more information on how to access and use these servers in your applications.
 
 ## License
 
@@ -335,12 +254,4 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 ### Commercial License
 
-For proprietary applications or if you do not wish to comply with the GPL license, please contact the [Peerix team](https://peerix.dev) for more information.
-
-## Roadmap
-
-- [x] Core
-- [x] TypeScript
-- [x] TypeDoc
-- [ ] NATS Driver
-- [ ] Examples
+For proprietary applications or if you do not wish to comply with the GPL license, please contact the [Peerix Team](https://peerix.dev/contact) to discuss commercial licensing options.
