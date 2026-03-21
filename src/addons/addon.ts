@@ -7,6 +7,8 @@ import { Peer } from '../peer.js';
  *
  * Addons are modular extensions that can be attached to a Peer instance to
  * provide additional functionality or integrate with external services.
+ * 
+ * @group Addons
  */
 export class Addon {
   private _emitter: EventEmitter<AddonEvents>;

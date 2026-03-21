@@ -6,6 +6,7 @@ import type { SignalingDriver } from '../types/signaling.js';
  * re-subscribes to namespaces after reconnection. It also queues messages when
  * the socket is not opened, and flushes them upon connection.
  * 
+ * @group Drivers
  * @example
  * ```javascript
  * const driver = new WebSocketDriver({ url: 'wss://localhost:8443/ws' });

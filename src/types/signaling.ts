@@ -3,6 +3,8 @@
  *
  * Implementations are expected to route payloads by `namespace` and invoke
  * subscribed handlers when matching messages arrive.
+ * 
+ * @group Drivers
  */
 export interface SignalingDriver {
   /**

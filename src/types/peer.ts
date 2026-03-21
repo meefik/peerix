@@ -2,6 +2,8 @@ import type { SignalingDriver } from './signaling.js';
 
 /**
  * Configuration options for creating a {@link Peer} instance.
+ * 
+ * @group Peers
  */
 export interface PeerOptions {
   /**
@@ -47,11 +49,15 @@ export interface PeerOptions {
 
 /**
  * Possible peer connection states.
+ * 
+ * @group Peers
  */
 export type PeerConnectionState = 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
 
 /**
  * Runtime state for one connected remote peer.
+ * 
+ * @group Peers
  */
 export interface RemotePeer {
   /**
@@ -84,6 +90,11 @@ export interface RemotePeer {
   dispose: () => void;
 }
 
+/**
+ * Options for joining a room.
+ * 
+ * @group Peers
+ */
 export interface JoinOptions {
   /**
    * Room name to join.
@@ -98,6 +109,8 @@ export interface JoinOptions {
 
 /**
  * Local stream publication options.
+ * 
+ * @group Peers
  */
 export interface StreamOptions {
   /**
@@ -131,6 +144,8 @@ export interface StreamOptions {
 
 /**
  * Options used to create negotiated RTCDataChannel instances.
+ * 
+ * @group Peers
  */
 export interface ChannelOptions {
   /**
@@ -165,6 +180,8 @@ export interface ChannelOptions {
 
 /**
  * Optional selectors/filters used by `Peer.send`.
+ * 
+ * @group Peers
  */
 export interface SendOptions {
   /**
@@ -183,6 +200,8 @@ export interface SendOptions {
 
 /**
  * Events emitted by {@link Peer} instances.
+ * 
+ * @group Peers
  */
 export interface PeerEvents {
   /**

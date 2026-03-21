@@ -11,6 +11,7 @@ import type { SignalingDriver } from '../types/signaling.js';
  * > This driver requires the `nats.ws` library for WebSocket-based NATS connections 
  * > directly in the browser.
  * 
+ * @group Drivers
  * @example
  * ```javascript
  * import { connect } from 'https://esm.sh/nats.ws';

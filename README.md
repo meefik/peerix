@@ -24,6 +24,7 @@ graph TD
   SD --> SS[Signaling Server]
   PX --> ICE[STUN/TURN Servers]
   PX --> PC(Peers)
+  PC --> LCE(Lifecycle Events)
   PC --> MS(Media Streams)
   PC --> DC(Data Channels)
   PX --> ADD(Add-ons)
@@ -65,6 +66,12 @@ peer.on('leave', (e) => {
   console.log(
     'Disconnected from peer:', remote.id
   );
+});
+
+// listen for errors
+peer.on('error', (e) => {
+  const { error } = e;
+  console.error('Error:', error);
 });
 
 // join a room
@@ -221,11 +228,11 @@ const peer = new Peer({
   iceServers: [
     // public STUN server
     { urls: 'stun:stun.l.google.com:19302' },
-    // custom TURN server (replace with your own TURN server for production use)
+    // custom TURN server (replace with your own server)
     {
-      urls: 'turn:turn.peerix.app:3478',
-      username: 'peerix',
-      credential: 'sandbox'
+      urls: 'turn:turn.example.com:3478',
+      username: 'user',
+      credential: 'pass'
     },
   ],
 });

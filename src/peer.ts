@@ -11,6 +11,7 @@ const defaultDriver = new MemoryDriver();
 /**
  * Peer class for managing WebRTC peer connections and signaling.
  * 
+ * @group Peers
  * @example
  * ```javascript
  * // create a new peer
