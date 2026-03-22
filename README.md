@@ -242,7 +242,7 @@ const peer = new Peer({
 
 ### Open Source License
 
-PEERIX is a decentralized peer-to-peer communication library.
+Peerix is a WebRTC peer-to-peer JavaScript/TypeScript library.
 
 Copyright (C) 2026 Peerix
 
