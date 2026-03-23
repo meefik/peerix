@@ -3,10 +3,11 @@
 It is a peer-to-peer media and data sharing JavaScript library. Peerix uses WebRTC for peer-to-peer communication and relies on a signaling mechanism to facilitate peer discovery and connection management. The library abstracts away the complexities of WebRTC and provides a minimalistic API for developers to create real-time applications with media streaming and data sharing capabilities.
 
 Read the full documentation and API reference on the official website:
-- [Documentation](https://peerix.dev/docs)
-- [API Reference](https://api.peerix.dev)
-- [Discussions](https://github.com/peerix-dev/peerix/discussions)
-- [Issues](https://github.com/peerix-dev/peerix/issues)
+- 📚 [Documentation](https://peerix.dev/docs)
+- 📑 [API Reference](https://api.peerix.dev)
+- 💻 [Source Code](https://github.com/peerix-dev/peerix)
+- 👾 [Issues](https://github.com/peerix-dev/peerix/issues)
+- 💬 [Discussions](https://github.com/peerix-dev/peerix/discussions)
 
 ## How It Works
 

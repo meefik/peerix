@@ -28,13 +28,14 @@
     "dev": "vite dev",
     "build": "vite build && tsc --emitDeclarationOnly",
     "test": "playwright test",
-    "docs": "typedoc --out docs src --plugin typedoc-plugin-mermaid --name 'API Reference'"
+    "docs": "typedoc && cat docs/globals.md > docs/llms.txt && cat docs/README.md docs/**/*.md > docs/llms-full.txt"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
     "@types/node": "^25.5.0",
-    "typedoc": "^0.28.17",
+    "typedoc": "^0.28.18",
+    "typedoc-plugin-markdown": "^4.11.0",
     "typedoc-plugin-mermaid": "^1.12.0",
-    "vite": "^8.0.0"
+    "vite": "^8.0.2"
   }
 }
