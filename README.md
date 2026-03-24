@@ -1,6 +1,6 @@
 # Peerix
 
-It is a peer-to-peer media and data sharing JavaScript library. Peerix uses WebRTC for peer-to-peer communication and relies on a signaling mechanism to facilitate peer discovery and connection management. The library abstracts away the complexities of WebRTC and provides a minimalistic API for developers to create real-time applications with media streaming and data sharing capabilities.
+Peerix is a peer-to-peer media and data sharing JavaScript library. Peerix uses WebRTC for peer-to-peer communication and relies on a signaling mechanism to facilitate peer discovery and connection management. The library abstracts away the complexities of WebRTC and provides a minimalistic API for developers to create real-time applications with media streaming and data sharing capabilities.
 
 Read the full documentation and API reference on the official website:
 - 📚 [Documentation](https://peerix.dev/docs)
@@ -11,9 +11,7 @@ Read the full documentation and API reference on the official website:
 
 ## How It Works
 
-Peerix is a front-end library that runs entirely in the browser, which allows for low-latency media streaming and data sharing between peers. The library abstracts away the complexities of WebRTC and provides a simple API for developers to create real-time peer-to-peer applications with media streaming and data sharing capabilities.
-
-It is designed to work in a decentralized manner, allowing peers to connect directly to each other without relying on a central server for media relay. However, it does require a signaling server for peers to discover each other and establish connections. You can use various built-in signaling drivers, or you can implement your own custom driver to fit your application's needs.
+Peerix is a front-end library that runs entirely in the browser, which allows for low-latency media streaming and data sharing between peers. It is designed to work in a decentralized manner, allowing peers to connect directly to each other without relying on a central server for media relay. However, it does require a signaling server for peers to discover each other and establish connections. You can use various built-in signaling drivers, or you can implement your own custom driver to fit your application's needs.
 
 Peerix uses ICE (Interactive Connectivity Establishment) to establish peer-to-peer connections. You can use public STUN servers for NAT traversal. However, for better connectivity and performance, especially in restrictive network environments, it is recommended to use your own TURN server or a third-party TURN service.
 
@@ -84,6 +82,9 @@ peer.join({
 // later, if you want to leave the room
 // peer.leave();
 ```
+
+> [!NOTE]
+> The room identifier can be any string, but it should be the same for all peers that want to connect with each other.
 
 Work with data channels to exchange messages with other peers:
 
@@ -169,11 +170,6 @@ Peerix supports multiple signaling drivers for peer discovery and connection man
 - `MemoryDriver`: A simple in-memory driver for testing and development. It allows several peer instances to discover each other within one browser page.
 - `BroadcastChannelDriver`: Uses the BroadcastChannel API for communication between tabs in the same browser.
 - `NatsDriver`: Uses [NATS](https://nats.io/) messaging system for communication between peers across different browsers and devices over the internet. It supports E2EE to protect the privacy of signaling messages and is recommended for production applications.
-
-We also plan to add more built-in drivers in the future, such as:
-- `WebSocketDriver`: A simple [WebSocket](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket)-based driver that can be used with any WebSocket server. This driver is useful for applications that already have a WebSocket backend in place or for those who want to implement their own custom signaling server.
-- `SocketIoDriver`: A driver that uses [Socket.IO](https://socket.io/) for signaling. This driver is suitable for applications that use Socket.IO for real-time communication and want to integrate Peerix with their existing Socket.IO infrastructure.
-- `SupabaseDriver`: A driver that uses [Supabase](https://supabase.com/realtime)'s real-time features for signaling. This driver is ideal for applications that use Supabase as their backend and want to leverage its real-time capabilities for peer discovery and connection management.
 
 You can also implement your own custom signaling driver by adhering to the following interface:
 
