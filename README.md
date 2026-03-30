@@ -54,7 +54,7 @@ const peer = new Peer({ driver });
 peer.on('state', (e) => {
   const { remote, state } = e;
   console.log(
-    'Connected to peer:', remote.id, 
+    'State changed for peer:', remote.id, 
     'with metadata:', remote.metadata,
     'state:', state
   );
@@ -129,9 +129,9 @@ Work with media streams to share audio and video with other peers:
 peer.on('publish', (e) => {
   const { remote, stream, track } = e;
   console.log(
-    'Peer published a track:', track.id,
-    'in stream:', stream.id,
-    'from peer:', remote.id
+    'Peer:', remote.id,
+    'published a track:', track.id,
+    'in stream:', stream.id
   );
 });
 
@@ -139,9 +139,9 @@ peer.on('publish', (e) => {
 peer.on('unpublish', (e) => {
   const { remote, stream, track } = e;
   console.log(
-    'Peer unpublished a track:', track.id,
-    'from stream:', stream.id,
-    'from peer:', remote.id
+    'Peer:', remote.id,
+    'unpublished a track:', track.id,
+    'from stream:', stream.id
   );
 });
 
