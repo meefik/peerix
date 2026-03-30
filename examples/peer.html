@@ -83,7 +83,7 @@
 
     const driver = new BroadcastChannelDriver('peerix-demo');
 
-    const peer = new Peer(driver);
+    const peer = new Peer({ driver });
 
     const events = document.getElementById('events');
     const log = (message) => {
@@ -164,20 +164,20 @@
     const openButton = document.getElementById('open');
     openButton.addEventListener('click', () => {
       const channel = document.getElementById('channel').value;
-      peer.open(+channel);
+      peer.open({ id: +channel });
     });
 
     const closeButton = document.getElementById('close');
     closeButton.addEventListener('click', () => {
       const channel = document.getElementById('channel').value;
-      peer.close(+channel);
+      peer.close({ id: +channel });
     });
 
     const sendButton = document.getElementById('send');
     sendButton.addEventListener('click', () => {
       const channel = document.getElementById('send-channel').value;
       const message = document.getElementById('message').value;
-      if (channel) peer.send(message, +channel);
+      if (channel) peer.send(message, { id: +channel });
       else peer.send(message);
     });
 

@@ -215,7 +215,7 @@ export interface PeerEvents {
   /**
    * Emitted when a remote peer unpublishes a media stream.
    */
-  unpublish: [{ remote: RemotePeer; stream: MediaStream; track?: MediaStreamTrack }];
+  unpublish: [{ remote: RemotePeer; stream: MediaStream; track: MediaStreamTrack }];
   /**
    * Emitted when a data channel is opened.
    */
