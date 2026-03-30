@@ -1,6 +1,13 @@
 import type { SignalingDriver } from './signaling.js';
 
 /**
+ * Possible peer connection states.
+ * 
+ * @group Peers
+ */
+export type PeerConnectionState = 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
+
+/**
  * Configuration options for creating a {@link Peer} instance.
  * 
  * @group Peers
@@ -46,13 +53,6 @@ export interface PeerOptions {
    */
   verify?: (options: { id: string; metadata?: any }) => Promise<boolean> | boolean;
 }
-
-/**
- * Possible peer connection states.
- * 
- * @group Peers
- */
-export type PeerConnectionState = 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
 
 /**
  * Runtime state for one connected remote peer.
@@ -204,14 +204,6 @@ export interface SendOptions {
  * @group Peers
  */
 export interface PeerEvents {
-  /**
-   * Emitted when a remote peer creates a new connection.
-   */
-  join: [{ remote: RemotePeer }];
-  /**
-   * Emitted when a remote peer leaves the room and disconnects.
-   */
-  leave: [{ remote: RemotePeer }];
   /**
    * Emitted when a remote peer connection state changes.
    */

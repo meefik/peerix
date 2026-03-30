@@ -8,6 +8,16 @@ import log from './utils/logger.js';
 // All peers without a driver will share the same in-memory signaling bus
 const defaultDriver = new MemoryDriver();
 
+// Mapping of WebRTC connection states
+// This is used for browsers that don't support connectionState and only have iceConnectionState
+const stateMap: { [key: string]: PeerConnectionState } = {
+  'checking': 'connecting',
+  'connected': 'connected',
+  'disconnected': 'disconnected',
+  'failed': 'failed',
+  'closed': 'closed',
+};
+
 /**
  * Peer class for managing WebRTC peer connections and signaling.
  * 
@@ -35,7 +45,7 @@ const defaultDriver = new MemoryDriver();
  * peer.open({ id: 0 });
  *
  * // join a room
- * peer.join('room-id');
+ * peer.join({ room: 'room-id' });
  * ```
  */
 export class Peer {
@@ -163,21 +173,25 @@ export class Peer {
       });
       const dispose = () => {
         if (!this.connections.has(id)) return;
+        this.connections.delete(id);
         clearTimeout(timeout);
 
-        this.connections.delete(id);
-
+        const prevState = remote.state;
         channels.forEach(channel => channel?.close());
         connection?.close();
+        const newState = remote.state;
 
         this._candidateQueues.delete(id);
 
+        // TODO: silent when remote peer sent 'leave' signal
         this.driver.emit([this.room, id], {
           type: 'leave',
           id: this.id,
         });
 
-        this.emit('leave', { remote });
+        if (prevState !== newState) {
+          this.emit('state', { remote, state: newState });
+        }
       };
 
       const remote: RemotePeer = {
@@ -189,6 +203,12 @@ export class Peer {
         channels,
         dispose,
       };
+      Object.defineProperty(remote, 'state', {
+        get() {
+          return connection.connectionState || stateMap[connection.iceConnectionState] || 'new';
+        },
+        enumerable: true,
+      });
 
       const timeout = this.connectionTimeout > 0 ? setTimeout(
         () => {
@@ -200,17 +220,9 @@ export class Peer {
       ) : undefined;
 
       const isConnectionStateSupported = typeof connection.connectionState !== 'undefined';
-      const stateMap: { [key: string]: PeerConnectionState } = {
-        'checking': 'connecting',
-        'connected': 'connected',
-        'disconnected': 'disconnected',
-        'failed': 'failed',
-        'closed': 'closed',
-      };
       if (isConnectionStateSupported) {
         connection.addEventListener('connectionstatechange', (e) => {
           const { connectionState } = e.target as RTCPeerConnection;
-          remote.state = connectionState;
           this.emit('state', { remote, state: connectionState });
         });
       }
@@ -235,8 +247,8 @@ export class Peer {
 
         // fallback for browsers that don't support connectionState
         if (!isConnectionStateSupported) {
-          remote.state = stateMap[iceConnectionState] || 'new';
-          this.emit('state', { remote, state: remote.state });
+          const state = stateMap[iceConnectionState] || 'new';
+          this.emit('state', { remote, state });
         }
       });
 
@@ -335,6 +347,8 @@ export class Peer {
         }
       }
 
+      this.emit('state', { remote, state: remote.state });
+
       return remote;
     };
 
@@ -362,8 +376,6 @@ export class Peer {
 
           const remote = createRemote(id, metadata);
           this.connections.set(id, remote);
-
-          this.emit('join', { remote });
 
           if (!hasLocalData) {
             const { connection } = remote;
@@ -395,8 +407,6 @@ export class Peer {
             remote = createRemote(id, metadata);
             this.connections.set(id, remote);
           }
-
-          this.emit('join', { remote });
 
           const { connection } = remote;
           await connection.setRemoteDescription(data);

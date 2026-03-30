@@ -19,8 +19,8 @@ Here is a high-level overview of the Peerix architecture:
 
 ```mermaid
 graph TD
-  PX{{Peerix}} --> SD(Signaling Driver)
-  SD --> SS[Signaling Server]
+  PX{{Peerix}} --> SD(Signaling Drivers)
+  SD --> SS[Signaling Servers]
   PX --> ICE[STUN/TURN Servers]
   PX --> PC(Peers)
   PC --> LCE(Lifecycle Events)
@@ -50,20 +50,13 @@ const driver = new BroadcastChannelDriver();
 // create the Peer instance
 const peer = new Peer({ driver });
 
-// listen for peer connections
-peer.on('join', (e) => {
-  const { remote } = e;
+// listen for peer connection state changes
+peer.on('state', (e) => {
+  const { remote, state } = e;
   console.log(
     'Connected to peer:', remote.id, 
-    'with metadata:', remote.metadata
-  );
-});
-
-// listen for peer disconnections
-peer.on('leave', (e) => {
-  const { remote } = e;
-  console.log(
-    'Disconnected from peer:', remote.id
+    'with metadata:', remote.metadata,
+    'state:', state
   );
 });
 
