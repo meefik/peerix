@@ -214,7 +214,7 @@ export class Peer {
         () => {
           dispose();
           const error = new Error('Connection timeout');
-          this.emit('error', { remote, error });
+          this.emit('error', { remote, error, code: 'CONNECTION_TIMEOUT' });
         },
         this.connectionTimeout * 1000,
       ) : undefined;
@@ -239,7 +239,7 @@ export class Peer {
         else if (iceConnectionState === 'failed') {
           dispose();
           const error = new Error('ICE connection failed');
-          this.emit('error', { remote, error });
+          this.emit('error', { remote, error, code: 'ICE_CONNECTION_FAILED' });
         }
         else if (iceConnectionState === 'closed') {
           dispose();
@@ -279,7 +279,7 @@ export class Peer {
         }
         catch (error) {
           dispose();
-          this.emit('error', { remote, error });
+          this.emit('error', { remote, error, code: 'NEGOTIATION_ERROR' });
         }
       });
 
@@ -340,7 +340,7 @@ export class Peer {
             this.emit('message', { remote, channel, data: e.data });
           });
           channel.addEventListener('error', (e) => {
-            this.emit('error', { remote, channel, error: e.error });
+            this.emit('error', { remote, channel, error: e.error, code: 'CHANNEL_ERROR' });
           });
 
           channels.set(id, channel);
@@ -393,7 +393,7 @@ export class Peer {
         catch (error) {
           const remote = this.connections.get(id);
           if (remote) remote.dispose();
-          this.emit('error', { remote, error });
+          this.emit('error', { remote, error, code: 'JOIN_ERROR' });
         }
 
         return;
@@ -418,7 +418,7 @@ export class Peer {
                 await connection.addIceCandidate(candidate);
               }
               catch (error) {
-                this.emit('error', { remote, error });
+                this.emit('error', { remote, error, code: 'CANDIDATE_ERROR' });
               }
             }
             this._candidateQueues.delete(id);
@@ -436,7 +436,7 @@ export class Peer {
         catch (error) {
           const remote = this.connections.get(id);
           if (remote) remote.dispose();
-          this.emit('error', { remote, error });
+          this.emit('error', { remote, error, code: 'OFFER_ERROR' });
         }
 
         return;
@@ -454,7 +454,7 @@ export class Peer {
         }
         catch (error) {
           remote.dispose();
-          this.emit('error', { remote, error });
+          this.emit('error', { remote, error, code: 'ANSWER_ERROR' });
           return;
         }
 
@@ -465,7 +465,7 @@ export class Peer {
               await connection.addIceCandidate(candidate);
             }
             catch (error) {
-              this.emit('error', { remote, error });
+              this.emit('error', { remote, error, code: 'CANDIDATE_ERROR' });
             }
           }
           this._candidateQueues.delete(id);
@@ -490,7 +490,7 @@ export class Peer {
           await connection.addIceCandidate(data);
         }
         catch (error) {
-          this.emit('error', { remote, error });
+          this.emit('error', { remote, error, code: 'CANDIDATE_ERROR' });
         }
 
         return;
@@ -575,8 +575,6 @@ export class Peer {
       }
     }
 
-    if (!this.active) return;
-
     const { audioBitrate, videoBitrate, filter } = opts;
 
     for (const remote of this.connections.values()) {
@@ -640,8 +638,6 @@ export class Peer {
       }
     }
 
-    if (!this.active) return;
-
     for (const remote of this.connections.values()) {
       const { connection } = remote;
       const senders = connection.getSenders();
@@ -667,8 +663,6 @@ export class Peer {
 
     const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
     this.channels.set(id, { id, ...opts });
-
-    if (!this.active) return;
 
     const { label = '', filter, ...channelOptions } = (opts as ChannelOptions);
 
@@ -696,7 +690,7 @@ export class Peer {
         this.emit('message', { remote, channel, data: e.data });
       });
       channel.addEventListener('error', (e) => {
-        this.emit('error', { remote, channel, error: e.error });
+        this.emit('error', { remote, channel, error: e.error, code: 'CHANNEL_ERROR' });
       });
 
       remote.channels.set(id, channel);
@@ -724,8 +718,6 @@ export class Peer {
       ? options : { id: options };
 
     this.channels.delete(id);
-
-    if (!this.active) return;
 
     for (const remote of this.connections.values()) {
       const channel = remote.channels.get(id);
@@ -763,7 +755,7 @@ export class Peer {
           channel.send(message);
         }
       }
-      else if (!options) {
+      else {
         for (const channel of remote.channels.values()) {
           if (channel && channel.readyState === 'open') {
             if (label && channel.label !== label) continue;

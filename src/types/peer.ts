@@ -231,5 +231,5 @@ export interface PeerEvents {
   /**
    * Emitted when an error occurs with a remote peer connection or channel.
    */
-  error: [{ remote?: RemotePeer; channel?: RTCDataChannel; error: any }];
+  error: [{ remote?: RemotePeer; channel?: RTCDataChannel; error: any; code?: string }];
 }
