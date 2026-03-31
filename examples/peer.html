@@ -15,6 +15,7 @@
       width: 120px;
       height: 90px;
       border: 1px solid #ccc;
+      background-color: #333;
     }
 
     #streams {
@@ -31,6 +32,9 @@
       border: 1px solid #ccc;
       height: 200px;
       overflow-y: auto;
+      font-family: monospace;
+      font-size: 0.9em;
+      scroll-behavior: smooth;
     }
   </style>
 </head>
@@ -90,6 +94,7 @@
       const el = document.createElement('div');
       el.textContent = message;
       events.appendChild(el);
+      events.scrollTop = events.scrollHeight;
     };
     const streams = document.getElementById('streams');
     const addStream = (stream) => {
@@ -110,45 +115,46 @@
 
     peer.on('state', (e) => {
       const { remote, state } = e;
-      log(`state change with peer ${remote.id}: ${state}`);
+      log(`event: state, peer: ${remote.id}, state: ${state}`);
     });
 
     peer.on('error', (e) => {
       const { remote, channel, error, code } = e;
-      log(`error with peer ${remote?.id} on channel ${channel?.id}: ${code} ${error.message}`);
+      log(`event: error, peer: ${remote?.id}, channel: ${channel?.id}, code: ${code}, error: ${error.message}`);
     });
 
     peer.on('open', (e) => {
       const { remote, channel } = e;
-      log(`open channel ${channel.id} with peer ${remote.id}`);
+      log(`event: open, peer: ${remote.id}, channel: ${channel.id}`);
     });
 
     peer.on('close', (e) => {
       const { remote, channel } = e;
-      log(`close channel ${channel.id} with peer ${remote.id}`);
+      log(`event: close, peer: ${remote.id}, channel: ${channel.id}`);
     });
 
     peer.on('message', (e) => {
       const { remote, channel, data } = e;
-      log(`message from peer ${remote.id} on channel ${channel.id}: ${data}`);
+      log(`event: message, peer: ${remote.id}, channel: ${channel.id}, data: ${data}`);
     });
 
     peer.on('publish', (e) => {
       const { remote, stream, track } = e;
-      log(`peer ${remote.id} published a track ${track.id} to stream ${stream.id}`);
+      log(`event: publish, peer: ${remote.id}, track: ${track.id}, stream: ${stream.id}`);
       addStream(stream);
     });
 
     peer.on('unpublish', (e) => {
       const { remote, stream, track } = e;
-      log(`peer ${remote.id} unpublished a track ${track.id} from stream ${stream.id}`);
+      log(`event: unpublish, peer: ${remote.id}, track: ${track.id}, stream: ${stream.id}`);
       const isEmpty = !stream.getTracks().length;
       if (isEmpty) removeStream(stream);
     });
 
     const joinButton = document.getElementById('join');
     joinButton.addEventListener('click', () => {
-      peer.join('demo');
+      const room = document.getElementById('room').value;
+      if (room) peer.join({ room });
     });
 
     const leaveButton = document.getElementById('leave');
@@ -159,13 +165,13 @@
     const openButton = document.getElementById('open');
     openButton.addEventListener('click', () => {
       const channel = document.getElementById('channel').value;
-      peer.open({ id: +channel });
+      if (channel) peer.open({ id: +channel });
     });
 
     const closeButton = document.getElementById('close');
     closeButton.addEventListener('click', () => {
       const channel = document.getElementById('channel').value;
-      peer.close({ id: +channel });
+      if (channel) peer.close({ id: +channel });
     });
 
     const sendButton = document.getElementById('send');

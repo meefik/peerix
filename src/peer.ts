@@ -1,5 +1,5 @@
 import type { SignalingDriver } from './types/signaling.js';
-import type { PeerOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents, PeerConnectionState } from './types/peer.js';
+import type { PeerOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents } from './types/peer.js';
 import { MemoryDriver } from './drivers/memory.js';
 import EventEmitter from './utils/emitter.js';
 import { UUIDv4, setPeerConnectionBitrate } from './utils/helpers.js';
@@ -7,16 +7,6 @@ import log from './utils/logger.js';
 
 // All peers without a driver will share the same in-memory signaling bus
 const defaultDriver = new MemoryDriver();
-
-// Mapping of WebRTC connection states
-// This is used for browsers that don't support connectionState and only have iceConnectionState
-const stateMap: { [key: string]: PeerConnectionState } = {
-  'checking': 'connecting',
-  'connected': 'connected',
-  'disconnected': 'disconnected',
-  'failed': 'failed',
-  'closed': 'closed',
-};
 
 /**
  * Peer class for managing WebRTC peer connections and signaling.
@@ -105,6 +95,11 @@ export class Peer {
    */
   private _candidateQueues: Map<string, any[]>;
   /**
+   * Set of peer ids for which a local offer is being created 
+   * to handle glare scenarios.
+   */
+  private _makingOffer: Set<string>;
+  /**
    * Active signaling handler registered on the signaling driver.
    */
   private _signal: undefined | ((e: any) => void);
@@ -139,6 +134,7 @@ export class Peer {
     this.addons = new Set();
     this._emitter = new EventEmitter<PeerEvents>(this);
     this._candidateQueues = new Map();
+    this._makingOffer = new Set();
     this._verify = verify;
   }
 
@@ -171,27 +167,26 @@ export class Peer {
         iceServers: this.iceServers,
         iceTransportPolicy: this.iceTransportPolicy,
       });
-      const dispose = () => {
+      const dispose = ({ silent = false } = {}) => {
         if (!this.connections.has(id)) return;
         this.connections.delete(id);
         clearTimeout(timeout);
 
-        const prevState = remote.state;
+        this._candidateQueues.delete(id);
+        this._makingOffer.delete(id);
+
         channels.forEach(channel => channel?.close());
         connection?.close();
-        const newState = remote.state;
+        remote.state = 'closed';
 
-        this._candidateQueues.delete(id);
-
-        // TODO: silent when remote peer sent 'leave' signal
-        this.driver.emit([this.room, id], {
-          type: 'leave',
-          id: this.id,
-        });
-
-        if (prevState !== newState) {
-          this.emit('state', { remote, state: newState });
+        if (!silent) {
+          this.driver.emit([this.room, id], {
+            type: 'leave',
+            id: this.id,
+          });
         }
+
+        this.emit('state', { remote, state: 'closed' });
       };
 
       const remote: RemotePeer = {
@@ -203,12 +198,6 @@ export class Peer {
         channels,
         dispose,
       };
-      Object.defineProperty(remote, 'state', {
-        get() {
-          return connection.connectionState || stateMap[connection.iceConnectionState] || 'new';
-        },
-        enumerable: true,
-      });
 
       const timeout = this.connectionTimeout > 0 ? setTimeout(
         () => {
@@ -219,36 +208,35 @@ export class Peer {
         this.connectionTimeout * 1000,
       ) : undefined;
 
-      const isConnectionStateSupported = typeof connection.connectionState !== 'undefined';
-      if (isConnectionStateSupported) {
-        connection.addEventListener('connectionstatechange', (e) => {
-          const { connectionState } = e.target as RTCPeerConnection;
-          this.emit('state', { remote, state: connectionState });
-        });
-      }
-
       connection.addEventListener('iceconnectionstatechange', (e) => {
         const { iceConnectionState } = e.target as RTCPeerConnection;
 
-        if (iceConnectionState === 'connected') {
+        if (iceConnectionState === 'checking') {
+          const state = 'connecting';
+          remote.state = state;
+          this.emit('state', { remote, state });
+        }
+        else if (iceConnectionState === 'connected') {
           clearTimeout(timeout);
+          const state = 'connected';
+          remote.state = state;
+          this.emit('state', { remote, state });
         }
         else if (iceConnectionState === 'disconnected') {
+          const state = 'disconnected';
+          remote.state = state;
+          this.emit('state', { remote, state });
           dispose();
         }
         else if (iceConnectionState === 'failed') {
+          const state = 'failed';
+          remote.state = state;
+          this.emit('state', { remote, state });
           dispose();
-          const error = new Error('ICE connection failed');
-          this.emit('error', { remote, error, code: 'ICE_CONNECTION_FAILED' });
         }
         else if (iceConnectionState === 'closed') {
+          remote.state = 'closed';
           dispose();
-        }
-
-        // fallback for browsers that don't support connectionState
-        if (!isConnectionStateSupported) {
-          const state = stateMap[iceConnectionState] || 'new';
-          this.emit('state', { remote, state });
         }
       });
 
@@ -267,6 +255,8 @@ export class Peer {
 
       connection.addEventListener('negotiationneeded', async () => {
         try {
+          this._makingOffer.add(id);
+
           const offer = await connection.createOffer();
           await connection.setLocalDescription(offer);
 
@@ -280,6 +270,9 @@ export class Peer {
         catch (error) {
           dispose();
           this.emit('error', { remote, error, code: 'NEGOTIATION_ERROR' });
+        }
+        finally {
+          this._makingOffer.delete(id);
         }
       });
 
@@ -318,8 +311,8 @@ export class Peer {
       }
 
       if (this.channels.size > 0) {
-        for (let [id, options] of this.channels.entries()) {
-          const { label = '', filter, ...channelOptions } = options || {};
+        for (let [channelId, channelOptions] of this.channels.entries()) {
+          const { label = '', filter, ...channelRestOptions } = channelOptions || {};
 
           if (typeof filter === 'function') {
             const allowed = filter({ remote });
@@ -328,7 +321,7 @@ export class Peer {
 
           const channel = connection.createDataChannel(
             label,
-            { ...channelOptions, negotiated: true, id: id || 0 },
+            { ...channelRestOptions, negotiated: true, id: channelId || 0 },
           );
           channel.addEventListener('open', () => {
             this.emit('open', { remote, channel });
@@ -343,7 +336,7 @@ export class Peer {
             this.emit('error', { remote, channel, error: e.error, code: 'CHANNEL_ERROR' });
           });
 
-          channels.set(id, channel);
+          channels.set(channelId, channel);
         }
       }
 
@@ -373,21 +366,34 @@ export class Peer {
 
             if (!verified) return;
           }
+        } catch (error) {
+          this.emit('error', { error, code: 'VERIFY_ERROR' });
+          return;
+        }
 
+        try {
           const remote = createRemote(id, metadata);
           this.connections.set(id, remote);
 
           if (!hasLocalData) {
             const { connection } = remote;
-            const offer = await connection.createOffer();
-            await connection.setLocalDescription(offer);
 
-            this.driver.emit([this.room, id], {
-              type: 'offer',
-              id: this.id,
-              data: offer,
-              metadata: this.metadata,
-            });
+            try {
+              this._makingOffer.add(id);
+
+              const offer = await connection.createOffer();
+              await connection.setLocalDescription(offer);
+
+              this.driver.emit([this.room, id], {
+                type: 'offer',
+                id: this.id,
+                data: offer,
+                metadata: this.metadata,
+              });
+            }
+            finally {
+              this._makingOffer.delete(id);
+            }
           }
         }
         catch (error) {
@@ -409,6 +415,18 @@ export class Peer {
           }
 
           const { connection } = remote;
+
+          // Glare resolution (perfect negotiation): when both peers send offers
+          // simultaneously, break the tie by peer ID — the peer with the greater
+          // ID is "polite" and rolls back its own offer; the other ignores the
+          // incoming offer and waits for the remote to answer.
+          // Also check makingOffer: negotiationneeded may be mid-flight (between
+          // its stable check and setLocalDescription) so signalingState is still
+          // 'stable' even though a local offer is being prepared.
+          const isPolite = this.id > id;
+          const offerCollision = connection.signalingState !== 'stable' || this._makingOffer.has(id);
+          if (offerCollision && !isPolite) return;
+
           await connection.setRemoteDescription(data);
 
           // add queued candidates
@@ -501,7 +519,7 @@ export class Peer {
         const remote = this.connections.get(id);
 
         if (remote) {
-          remote.dispose();
+          remote.dispose({ silent: true });
         }
 
         return;
@@ -536,6 +554,7 @@ export class Peer {
     this.connections.clear();
 
     this._candidateQueues.clear();
+    this._makingOffer.clear();
 
     delete this._signal;
 
@@ -607,7 +626,7 @@ export class Peer {
       }
     }
 
-    if (!hasLocalData) {
+    if (!hasLocalData && this.active) {
       this.driver.emit([this.room], {
         type: 'join',
         id: this.id,
@@ -696,7 +715,7 @@ export class Peer {
       remote.channels.set(id, channel);
     }
 
-    if (!hasLocalData) {
+    if (!hasLocalData && this.active) {
       this.driver.emit([this.room], {
         type: 'join',
         id: this.id,

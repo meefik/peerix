@@ -49,6 +49,16 @@ export interface PeerOptions {
    */
   connectionTimeout?: number;
   /**
+   * Whether to keep the connection alive indefinitely.
+   * If true, the connection will not be closed automatically.
+   */
+  keepConnection?: boolean;
+  /**
+   * Reconnection interval in seconds after an unexpected disconnection.
+   * By default, it is set to 30 seconds. Use 0 to disable automatic reconnection.
+   */
+  reconnectInterval?: number;
+  /**
    * Optional callback to accept or reject incoming peer connections.
    */
   verify?: (options: { id: string; metadata?: any }) => Promise<boolean> | boolean;
@@ -86,8 +96,11 @@ export interface RemotePeer {
   channels: Map<number, RTCDataChannel>;
   /**
    * Cleanup routine that closes channel and connection resources.
+   * 
+   * @param options Optional settings for disposing the remote peer.
+   * @param options.silent If true, suppresses emitting a 'leave' message via the signaling driver.
    */
-  dispose: () => void;
+  dispose: (options?: { silent?: boolean }) => void;
 }
 
 /**
