@@ -108,19 +108,14 @@
       }
     };
 
-    peer.on('join', (e) => {
-      const { remote } = e;
-      log(`join with peer ${remote.id}`);
-    });
-
-    peer.on('leave', (e) => {
-      const { remote } = e;
-      log(`leave with peer ${remote.id}`);
+    peer.on('state', (e) => {
+      const { remote, state } = e;
+      log(`state change with peer ${remote.id}: ${state}`);
     });
 
     peer.on('error', (e) => {
-      const { remote, channel, error } = e;
-      log(`error with peer ${remote?.id} on channel ${channel?.id}: ${error.message}`);
+      const { remote, channel, error, code } = e;
+      log(`error with peer ${remote?.id} on channel ${channel?.id}: ${code} ${error.message}`);
     });
 
     peer.on('open', (e) => {
@@ -140,13 +135,13 @@
 
     peer.on('publish', (e) => {
       const { remote, stream, track } = e;
-      log(`peer ${remote.id} published a stream: ${stream.id} with track ${track.id}`);
+      log(`peer ${remote.id} published a track ${track.id} to stream ${stream.id}`);
       addStream(stream);
     });
 
     peer.on('unpublish', (e) => {
       const { remote, stream, track } = e;
-      log(`peer ${remote.id} unpublished a stream: ${stream.id} with track ${track.id}`);
+      log(`peer ${remote.id} unpublished a track ${track.id} from stream ${stream.id}`);
       const isEmpty = !stream.getTracks().length;
       if (isEmpty) removeStream(stream);
     });
