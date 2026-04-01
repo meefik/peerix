@@ -349,4 +349,180 @@ test('data channels', async ({ page }) => {
 test('media streams', async ({ page }) => {
   await page.goto('./tests/sandbox.html');
 
+  // User gesture is required to use AudioContext in some browsers
+  await page.click('body');
+
+  if (DEBUG) {
+    page.on('console', (msg) => {
+      console.log(`CONSOLE: ${msg.text()}`);
+    });
+  }
+
+  const [peer1, peer2] = await page.evaluate(async () => {
+    const { Peer } = await import('../src/index.js');
+
+    localStorage.debug = 'peerix:*';
+
+    const createSyntheticMediaStream = ({ width = 640, height = 360, video = true, audio = true } = {}) => {
+      const tracks = [];
+      let draw = () => { };
+
+      // 1. Generate the Video Stream (using Canvas)
+      if (video) {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          throw new Error('Failed to create canvas context');
+        }
+
+        // Simple animation loop to make the video "active"
+        draw = () => {
+          ctx.fillStyle = 'black';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = 'lime';
+          ctx.font = `${Math.min(canvas.width, canvas.height) * 0.08}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.fillText(`Synthetic Feed: ${new Date().toLocaleTimeString()}`, canvas.width / 2, canvas.height / 2);
+          if (syntheticStream?.active) {
+            requestAnimationFrame(draw);
+          }
+        }
+
+        // Capture the canvas at 15 frames per second
+        const videoStream = canvas.captureStream(15);
+
+        tracks.push(...videoStream.getVideoTracks());
+      }
+
+      // 2. Generate the Audio Stream (using Web Audio API)
+      if (audio) {
+        const audioCtx = new window.AudioContext();
+        const oscillator = audioCtx.createOscillator();
+        const dst = audioCtx.createMediaStreamDestination();
+
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // A4 note
+        oscillator.connect(dst);
+        oscillator.start();
+
+        tracks.push(...dst.stream.getAudioTracks());
+      }
+
+      // 3. Combine into a single MediaStream
+      const syntheticStream = new MediaStream(tracks);
+
+      draw();
+
+      return syntheticStream;
+    };
+
+    const peer1 = new Peer({ id: '1' });
+    const peer2 = new Peer({ id: '2' });
+
+    const createPeerPromise = (peer: Peer) => {
+      const stack = [] as any[];
+
+      return Promise.all([
+        // track published event
+        new Promise((resolve: (value: any) => void) => peer.on('publish', (e) => {
+          const { remote, stream, track } = e;
+
+          stack.push({
+            event: 'publish',
+            remote: { id: remote.id, metadata: remote.metadata },
+            stream: {
+              active: stream.active,
+              videoTracks: stream.getVideoTracks().length,
+              audioTracks: stream.getAudioTracks().length,
+            },
+            track: {
+              kind: track.kind,
+              enabled: track.enabled,
+              readyState: track.readyState
+            },
+          });
+
+          if (stack.length >= 2) {
+            resolve({ peer: peer.id, stack });
+          }
+        })),
+        // track unpublished event
+        // new Promise((resolve: (value: any) => void) => peer.on('unpublish', (e) => {
+        //   const { remote, stream, track } = e;
+        //   resolve({
+        //     event: 'unpublish',
+        //     remote: { id: remote.id, metadata: remote.metadata },
+        //     stream: {
+        //       id: stream.id,
+        //       active: stream.active,
+        //       videoTracks: stream.getVideoTracks().length,
+        //       audioTracks: stream.getAudioTracks().length,
+        //     },
+        //     track: { kind: track.kind, enabled: track.enabled, readyState: track.readyState },
+        //   });
+        // })),
+      ]);
+    };
+
+    const peer1Promise = createPeerPromise(peer1);
+    const peer2Promise = createPeerPromise(peer2);
+
+    const stream1 = createSyntheticMediaStream({ width: 640, height: 360, video: true, audio: true });
+    const stream2 = createSyntheticMediaStream({ width: 640, height: 360, video: true, audio: true });
+
+    await Promise.all([
+      peer1.publish({ id: 'stream1', stream: stream1, managed: true }),
+      peer2.publish({ id: 'stream2', stream: stream2, managed: true }),
+    ]);
+
+    await Promise.all([
+      peer1.join({ room: 'test', metadata: { name: 'peer1' } }),
+      peer2.join({ room: 'test', metadata: { name: 'peer2' } }),
+    ]);
+
+    return [await peer1Promise, await peer2Promise];
+  });
+
+  expect({ peer1, peer2 }).toEqual({
+    peer1: [
+      {
+        peer: '1',
+        stack: [
+          {
+            event: 'publish',
+            remote: { id: '2', metadata: { name: 'peer2' } },
+            stream: { active: true, videoTracks: 1, audioTracks: 1 },
+            track: { kind: 'audio', enabled: true, readyState: 'live' },
+          },
+          {
+            event: 'publish',
+            remote: { id: '2', metadata: { name: 'peer2' } },
+            stream: { active: true, videoTracks: 1, audioTracks: 1 },
+            track: { kind: 'video', enabled: true, readyState: 'live' },
+          },
+        ],
+      },
+    ],
+    peer2: [
+      {
+        peer: '2',
+        stack: [
+          {
+            event: 'publish',
+            remote: { id: '1', metadata: { name: 'peer1' } },
+            stream: { active: true, videoTracks: 1, audioTracks: 1 },
+            track: { kind: 'audio', enabled: true, readyState: 'live' },
+          },
+          {
+            event: 'publish',
+            remote: { id: '1', metadata: { name: 'peer1' } },
+            stream: { active: true, videoTracks: 1, audioTracks: 1 },
+            track: { kind: 'video', enabled: true, readyState: 'live' },
+          },
+        ],
+      },
+    ],
+  });
 });

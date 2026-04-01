@@ -12,7 +12,7 @@
     }
 
     video {
-      width: 120px;
+      width: 160px;
       height: 90px;
       border: 1px solid #ccc;
       background-color: #333;
@@ -68,7 +68,8 @@
       <legend>Streams</legend>
       <button id="publish">Publish</button>
       <button id="unpublish">Unpublish</button>
-      <button id="republish">Re-publish</button>
+      <button id="audio-only">Audio Only</button>
+      <button id="video-only">Video Only</button>
     </label>
 
     <label>
@@ -140,13 +141,13 @@
 
     peer.on('publish', (e) => {
       const { remote, stream, track } = e;
-      log(`event: publish, peer: ${remote.id}, track: ${track.id}, stream: ${stream.id}`);
+      log(`event: publish, peer: ${remote.id}, track: ${track.kind} ${track.id}, stream: ${stream.id}`);
       addStream(stream);
     });
 
     peer.on('unpublish', (e) => {
       const { remote, stream, track } = e;
-      log(`event: unpublish, peer: ${remote.id}, track: ${track.id}, stream: ${stream.id}`);
+      log(`event: unpublish, peer: ${remote.id}, track: ${track.kind} ${track.id}, stream: ${stream.id}`);
       const isEmpty = !stream.getTracks().length;
       if (isEmpty) removeStream(stream);
     });
@@ -184,7 +185,7 @@
 
     const publishButton = document.getElementById('publish');
     publishButton.addEventListener('click', async () => {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = createSyntheticMediaStream({ video: true, audio: true });
       peer.publish({ id: 'default', stream, managed: true });
     });
 
@@ -193,11 +194,72 @@
       peer.unpublish({ id: 'default' });
     });
 
-    const republishButton = document.getElementById('republish');
-    republishButton.addEventListener('click', async () => {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+    const audioOnlyButton = document.getElementById('audio-only');
+    audioOnlyButton.addEventListener('click', async () => {
+      const stream = createSyntheticMediaStream({ video: false, audio: true });
       peer.publish({ id: 'default', stream, managed: true });
     });
+
+    const videoOnlyButton = document.getElementById('video-only');
+    videoOnlyButton.addEventListener('click', async () => {
+      const stream = createSyntheticMediaStream({ video: true, audio: false });
+      peer.publish({ id: 'default', stream, managed: true });
+    });
+
+    function createSyntheticMediaStream({ width = 640, height = 360, video = true, audio = true } = {}) {
+      const tracks = [];
+      let draw = () => { };
+
+      // 1. Generate the Video Stream (using Canvas)
+      if (video) {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          throw new Error('Failed to create canvas context');
+        }
+
+        // Simple animation loop to make the video "active"
+        draw = () => {
+          ctx.fillStyle = 'black';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = 'lime';
+          ctx.font = `${Math.min(canvas.width, canvas.height) * 0.08}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.fillText(`Synthetic Feed: ${new Date().toLocaleTimeString()}`, canvas.width / 2, canvas.height / 2);
+          if (syntheticStream?.active) {
+            requestAnimationFrame(draw);
+          }
+        }
+
+        // Capture the canvas at 15 frames per second
+        const videoStream = canvas.captureStream(15);
+
+        tracks.push(...videoStream.getVideoTracks());
+      }
+
+      // 2. Generate the Audio Stream (using Web Audio API)
+      if (audio) {
+        const audioCtx = new window.AudioContext();
+        const oscillator = audioCtx.createOscillator();
+        const dst = audioCtx.createMediaStreamDestination();
+
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // A4 note
+        oscillator.connect(dst);
+        oscillator.start();
+
+        tracks.push(...dst.stream.getAudioTracks());
+      }
+
+      // 3. Combine into a single MediaStream
+      const syntheticStream = new MediaStream(tracks);
+
+      draw();
+
+      return syntheticStream;
+    }
 
     window.peer = peer; // Expose peer for debugging
   </script>
