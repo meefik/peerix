@@ -6,11 +6,11 @@ const { DEBUG } = process.env;
 test('peer connections', async ({ page }) => {
   await page.goto('./tests/sandbox.html');
 
-  if (DEBUG) {
-    page.on('console', (msg) => {
-      console.log(`CONSOLE: ${msg.text()}`);
-    });
-  }
+  // if (DEBUG) {
+  page.on('console', (msg) => {
+    console.log(`CONSOLE: ${msg.text()}`);
+  });
+  // }
 
   const [peer1, peer2] = await page.evaluate(async () => {
     const { Peer } = await import('../src/index.js');
@@ -78,13 +78,13 @@ test('peer connections', async ({ page }) => {
     const peer2Promise = createPeerPromise(peer2, 2);
 
     await Promise.all([
-      peer1.join({ room: 'test', metadata: { name: 'peer1' } }),
-      peer2.join({ room: 'test', metadata: { name: 'peer2' } }),
+      peer1.open('default'),
+      peer2.open('default'),
     ]);
 
     await Promise.all([
-      peer1.open(0),
-      peer2.open(0),
+      peer1.join({ room: 'test', metadata: { name: 'peer1' } }),
+      peer2.join({ room: 'test', metadata: { name: 'peer2' } }),
     ]);
 
     return [await peer1Promise, await peer2Promise];
@@ -109,16 +109,16 @@ test('peer connections', async ({ page }) => {
 test('data channels', async ({ page }) => {
   await page.goto('./tests/sandbox.html');
 
-  if (DEBUG) {
-    page.on('console', (msg) => {
-      console.log(`CONSOLE: ${msg.text()}`);
-    });
-  }
+  // if (DEBUG) {
+  page.on('console', (msg) => {
+    console.log(`CONSOLE: ${msg.text()}`);
+  });
+  // }
 
   const [peer1, peer2] = await page.evaluate(async () => {
     const { Peer } = await import('../src/index.js');
 
-    localStorage.debug = 'peerix:*';
+    // localStorage.debug = 'peerix:*';
 
     const peer1 = new Peer({ id: '1' });
     const peer2 = new Peer({ id: '2' });
@@ -137,16 +137,13 @@ test('data channels', async ({ page }) => {
             event: 'open',
             channels: peer.channels.size,
             remote: { id: remote.id, metadata: remote.metadata },
-            channel: { id: channel.id, label: channel.label },
+            channel: { label: channel.label },
           });
 
           // wait for all channels to be opened before sending messages
           if (openedChannels.length >= quorum) {
             resolve(openedChannels);
 
-            // send message by channel id
-            peer.send(JSON.stringify({ type: 'by-id', peer: peer.id, channel: 0 }), { id: 0 });
-            peer.send(JSON.stringify({ type: 'by-id', peer: peer.id, channel: 1 }), { id: 1 });
             // send message by channel label
             peer.send(JSON.stringify({ type: 'by-label', peer: peer.id, channel: 'channel0' }), { label: 'channel0' });
             peer.send(JSON.stringify({ type: 'by-label', peer: peer.id, channel: 'channel1' }), { label: 'channel1' });
@@ -162,15 +159,17 @@ test('data channels', async ({ page }) => {
           messages.push({
             event: 'message',
             remote: { id: remote.id, metadata: remote.metadata },
-            channel: { id: channel.id, label: channel.label },
+            channel: { label: channel.label },
             data,
           });
 
           // wait for all messages to be received before resolving
-          if (messages.length >= 6) {
+          if (messages.length >= 4) {
             resolve(messages);
-            peer.close({ id: 0 });
-            peer.close({ id: 1 });
+            Promise.all([
+              peer.close({ label: 'channel0' }),
+              peer.close({ label: 'channel1' }),
+            ]);
           }
         })),
         // data channel close event
@@ -181,7 +180,7 @@ test('data channels', async ({ page }) => {
             event: 'close',
             channels: peer.channels.size,
             remote: { id: remote.id, metadata: remote.metadata },
-            channel: { id: channel.id, label: channel.label },
+            channel: { label: channel.label },
           });
 
           // wait for all channels to be closed before resolving
@@ -195,10 +194,10 @@ test('data channels', async ({ page }) => {
     const peer1Promise = createPeerPromise(peer1, 2);
     const peer2Promise = createPeerPromise(peer2, 2);
 
-    peer1.open({ id: 0, label: 'channel0' });
-    peer2.open({ id: 0, label: 'channel0' });
-    peer1.open({ id: 1, label: 'channel1' });
-    peer2.open({ id: 1, label: 'channel1' });
+    peer1.open({ label: 'channel0' });
+    peer2.open({ label: 'channel0' });
+    peer1.open({ label: 'channel1' });
+    peer2.open({ label: 'channel1' });
 
     peer1.join({ room: 'test', metadata: { name: 'peer1' } });
     peer2.join({ room: 'test', metadata: { name: 'peer2' } });
@@ -213,50 +212,38 @@ test('data channels', async ({ page }) => {
           event: 'open',
           channels: 2,
           remote: { id: '2', metadata: { name: 'peer2' } },
-          channel: { id: 0, label: 'channel0' },
+          channel: { label: 'channel0' },
         },
         {
           event: 'open',
           channels: 2,
           remote: { id: '2', metadata: { name: 'peer2' } },
-          channel: { id: 1, label: 'channel1' },
+          channel: { label: 'channel1' },
         },
       ],
       [
         {
           event: 'message',
           remote: { id: '2', metadata: { name: 'peer2' } },
-          channel: { id: 0, label: 'channel0' },
-          data: { type: 'by-id', peer: '2', channel: 0 },
-        },
-        {
-          event: 'message',
-          remote: { id: '2', metadata: { name: 'peer2' } },
-          channel: { id: 1, label: 'channel1' },
-          data: { type: 'by-id', peer: '2', channel: 1 },
-        },
-        {
-          event: 'message',
-          remote: { id: '2', metadata: { name: 'peer2' } },
-          channel: { id: 0, label: 'channel0' },
+          channel: { label: 'channel0' },
           data: { type: 'by-label', peer: '2', channel: 'channel0' },
         },
         {
           event: 'message',
           remote: { id: '2', metadata: { name: 'peer2' } },
-          channel: { id: 1, label: 'channel1' },
+          channel: { label: 'channel1' },
           data: { type: 'by-label', peer: '2', channel: 'channel1' },
         },
         {
           event: 'message',
           remote: { id: '2', metadata: { name: 'peer2' } },
-          channel: { id: 0, label: 'channel0' },
+          channel: { label: 'channel0' },
           data: { type: 'to-all', peer: '2' },
         },
         {
           event: 'message',
           remote: { id: '2', metadata: { name: 'peer2' } },
-          channel: { id: 1, label: 'channel1' },
+          channel: { label: 'channel1' },
           data: { type: 'to-all', peer: '2' },
         },
       ],
@@ -265,13 +252,13 @@ test('data channels', async ({ page }) => {
           event: 'close',
           channels: 0,
           remote: { id: '2', metadata: { name: 'peer2' } },
-          channel: { id: 0, label: 'channel0' },
+          channel: { label: 'channel0' },
         },
         {
           event: 'close',
           channels: 0,
           remote: { id: '2', metadata: { name: 'peer2' } },
-          channel: { id: 1, label: 'channel1' },
+          channel: { label: 'channel1' },
         },
       ],
     ],
@@ -281,50 +268,38 @@ test('data channels', async ({ page }) => {
           event: 'open',
           channels: 2,
           remote: { id: '1', metadata: { name: 'peer1' } },
-          channel: { id: 0, label: 'channel0' },
+          channel: { label: 'channel0' },
         },
         {
           event: 'open',
           channels: 2,
           remote: { id: '1', metadata: { name: 'peer1' } },
-          channel: { id: 1, label: 'channel1' },
+          channel: { label: 'channel1' },
         },
       ],
       [
         {
           event: 'message',
           remote: { id: '1', metadata: { name: 'peer1' } },
-          channel: { id: 0, label: 'channel0' },
-          data: { type: 'by-id', peer: '1', channel: 0 },
-        },
-        {
-          event: 'message',
-          remote: { id: '1', metadata: { name: 'peer1' } },
-          channel: { id: 1, label: 'channel1' },
-          data: { type: 'by-id', peer: '1', channel: 1 },
-        },
-        {
-          event: 'message',
-          remote: { id: '1', metadata: { name: 'peer1' } },
-          channel: { id: 0, label: 'channel0' },
+          channel: { label: 'channel0' },
           data: { type: 'by-label', peer: '1', channel: 'channel0' },
         },
         {
           event: 'message',
           remote: { id: '1', metadata: { name: 'peer1' } },
-          channel: { id: 1, label: 'channel1' },
+          channel: { label: 'channel1' },
           data: { type: 'by-label', peer: '1', channel: 'channel1' },
         },
         {
           event: 'message',
           remote: { id: '1', metadata: { name: 'peer1' } },
-          channel: { id: 0, label: 'channel0' },
+          channel: { label: 'channel0' },
           data: { type: 'to-all', peer: '1' },
         },
         {
           event: 'message',
           remote: { id: '1', metadata: { name: 'peer1' } },
-          channel: { id: 1, label: 'channel1' },
+          channel: { label: 'channel1' },
           data: { type: 'to-all', peer: '1' },
         },
       ],
@@ -333,13 +308,13 @@ test('data channels', async ({ page }) => {
           event: 'close',
           channels: 0,
           remote: { id: '1', metadata: { name: 'peer1' } },
-          channel: { id: 0, label: 'channel0' },
+          channel: { label: 'channel0' },
         },
         {
           event: 'close',
           channels: 0,
           remote: { id: '1', metadata: { name: 'peer1' } },
-          channel: { id: 1, label: 'channel1' },
+          channel: { label: 'channel1' },
         },
       ],
     ],

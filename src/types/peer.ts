@@ -50,14 +50,14 @@ export interface PeerOptions {
   connectionTimeout?: number;
   /**
    * Whether to keep the connection alive indefinitely.
-   * If true, the connection will not be closed automatically.
+   * If true, the connection will not be closed automatically when there are no active streams or channels.
    */
   keepConnection?: boolean;
   /**
    * Reconnection interval in seconds after an unexpected disconnection.
    * By default, it is set to 30 seconds. Use 0 to disable automatic reconnection.
    */
-  reconnectInterval?: number;
+  reconnectionInterval?: number;
   /**
    * Optional callback to accept or reject incoming peer connections.
    */
@@ -87,13 +87,13 @@ export interface RemotePeer {
    */
   state: PeerConnectionState;
   /**
-   * Remote media streams keyed by stream id.
+   * Remote media streams keyed by stream label.
    */
-  streams: Map<string | number, MediaStream>;
+  streams: Map<string, MediaStream>;
   /**
-   * Negotiated data channels keyed by channel id.
+   * Negotiated data channels keyed by channel label.
    */
-  channels: Map<number, RTCDataChannel>;
+  channels: Map<string, RTCDataChannel>;
   /**
    * Cleanup routine that closes channel and connection resources.
    * 
@@ -127,9 +127,10 @@ export interface JoinOptions {
  */
 export interface StreamOptions {
   /**
-   * Application-level stream identifier.
+   * Stream label.
+   * If omitted, the `default` label will be used.
    */
-  id: string | number;
+  label?: string;
   /**
    * Media stream to publish.
    */
@@ -162,11 +163,8 @@ export interface StreamOptions {
  */
 export interface ChannelOptions {
   /**
-   * Negotiated channel id (0-65535).
-   */
-  id: number;
-  /**
-   * Optional channel label.
+   * Channel label.
+   * If omitted, the `default` label will be used.
    */
   label?: string;
   /**

@@ -52,15 +52,15 @@
 
     <label>
       <legend>Channels</legend>
-      <input id="channel" type="number" placeholder="Channel" value="0" min="0" max="65535" />
+      <input id="channel" placeholder="label" value="default" />
       <button id="open">Open</button>
       <button id="close">Close</button>
     </label>
 
     <label>
       <legend>Messages</legend>
-      <input id="message" type="text" placeholder="Message" />
-      <input id="send-channel" type="number" placeholder="Channel" min="0" max="65535" />
+      <input id="message" placeholder="text" />
+      <input id="send-channel" placeholder="label" value="default" />
       <button id="send">Send</button>
     </label>
 
@@ -121,22 +121,22 @@
 
     peer.on('error', (e) => {
       const { remote, channel, error, code } = e;
-      log(`event: error, peer: ${remote?.id}, channel: ${channel?.id}, code: ${code}, error: ${error.message}`);
+      log(`event: error, peer: ${remote?.id}, channel: ${channel?.label}, code: ${code}, error: ${error.message}`);
     });
 
     peer.on('open', (e) => {
       const { remote, channel } = e;
-      log(`event: open, peer: ${remote.id}, channel: ${channel.id}`);
+      log(`event: open, peer: ${remote.id}, channel: ${channel.label}`);
     });
 
     peer.on('close', (e) => {
       const { remote, channel } = e;
-      log(`event: close, peer: ${remote.id}, channel: ${channel.id}`);
+      log(`event: close, peer: ${remote.id}, channel: ${channel.label}`);
     });
 
     peer.on('message', (e) => {
       const { remote, channel, data } = e;
-      log(`event: message, peer: ${remote.id}, channel: ${channel.id}, data: ${data}`);
+      log(`event: message, peer: ${remote.id}, channel: ${channel.label}, data: ${data}`);
     });
 
     peer.on('publish', (e) => {
@@ -165,45 +165,45 @@
 
     const openButton = document.getElementById('open');
     openButton.addEventListener('click', () => {
-      const channel = document.getElementById('channel').value;
-      if (channel) peer.open({ id: +channel });
+      const label = document.getElementById('channel').value;
+      if (label) peer.open({ label });
     });
 
     const closeButton = document.getElementById('close');
     closeButton.addEventListener('click', () => {
-      const channel = document.getElementById('channel').value;
-      if (channel) peer.close({ id: +channel });
+      const label = document.getElementById('channel').value;
+      if (label) peer.close({ label });
     });
 
     const sendButton = document.getElementById('send');
     sendButton.addEventListener('click', () => {
-      const channel = document.getElementById('send-channel').value;
+      const label = document.getElementById('send-channel').value;
       const message = document.getElementById('message').value;
-      if (channel) peer.send(message, { id: +channel });
+      if (label) peer.send(message, { label });
       else peer.send(message);
     });
 
     const publishButton = document.getElementById('publish');
     publishButton.addEventListener('click', async () => {
       const stream = createSyntheticMediaStream({ video: true, audio: true });
-      peer.publish({ id: 'default', stream, managed: true });
+      peer.publish({ label: 'default', stream, managed: true });
     });
 
     const unpublishButton = document.getElementById('unpublish');
     unpublishButton.addEventListener('click', () => {
-      peer.unpublish({ id: 'default' });
+      peer.unpublish({ label: 'default' });
     });
 
     const audioOnlyButton = document.getElementById('audio-only');
     audioOnlyButton.addEventListener('click', async () => {
       const stream = createSyntheticMediaStream({ video: false, audio: true });
-      peer.publish({ id: 'default', stream, managed: true });
+      peer.publish({ label: 'default', stream, managed: true });
     });
 
     const videoOnlyButton = document.getElementById('video-only');
     videoOnlyButton.addEventListener('click', async () => {
       const stream = createSyntheticMediaStream({ video: true, audio: false });
-      peer.publish({ id: 'default', stream, managed: true });
+      peer.publish({ label: 'default', stream, managed: true });
     });
 
     function createSyntheticMediaStream({ width = 640, height = 360, video = true, audio = true } = {}) {
