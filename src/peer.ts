@@ -119,7 +119,7 @@ export class Peer {
       driver = defaultDriver,
       iceServers = [],
       iceTransportPolicy = 'all',
-      connectionTimeout = 30,
+      connectionTimeout = 15,
       verify,
     } = options || {};
     this.driver = driver;
@@ -167,10 +167,24 @@ export class Peer {
         iceServers: this.iceServers,
         iceTransportPolicy: this.iceTransportPolicy,
       });
+
+      const setConnectionTimeout = () => {
+        const timer = this.connectionTimeout > 0 ? setTimeout(
+          () => {
+            dispose();
+            const error = new Error('Connection timeout');
+            this.emit('error', { remote, error, code: 'CONNECTION_TIMEOUT' });
+          },
+          this.connectionTimeout * 1000,
+        ) : undefined;
+
+        return () => clearTimeout(timer);
+      };
+
       const dispose = ({ silent = false } = {}) => {
         if (!this.connections.has(id)) return;
         this.connections.delete(id);
-        clearTimeout(timeout);
+        stopConnectionTimeout();
 
         this._candidateQueues.delete(id);
         this._makingOffer.delete(id);
@@ -199,14 +213,7 @@ export class Peer {
         dispose,
       };
 
-      const timeout = this.connectionTimeout > 0 ? setTimeout(
-        () => {
-          dispose();
-          const error = new Error('Connection timeout');
-          this.emit('error', { remote, error, code: 'CONNECTION_TIMEOUT' });
-        },
-        this.connectionTimeout * 1000,
-      ) : undefined;
+      let stopConnectionTimeout = setConnectionTimeout();
 
       connection.addEventListener('iceconnectionstatechange', (e) => {
         const { iceConnectionState } = e.target as RTCPeerConnection;
@@ -217,7 +224,7 @@ export class Peer {
           this.emit('state', { remote, state });
         }
         else if (iceConnectionState === 'connected') {
-          clearTimeout(timeout);
+          stopConnectionTimeout();
           const state = 'connected';
           remote.state = state;
           this.emit('state', { remote, state });
@@ -226,6 +233,7 @@ export class Peer {
           const state = 'disconnected';
           remote.state = state;
           this.emit('state', { remote, state });
+          stopConnectionTimeout = setConnectionTimeout();
         }
         else if (iceConnectionState === 'failed') {
           const state = 'failed';

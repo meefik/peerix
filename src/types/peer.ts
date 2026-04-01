@@ -45,7 +45,7 @@ export interface PeerOptions {
   iceTransportPolicy?: 'all' | 'relay';
   /**
    * Connection timeout in seconds.
-   * By default, it is set to 30 seconds. Use 0 to disable the timeout.
+   * By default, it is set to 15 seconds. Use 0 to disable the timeout.
    */
   connectionTimeout?: number;
   /**
