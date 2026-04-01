@@ -226,7 +226,6 @@ export class Peer {
           const state = 'disconnected';
           remote.state = state;
           this.emit('state', { remote, state });
-          dispose();
         }
         else if (iceConnectionState === 'failed') {
           const state = 'failed';
