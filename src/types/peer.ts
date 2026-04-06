@@ -153,7 +153,7 @@ export interface StreamOptions {
   /**
    * Optional callback to allow or block publishing to a remote peer.
    */
-  filter?: (options: { remote: RemotePeer }) => boolean;
+  filter?: (options: { id: string; metadata?: any; label: string }) => boolean;
 }
 
 /**
@@ -186,7 +186,7 @@ export interface ChannelOptions {
   /**
    * Optional callback to allow or block this channel for a remote peer.
    */
-  filter?: (options: { remote: RemotePeer }) => boolean;
+  filter?: (options: { id: string; metadata?: any; label: string }) => boolean;
 }
 
 /**
@@ -196,17 +196,13 @@ export interface ChannelOptions {
  */
 export interface SendOptions {
   /**
-   * Target channel id.
-   */
-  id?: number;
-  /**
    * Target channel label.
    */
   label?: string;
   /**
    * Optional callback to allow or block sending to a remote channel.
    */
-  filter?: (options: { remote: RemotePeer; channel: RTCDataChannel }) => boolean;
+  filter?: (options: { id: string; metadata?: any; label: string }) => boolean;
 }
 
 /**
@@ -222,11 +218,11 @@ export interface PeerEvents {
   /**
    * Emitted when a remote peer publishes a media stream.
    */
-  publish: [{ remote: RemotePeer; stream: MediaStream; track: MediaStreamTrack }];
+  publish: [{ remote: RemotePeer; stream: MediaStream; track: MediaStreamTrack; label: string }];
   /**
    * Emitted when a remote peer unpublishes a media stream.
    */
-  unpublish: [{ remote: RemotePeer; stream: MediaStream; track: MediaStreamTrack }];
+  unpublish: [{ remote: RemotePeer; stream: MediaStream; track: MediaStreamTrack; label: string }];
   /**
    * Emitted when a data channel is opened.
    */
