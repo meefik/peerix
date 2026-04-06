@@ -52,7 +52,7 @@ function stringify(value: any): string {
         return { name: v.name, message: v.message };
       }
       if (v instanceof Map) {
-        return Object.fromEntries(v);
+        return Array.from(v);
       }
       if (v instanceof Set) {
         return Array.from(v);

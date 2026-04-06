@@ -136,7 +136,7 @@ async function sha256(msg: string) {
   const data = new TextEncoder().encode(msg);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hashBuffer))
-    .map(b => b.toString(16).padStart(2, '0'))
+    .map(b => ('0' + b.toString(16)).slice(-2))
     .join('');
 }
 
