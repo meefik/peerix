@@ -2,7 +2,7 @@ import type { SignalingDriver } from './types/signaling.js';
 import type { PeerOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents } from './types/peer.js';
 import { MemoryDriver } from './drivers/memory.js';
 import EventEmitter from './utils/emitter.js';
-import { UUIDv4, setPeerConnectionBitrate } from './utils/helpers.js';
+import { UUIDv4 } from './utils/helpers.js';
 import log from './utils/logger.js';
 
 // All peers without a driver will share the same in-memory signaling bus
@@ -192,29 +192,6 @@ export class Peer {
     this.room = room;
     this.metadata = metadata;
 
-    const createOffer = async (remote: RemotePeer) => {
-      const { id, connection } = remote;
-
-      try {
-        this._makingOffer.add(id);
-
-        const offer = await connection.createOffer();
-        await connection.setLocalDescription(offer);
-
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-
-        this.driver.emit([this.room, id], {
-          type: 'offer',
-          id: this.id,
-          data: offer,
-          metadata: this.metadata,
-        });
-      }
-      finally {
-        this._makingOffer.delete(id);
-      }
-    };
-
     const addQueuedCandidates = async (remote: RemotePeer) => {
       const { id, connection } = remote;
 
@@ -266,7 +243,7 @@ export class Peer {
 
         if (!silent) {
           this.driver.emit([this.room, id], {
-            type: 'leave',
+            type: 'dispose',
             id: this.id,
           });
         }
@@ -325,19 +302,36 @@ export class Peer {
         this.driver.emit([this.room, id], {
           type: 'candidate',
           id: this.id,
-          data: typeof candidate.toJSON === 'function'
+          candidate: typeof candidate.toJSON === 'function'
             ? candidate.toJSON()
             : candidate,
         });
       });
 
       connection.addEventListener('negotiationneeded', async () => {
+        console.log('### negotiationneeded', { localId: this.id, remoteId: id });
+
         try {
-          await createOffer(remote);
-        }
-        catch (error) {
-          dispose();
+          this._makingOffer.add(id);
+          await connection.setLocalDescription();
+
+          // await new Promise(resolve => setTimeout(resolve, 1000));
+
+          const { localDescription } = connection;
+          if (localDescription?.type) {
+            this.driver.emit([this.room, id], {
+              type: 'description',
+              id: this.id,
+              description: typeof localDescription.toJSON === 'function'
+                ? localDescription.toJSON()
+                : localDescription,
+            });
+          }
+        } catch (error) {
           this.emit('error', { remote, error, code: 'NEGOTIATION_ERROR' });
+        }
+        finally {
+          this._makingOffer.delete(id);
         }
       });
 
@@ -367,91 +361,94 @@ export class Peer {
         this.emit('publish', { remote, stream, track });
       });
 
-      if (this.streams.size > 0) {
-        for (const options of this.streams.values()) {
-          const { stream, audioBitrate, videoBitrate, filter } = options;
-
-          if (typeof filter === 'function') {
-            const allowed = filter({ remote });
-            if (!allowed) continue;
-          }
-
-          stream.getTracks().forEach(track => connection.addTrack(track, stream));
-
-          if (audioBitrate || videoBitrate) {
-            setPeerConnectionBitrate(connection, audioBitrate, videoBitrate);
-          }
-        }
-      }
-
-      if (this.channels.size > 0) {
-        for (const channelOptions of this.channels.values()) {
-          const { label = '', filter, ...opts } = channelOptions || {};
-
-          if (typeof filter === 'function') {
-            const allowed = filter({ remote });
-            if (!allowed) continue;
-          }
-
-          const channel = connection.createDataChannel(label, opts);
-          this._setupDataChannel(remote, channel);
-        }
-      }
-
       this.emit('state', { remote, state: 'new' });
 
       return remote;
     };
 
+    const publishStreams = async (remote: RemotePeer) => {
+      if (!this.streams.size) return;
+
+      const { connection } = remote;
+
+      for (const options of this.streams.values()) {
+        const { label = '', stream, audioBitrate, videoBitrate, filter } = options;
+
+        if (typeof filter === 'function') {
+          const allowed = filter({ remote });
+          if (!allowed) continue;
+        }
+
+        const bitrate: { [key: string]: number } = {
+          audio: (audioBitrate || 0) | 0,
+          video: (videoBitrate || 0) | 0,
+        };
+
+        const tracks = stream.getTracks();
+        const senders = connection.getSenders();
+
+        // Replace existing senders for tracks that still exist in the stream,
+        // add new senders for new tracks
+        for (const track of tracks) {
+          for (const sender of senders) {
+            const isSameTrack = sender.track?.id === track.id;
+            const isTrackEnded = sender.track?.readyState === 'ended';
+            const isSameKind = sender.track?.kind === track.kind;
+            if (isSameTrack && !isTrackEnded) continue;
+            if (isTrackEnded && isSameKind) await sender.replaceTrack(track);
+            else connection.addTrack(track, stream);
+            // Set bitrate for the track if specified in options
+            const maxBitrate = bitrate[track.kind];
+            if (maxBitrate) {
+              const params = sender.getParameters() || {};
+              if (!params.encodings) params.encodings = [];
+              for (let i = 0; i < params.encodings.length; i++) {
+                const enc = params.encodings[i];
+                if (enc) enc.maxBitrate = maxBitrate;
+              }
+              sender.setParameters(params);
+            }
+          }
+        }
+
+        // Remove senders for tracks that no longer exist in the stream
+        for (const sender of senders) {
+          if (!sender.track) continue;
+          const trackExists = tracks.some(track => track.id === sender.track?.id);
+          if (!trackExists) connection.removeTrack(sender);
+        }
+      }
+    };
+
+    const createChannels = (remote: RemotePeer, labels?: string[]) => {
+      if (!this.channels.size) return;
+
+      const { connection, channels } = remote;
+      const ignored = new Set(labels || []);
+
+      for (const channelOptions of this.channels.values()) {
+        const { label = '', filter, ...opts } = channelOptions || {};
+        if (channels.has(label) || ignored.has(label)) continue;
+
+        if (typeof filter === 'function') {
+          const allowed = filter({ remote });
+          if (!allowed) continue;
+        }
+
+        const channel = connection.createDataChannel(label, opts);
+        this._setupDataChannel(remote, channel);
+      }
+    };
+
     this._signal = async (e) => {
-      const { type, id, data, metadata } = e;
+      const { type, id } = e;
       if (!type || !id || this.id === id) return;
 
       log('peer:signal', e);
 
-      // join to the room
-      if (type === 'join') {
-        if (this.connections.has(id)) return;
+      if (type === 'invoke') {
+        const { metadata, channels } = e;
 
-        const hasRemoteData = data.streams?.length > 0 || data.channels?.length > 0;
-        const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
-        if (!hasRemoteData && !hasLocalData) return;
-
-        try {
-          if (this._verify) {
-            const verified = await this._verify({ id, metadata });
-
-            log('peer:verify', { id, metadata, verified });
-
-            if (!verified) return;
-          }
-        } catch (error) {
-          this.emit('error', { error, code: 'VERIFY_ERROR' });
-          return;
-        }
-
-        try {
-          const remote = createRemote(id, metadata);
-          this.connections.set(id, remote);
-
-          // if the new peer has media to share, 
-          // wait for the negotiationneeded event
-          // instead of creating an offer immediately
-          if (!hasLocalData) {
-            await createOffer(remote);
-          }
-        }
-        catch (error) {
-          const remote = this.connections.get(id);
-          if (remote) remote.dispose();
-          this.emit('error', { remote, error, code: 'JOIN_ERROR' });
-        }
-
-        return;
-      }
-
-      // set remote description and create answer
-      if (type === 'offer' && data) {
         try {
           let remote = this.connections.get(id);
           if (!remote) {
@@ -459,78 +456,91 @@ export class Peer {
             this.connections.set(id, remote);
           }
 
-          const { connection } = remote;
+          publishStreams(remote);
 
-          // Glare resolution (perfect negotiation): when both peers send offers
-          // simultaneously, break the tie by peer ID — the peer with the greater
-          // ID is "polite" and rolls back its own offer; the other ignores the
-          // incoming offer and waits for the remote to answer.
-          // Also check makingOffer: negotiationneeded may be mid-flight (between
-          // its stable check and setLocalDescription) so signalingState is still
-          // 'stable' even though a local offer is being prepared.
-          const isPolite = this.id > id;
-          const offerCollision = connection.signalingState !== 'stable' || this._makingOffer.has(id);
-          if (offerCollision && !isPolite) return console.log('collision', { id, offerCollision, isPolite }); // --- IGNORE ---
+          if (channels) {
+            createChannels(remote, channels);
+          }
+          else {
+            createChannels(remote);
 
-          await connection.setRemoteDescription(data);
-
-          await addQueuedCandidates(remote);
-
-          const answer = await connection.createAnswer();
-          await connection.setLocalDescription(answer);
-
-          this.driver.emit([this.room, id], {
-            type: 'answer',
-            id: this.id,
-            data: answer,
-          });
+            this.driver.emit([this.room, id], {
+              type: 'invoke',
+              id: this.id,
+              metadata: this.metadata,
+              channels: Array.from(remote.channels.keys()),
+            });
+          }
         }
         catch (error) {
-          const remote = this.connections.get(id);
-          if (remote) remote.dispose();
-          this.emit('error', { remote, error, code: 'OFFER_ERROR' });
+          this.emit('error', { error, code: 'INVOKE_ERROR' });
         }
 
         return;
       }
 
-      // set remote description
-      if (type === 'answer' && data) {
+      // set remote description and create answer
+      if (type === 'description') {
         const remote = this.connections.get(id);
         if (!remote) return;
 
-        const { connection } = remote;
-
         try {
-          await connection.setRemoteDescription(data);
+          const { description } = e;
+          const { connection } = remote;
+
+          const offerCollision = description.type === 'offer' &&
+            (this._makingOffer.has(id) || connection.signalingState !== 'stable');
+
+          const isPolite = this.id > id;
+          const ignoreOffer = !isPolite && offerCollision;
+          if (ignoreOffer) return;
+
+          if (offerCollision) {
+            await Promise.all([
+              connection.setLocalDescription({ type: 'rollback' }),
+              connection.setRemoteDescription(description),
+            ]);
+          } else {
+            await connection.setRemoteDescription(description);
+          }
 
           await addQueuedCandidates(remote);
-        }
-        catch (error) {
-          remote.dispose();
-          this.emit('error', { remote, error, code: 'ANSWER_ERROR' });
+
+          if (description.type === 'offer') {
+            await connection.setLocalDescription();
+
+            const { localDescription } = connection;
+            if (localDescription?.type)
+              this.driver.emit([this.room, id], {
+                type: 'description',
+                id: this.id,
+                description: typeof localDescription.toJSON === 'function'
+                  ? localDescription.toJSON()
+                  : localDescription,
+              });
+          }
+        } catch (error) {
+          this.emit('error', { remote, error, code: 'DESCRIPTION_ERROR' });
         }
 
         return;
       }
 
       // add ice candidate
-      if (type === 'candidate' && data) {
+      if (type === 'candidate') {
+        const { candidate } = e;
         const remote = this.connections.get(id);
 
-        const { sdp } = remote?.connection.remoteDescription || {};
-        const reUfrag = new RegExp(`a=ice-ufrag:${data.usernameFragment}`, 'm');
-
-        if (!remote || !sdp || !reUfrag.test(sdp)) {
-          if (!this._candidateQueues.has(id)) this._candidateQueues.set(id, []);
-          this._candidateQueues.get(id)?.push(data);
+        if (!remote || !remote.connection.remoteDescription?.type) {
+          const queue = this._candidateQueues.get(id);
+          if (!queue) this._candidateQueues.set(id, [candidate]);
+          else queue.push(candidate);
           return;
         }
 
-        const { connection } = remote;
-
         try {
-          await connection.addIceCandidate(data);
+          const { connection } = remote;
+          await connection.addIceCandidate(candidate);
         }
         catch (error) {
           this.emit('error', { remote, error, code: 'CANDIDATE_ERROR' });
@@ -539,32 +549,12 @@ export class Peer {
         return;
       }
 
-      if (type === 'channel') {
+      // dispose peer connection
+      if (type === 'dispose') {
         const remote = this.connections.get(id);
         if (!remote) return;
 
-        const { connection, channels } = remote;
-        const { label, ...opts } = data || {};
-        if (channels.has(label)) return;
-
-        try {
-          const channel = connection.createDataChannel(label, opts);
-          this._setupDataChannel(remote, channel);
-        }
-        catch (error) {
-          this.emit('error', { remote, error, code: 'CHANNEL_ERROR' });
-        }
-
-        return;
-      }
-
-      // leave the room
-      if (type === 'leave') {
-        const remote = this.connections.get(id);
-
-        if (remote) {
-          remote.dispose({ silent: true });
-        }
+        remote.dispose({ silent: true });
 
         return;
       }
@@ -573,13 +563,12 @@ export class Peer {
     this.driver.on([this.room], this._signal);
     this.driver.on([this.room, this.id], this._signal);
 
+    // DEBUG
+    // await new Promise(resolve => setTimeout(resolve, 0));
+
     this.driver.emit([this.room], {
-      type: 'join',
+      type: 'invoke',
       id: this.id,
-      data: {
-        streams: Array.from(this.streams.keys()),
-        channels: Array.from(this.channels.keys()),
-      },
       metadata: this.metadata,
     });
 
@@ -622,7 +611,6 @@ export class Peer {
     }
     const { label = 'default', stream, ...opts } = options;
 
-    const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
     const {
       stream: newStream = new MediaStream(),
       managed
@@ -641,46 +629,42 @@ export class Peer {
       }
     }
 
-    const { audioBitrate, videoBitrate, filter } = opts;
+    // const { audioBitrate, videoBitrate, filter } = opts;
 
-    for (const remote of this.connections.values()) {
-      if (typeof filter === 'function') {
-        const allowed = filter({ remote });
-        if (!allowed) continue;
-      }
+    // for (const remote of this.connections.values()) {
+    //   if (typeof filter === 'function') {
+    //     const allowed = filter({ remote });
+    //     if (!allowed) continue;
+    //   }
 
-      const { connection } = remote;
-      const senders = connection.getSenders();
-      for (const track of newStream.getTracks()) {
-        const sender = senders.find((sender: RTCRtpSender) => {
-          return sender.track && sender.track.id === track.id
-            && sender.track.readyState !== 'ended';
-        });
-        if (sender) sender.replaceTrack(track);
-        else connection.addTrack(track, newStream);
-      }
-      for (const sender of senders) {
-        const track = newStream.getTracks().find((track) => {
-          return track.id === sender.track?.id;
-        });
-        if (sender.track && !track) {
-          connection.removeTrack(sender);
-        }
-      }
+    //   const { connection } = remote;
+    //   const senders = connection.getSenders();
+    //   for (const track of newStream.getTracks()) {
+    //     const sender = senders.find((sender: RTCRtpSender) => {
+    //       return sender.track && sender.track.id === track.id
+    //         && sender.track.readyState !== 'ended';
+    //     });
+    //     if (sender) sender.replaceTrack(track);
+    //     else connection.addTrack(track, newStream);
+    //   }
+    //   for (const sender of senders) {
+    //     const track = newStream.getTracks().find((track) => {
+    //       return track.id === sender.track?.id;
+    //     });
+    //     if (sender.track && !track) {
+    //       connection.removeTrack(sender);
+    //     }
+    //   }
 
-      if (audioBitrate || videoBitrate) {
-        setPeerConnectionBitrate(connection, audioBitrate, videoBitrate);
-      }
-    }
+    //   if (audioBitrate || videoBitrate) {
+    //     setPeerConnectionBitrate(connection, audioBitrate, videoBitrate);
+    //   }
+    // }
 
-    if (!hasLocalData && this._signal) {
+    if (this._signal) {
       this.driver.emit([this.room], {
-        type: 'join',
+        type: 'invoke',
         id: this.id,
-        data: {
-          streams: Array.from(this.streams.keys()),
-          channels: Array.from(this.channels.keys()),
-        },
         metadata: this.metadata,
       });
     }
@@ -699,6 +683,8 @@ export class Peer {
     }
     const { label = 'default' } = typeof options === 'object'
       ? options : { label: options };
+
+    // if (!this.streams.has(label)) return;
 
     const { stream, managed } = this.streams.get(label) || {};
     const tracks = stream?.getTracks() || [];
@@ -739,40 +725,37 @@ export class Peer {
     const { label = 'default', filter, ...opts } = typeof options === 'object'
       ? options : { label: options };
 
-    const hasLocalData = this.streams.size > 0 || this.channels.size > 0;
+    // if (this.channels.has(label)) return;
+
     this.channels.set(label, { ...opts, label, filter });
 
-    for (const remote of this.connections.values()) {
-      if (remote.channels.has(label)) continue;
+    // for (const remote of this.connections.values()) {
+    //   if (remote.channels.has(label)) continue;
 
-      if (typeof filter === 'function') {
-        const allowed = filter({ remote });
-        if (!allowed) continue;
-      }
+    //   if (typeof filter === 'function') {
+    //     const allowed = filter({ remote });
+    //     if (!allowed) continue;
+    //   }
 
-      // const isPolite = this.id > remote.id;
-      // if (isPolite) {
-      //   this.driver.emit([this.room, remote.id], {
-      //     type: 'channel',
-      //     id: this.id,
-      //     data: { ...opts, label },
-      //   });
-      //   continue;
-      // }
+    //   // const isPolite = this.id > remote.id;
+    //   // if (isPolite) {
+    //   //   this.driver.emit([this.room, remote.id], {
+    //   //     type: 'channel',
+    //   //     id: this.id,
+    //   //     data: { ...opts, label },
+    //   //   });
+    //   //   continue;
+    //   // }
 
-      const { connection } = remote;
-      const channel = connection.createDataChannel(label, opts);
-      this._setupDataChannel(remote, channel);
-    }
+    //   const { connection } = remote;
+    //   const channel = connection.createDataChannel(label, opts);
+    //   this._setupDataChannel(remote, channel);
+    // }
 
-    if (!hasLocalData && this._signal) {
+    if (this._signal) {
       this.driver.emit([this.room], {
-        type: 'join',
+        type: 'invoke',
         id: this.id,
-        data: {
-          streams: Array.from(this.streams.keys()),
-          channels: Array.from(this.channels.keys()),
-        },
         metadata: this.metadata,
       });
     }
@@ -788,6 +771,8 @@ export class Peer {
   async close(options: string | { label: string }) {
     const { label = 'default' } = typeof options === 'object'
       ? options : { label: options };
+
+    // if (!this.channels.has(label)) return;
 
     this.channels.delete(label);
 
