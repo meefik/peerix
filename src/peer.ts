@@ -2,7 +2,7 @@ import type { SignalingDriver } from './types/signaling.js';
 import type { PeerOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents } from './types/peer.js';
 import { MemoryDriver } from './drivers/memory.js';
 import EventEmitter from './utils/emitter.js';
-import { UUIDv4 } from './utils/helpers.js';
+import { UUIDv4, timeout } from './utils/helpers.js';
 import log from './utils/logger.js';
 
 // All peers without a driver will share the same in-memory signaling bus
@@ -196,8 +196,16 @@ export class Peer {
       const { id, connection } = remote;
 
       if (this._candidateQueues.has(id)) {
-        for (let candidate of this._candidateQueues.get(id) || []) {
+        const { sdp } = connection.remoteDescription || {};
+        for (const candidate of this._candidateQueues.get(id) || []) {
           try {
+            const reUfrag = new RegExp(`a=ice-ufrag:${candidate.usernameFragment}`, 'm');
+            if (!sdp || !reUfrag.test(sdp)) {
+              console.warn('### ignoring queued candidate', { localId: this.id, remoteId: id, ufrag: candidate.usernameFragment });
+              continue;
+            }
+
+            console.log('### adding queued candidate', { localId: this.id, remoteId: id, ufrag: candidate.usernameFragment });
             await connection.addIceCandidate(candidate);
           }
           catch (error) {
@@ -309,29 +317,25 @@ export class Peer {
       });
 
       connection.addEventListener('negotiationneeded', async () => {
-        console.log('### negotiationneeded', { localId: this.id, remoteId: id });
-
+        console.warn('### negotiationneeded', { localId: this.id, remoteId: id, signalingState: connection.signalingState, makingOffer: this._makingOffer.has(id) });
         try {
+          if (connection.signalingState !== 'stable') return;
+
           this._makingOffer.add(id);
-          await connection.setLocalDescription();
 
-          // await new Promise(resolve => setTimeout(resolve, 1000));
+          const offer = await connection.createOffer();
+          await connection.setLocalDescription(offer);
 
-          const { localDescription } = connection;
-          if (localDescription?.type) {
-            this.driver.emit([this.room, id], {
-              type: 'description',
-              id: this.id,
-              description: typeof localDescription.toJSON === 'function'
-                ? localDescription.toJSON()
-                : localDescription,
-            });
-          }
-        } catch (error) {
-          this.emit('error', { remote, error, code: 'NEGOTIATION_ERROR' });
-        }
-        finally {
           this._makingOffer.delete(id);
+
+          this.driver.emit([this.room, id], {
+            type: 'description',
+            id: this.id,
+            description: offer,
+          });
+        } catch (error) {
+          this._makingOffer.delete(id);
+          this.emit('error', { remote, error, code: 'NEGOTIATION_ERROR' });
         }
       });
 
@@ -488,36 +492,31 @@ export class Peer {
           const { description } = e;
           const { connection } = remote;
 
-          const offerCollision = description.type === 'offer' &&
-            (this._makingOffer.has(id) || connection.signalingState !== 'stable');
-
+          const offerCollision = description.type === 'offer'
+            && (this._makingOffer.has(id) || connection.signalingState !== 'stable');
           const isPolite = this.id > id;
-          const ignoreOffer = !isPolite && offerCollision;
-          if (ignoreOffer) return;
 
-          if (offerCollision) {
-            await Promise.all([
-              connection.setLocalDescription({ type: 'rollback' }),
-              connection.setRemoteDescription(description),
-            ]);
-          } else {
-            await connection.setRemoteDescription(description);
+          console.warn('### description', { localId: this.id, remoteId: id, type: description.type, signalingState: connection.signalingState, makingOffer: this._makingOffer.has(id), offerCollision, isPolite });
+          if (offerCollision && isPolite) {
+            return console.warn('### ignoring offer', { lid: this.id, rid: id, isPolite, offerCollision });
           }
+
+          // FIXME: why waiting here?
+          // seems to help with some chrome connection issues in certain scenarios, but not sure if this is the right solution
+          await timeout(offerCollision ? 100 : 0);
+          await connection.setRemoteDescription(description);
 
           await addQueuedCandidates(remote);
 
           if (description.type === 'offer') {
-            await connection.setLocalDescription();
+            const answer = await connection.createAnswer();
+            await connection.setLocalDescription(answer);
 
-            const { localDescription } = connection;
-            if (localDescription?.type)
-              this.driver.emit([this.room, id], {
-                type: 'description',
-                id: this.id,
-                description: typeof localDescription.toJSON === 'function'
-                  ? localDescription.toJSON()
-                  : localDescription,
-              });
+            this.driver.emit([this.room, id], {
+              type: 'description',
+              id: this.id,
+              description: answer,
+            });
           }
         } catch (error) {
           this.emit('error', { remote, error, code: 'DESCRIPTION_ERROR' });
@@ -531,7 +530,11 @@ export class Peer {
         const { candidate } = e;
         const remote = this.connections.get(id);
 
-        if (!remote || !remote.connection.remoteDescription?.type) {
+        const { sdp } = remote?.connection.remoteDescription || {};
+        const reUfrag = new RegExp(`a=ice-ufrag:${candidate.usernameFragment}`, 'm');
+
+        if (!remote || !sdp || !reUfrag.test(sdp)) {
+          console.log('### queueing candidate', { localId: this.id, remoteId: id, ufrag: candidate.usernameFragment });
           const queue = this._candidateQueues.get(id);
           if (!queue) this._candidateQueues.set(id, [candidate]);
           else queue.push(candidate);
@@ -540,6 +543,7 @@ export class Peer {
 
         try {
           const { connection } = remote;
+          console.log('### adding candidate', { localId: this.id, remoteId: id, ufrag: candidate.usernameFragment });
           await connection.addIceCandidate(candidate);
         }
         catch (error) {
@@ -562,9 +566,6 @@ export class Peer {
 
     this.driver.on([this.room], this._signal);
     this.driver.on([this.room, this.id], this._signal);
-
-    // DEBUG
-    // await new Promise(resolve => setTimeout(resolve, 0));
 
     this.driver.emit([this.room], {
       type: 'invoke',
@@ -628,38 +629,6 @@ export class Peer {
         newStream.addTrack(track);
       }
     }
-
-    // const { audioBitrate, videoBitrate, filter } = opts;
-
-    // for (const remote of this.connections.values()) {
-    //   if (typeof filter === 'function') {
-    //     const allowed = filter({ remote });
-    //     if (!allowed) continue;
-    //   }
-
-    //   const { connection } = remote;
-    //   const senders = connection.getSenders();
-    //   for (const track of newStream.getTracks()) {
-    //     const sender = senders.find((sender: RTCRtpSender) => {
-    //       return sender.track && sender.track.id === track.id
-    //         && sender.track.readyState !== 'ended';
-    //     });
-    //     if (sender) sender.replaceTrack(track);
-    //     else connection.addTrack(track, newStream);
-    //   }
-    //   for (const sender of senders) {
-    //     const track = newStream.getTracks().find((track) => {
-    //       return track.id === sender.track?.id;
-    //     });
-    //     if (sender.track && !track) {
-    //       connection.removeTrack(sender);
-    //     }
-    //   }
-
-    //   if (audioBitrate || videoBitrate) {
-    //     setPeerConnectionBitrate(connection, audioBitrate, videoBitrate);
-    //   }
-    // }
 
     if (this._signal) {
       this.driver.emit([this.room], {
@@ -728,29 +697,6 @@ export class Peer {
     // if (this.channels.has(label)) return;
 
     this.channels.set(label, { ...opts, label, filter });
-
-    // for (const remote of this.connections.values()) {
-    //   if (remote.channels.has(label)) continue;
-
-    //   if (typeof filter === 'function') {
-    //     const allowed = filter({ remote });
-    //     if (!allowed) continue;
-    //   }
-
-    //   // const isPolite = this.id > remote.id;
-    //   // if (isPolite) {
-    //   //   this.driver.emit([this.room, remote.id], {
-    //   //     type: 'channel',
-    //   //     id: this.id,
-    //   //     data: { ...opts, label },
-    //   //   });
-    //   //   continue;
-    //   // }
-
-    //   const { connection } = remote;
-    //   const channel = connection.createDataChannel(label, opts);
-    //   this._setupDataChannel(remote, channel);
-    // }
 
     if (this._signal) {
       this.driver.emit([this.room], {
