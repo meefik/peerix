@@ -112,14 +112,14 @@ peer.on('message', (e) => {
   );
 });
 
-// open a data channel with a specific id
-peer.open({ id: 0, label: 'chat' });
+// open a data channel with a specific label
+peer.open({ label: 'chat' });
 
 // send a message to each connected peer via a specific data channel
-peer.send('Hello, peers!', { id: 0 });
+peer.send('Hello, peers!', { label: 'chat' });
 
 // later, if you want to close the data channel
-// peer.close({ id: 0 });
+// peer.close({ label: 'chat' });
 ```
 
 Work with media streams to share audio and video with other peers:
@@ -127,21 +127,23 @@ Work with media streams to share audio and video with other peers:
 ```js
 // listen for peer publishing a track in a stream
 peer.on('publish', (e) => {
-  const { remote, stream, track } = e;
+  const { remote, stream, track, label } = e;
   console.log(
     'Peer:', remote.id,
     'published a track:', track.id,
-    'in stream:', stream.id
+    'in stream:', stream.id,
+    'with label:', label
   );
 });
 
 // listen for peer unpublishing a track in a stream
 peer.on('unpublish', (e) => {
-  const { remote, stream, track } = e;
+  const { remote, stream, track, label } = e;
   console.log(
     'Peer:', remote.id,
     'unpublished a track:', track.id,
-    'from stream:', stream.id
+    'from stream:', stream.id,
+    'with label:', label
   );
 });
 
@@ -151,10 +153,10 @@ const stream = await navigator.mediaDevices.getUserMedia(
 );
 
 // publish or update the stream to the room
-peer.publish({ id: 'camera', stream });
+peer.publish({ label: 'camera', stream });
 
 // later, if you want to stop sharing the stream, you can unpublish it
-// peer.unpublish({ id: 'camera' });
+// peer.unpublish({ label: 'camera' });
 ```
 
 ## Signaling Drivers
