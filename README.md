@@ -62,8 +62,8 @@ peer.on('state', (e) => {
 
 // listen for errors
 peer.on('error', (e) => {
-  const { error } = e;
-  console.error('Error:', error);
+  const { error, code } = e;
+  console.error('Error:', error, 'Code:', code);
 });
 
 // join a room
@@ -87,7 +87,7 @@ peer.on('open', (e) => {
   const { remote, channel } = e;
   console.log(
     'Channel opened with peer:', remote.id, 
-    'channel:', channel.id
+    'channel:', channel.label
   );
   // send a message to the connected peer
   channel.send('Hello, peer!');
@@ -98,7 +98,7 @@ peer.on('close', (e) => {
   const { remote, channel } = e;
   console.log(
     'Channel closed with peer:', remote.id, 
-    'channel:', channel.id
+    'channel:', channel.label
   );
 });
 
@@ -107,7 +107,7 @@ peer.on('message', (e) => {
   const { remote, channel, data } = e;
   console.log(
     'Received message from peer:', remote.id,
-    'channel:', channel.id,
+    'channel:', channel.label,
     'data:', data
   );
 });
@@ -121,6 +121,9 @@ peer.send('Hello, peers!', { label: 'chat' });
 // later, if you want to close the data channel
 // peer.close({ label: 'chat' });
 ```
+
+> [!NOTE]
+> The channel label can be any string and should be unique for each data channel.
 
 Work with media streams to share audio and video with other peers:
 
@@ -152,12 +155,15 @@ const stream = await navigator.mediaDevices.getUserMedia(
   { video: true, audio: true }
 );
 
-// publish or update the stream to the room
+// publish the stream to the room or replace it with a new one
 peer.publish({ label: 'camera', stream });
 
 // later, if you want to stop sharing the stream, you can unpublish it
 // peer.unpublish({ label: 'camera' });
 ```
+
+> [!NOTE]
+> The stream label can be any string and should be unique for each media stream.
 
 ## Signaling Drivers
 

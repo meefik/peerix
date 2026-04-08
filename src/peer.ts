@@ -95,18 +95,21 @@ export class Peer {
    */
   private _candidateQueues: Map<string, any[]>;
   /**
+   * Set of peer ids for which a local offer is being created to handle glare scenarios.
+   */
+  private _makingOffer: Set<string>;
+  /**
+   * Set of peer ids for which an answer is being processed to handle glare scenarios.
+   */
+  private _pendingAnswer: Set<string>;
+  /**
    * Media stream labels for incoming streams, indexed by remote peer id.
    */
   private _streamLabels: Map<string, { [key: string]: string }>;
   /**
-   * Set of peer ids for which a local offer is being created 
-   * to handle glare scenarios.
-   */
-  private _makingOffer: Set<string>;
-  /**
    * Active signaling handler registered on the signaling driver.
    */
-  private _signal?: (e: any) => void;
+  private _signaling?: (e: any) => void;
   /**
    * Optional callback to accept or reject incoming peer connections.
    */
@@ -140,6 +143,7 @@ export class Peer {
     this._candidateQueues = new Map();
     this._streamLabels = new Map();
     this._makingOffer = new Set();
+    this._pendingAnswer = new Set();
     this._verify = verify;
   }
 
@@ -149,7 +153,7 @@ export class Peer {
    * @returns True if the Peer is joined to a room, false otherwise.
    */
   get active(): boolean {
-    return !!this._signal;
+    return !!this._signaling;
   }
 
   /**
@@ -158,7 +162,7 @@ export class Peer {
    * @param options Room name or join options.
    */
   async join(options?: string | JoinOptions) {
-    if (this._signal) return;
+    if (this._signaling) return;
 
     const { room = 'default', metadata } = typeof options === 'object'
       ? options : { room: options };
@@ -166,12 +170,12 @@ export class Peer {
     this.room = room;
     this.metadata = metadata;
 
-    this._signal = this._signalHandler.bind(this);
-
     log('peer:join', { id: this.id, room: this.room, metadata: this.metadata });
 
-    this.driver.on([this.room], this._signal);
-    this.driver.on([this.room, this.id], this._signal);
+    this._signaling = this._signalHandler.bind(this);
+
+    this.driver.on([this.room], this._signaling);
+    this.driver.on([this.room, this.id], this._signaling);
 
     this.driver.emit([this.room], {
       type: 'invoke',
@@ -184,10 +188,12 @@ export class Peer {
     * Leave the current room and close all active remote connections.
    */
   async leave() {
-    if (!this._signal) return;
+    if (!this._signaling) return;
 
-    this.driver.off([this.room], this._signal);
-    this.driver.off([this.room, this.id], this._signal);
+    log('peer:leave', { id: this.id, room: this.room });
+
+    this.driver.off([this.room], this._signaling);
+    this.driver.off([this.room, this.id], this._signaling);
 
     for (const remote of this.connections.values()) {
       remote.dispose();
@@ -196,11 +202,10 @@ export class Peer {
 
     this._candidateQueues.clear();
     this._makingOffer.clear();
+    this._pendingAnswer.clear();
     this._streamLabels.clear();
 
-    delete this._signal;
-
-    log('peer:leave', { id: this.id, room: this.room });
+    delete this._signaling;
   }
 
   /**
@@ -237,7 +242,7 @@ export class Peer {
 
     log('peer:publish', { id: this.id, label, stream: newStream, ...opts });
 
-    if (this._signal) {
+    if (this._signaling) {
       this.driver.emit([this.room], {
         type: 'invoke',
         id: this.id,
@@ -295,7 +300,7 @@ export class Peer {
 
     log('peer:open', { id: this.id, label, ...opts });
 
-    if (this._signal) {
+    if (this._signaling) {
       this.driver.emit([this.room], {
         type: 'invoke',
         id: this.id,
@@ -334,7 +339,7 @@ export class Peer {
    * @param options Optional send options or channel label.
    */
   async send(message: any, options?: string | SendOptions) {
-    if (!this._signal) return;
+    if (!this._signaling) return;
 
     const { label, filter } = typeof options === 'object'
       ? options : { label: options };
@@ -423,6 +428,7 @@ export class Peer {
    */
   emit<K extends keyof PeerEvents>(event: K | K[], ...args: PeerEvents[K]) {
     this._emitter.emit(event, ...args);
+
     log(`peer:emit:${event}`, ...args);
   }
 
@@ -460,6 +466,8 @@ export class Peer {
   private _setupDataChannel(remote: RemotePeer, channel: RTCDataChannel) {
     const { label = '' } = channel;
     remote.channels.set(label, channel);
+
+    log('peer:channel', { id: this.id, channel, remote });
 
     channel.addEventListener('open', () => {
       this.emit('open', { id: this.id, remote, channel });
@@ -503,6 +511,8 @@ export class Peer {
         return sender.track && sender.track.id === id;
       });
       if (sender) {
+        log('peer:track:bitrate', { id: this.id, bitrate, track: sender.track, remote });
+
         const params = sender.getParameters() || {};
         if (!params.encodings) params.encodings = [];
         for (let i = 0; i < params.encodings.length; i++) {
@@ -531,8 +541,16 @@ export class Peer {
           return sender.track && sender.track.id === track.id
             && sender.track.readyState !== 'ended';
         });
-        if (sender) await sender.replaceTrack(track);
-        else connection.addTrack(track, stream);
+        if (sender) {
+          log('peer:track:replace', { id: this.id, track, stream, remote });
+
+          await sender.replaceTrack(track);
+        }
+        else {
+          log('peer:track:add', { id: this.id, track, stream, remote });
+
+          connection.addTrack(track, stream);
+        }
         // set bitrate for new or existing sender
         setBitrate(track.id, bitrate[track.kind]);
       }
@@ -541,7 +559,11 @@ export class Peer {
       for (const sender of senders) {
         if (!sender.track) continue;
         const trackExists = tracks.some(track => track.id === sender.track?.id);
-        if (!trackExists) connection.removeTrack(sender);
+        if (!trackExists) {
+          log('peer:track:remove', { id: this.id, track: sender.track, stream, remote });
+
+          connection.removeTrack(sender);
+        }
       }
     }
   }
@@ -578,7 +600,10 @@ export class Peer {
 
       this._candidateQueues.delete(id);
       this._makingOffer.delete(id);
+      this._pendingAnswer.delete(id);
       this._streamLabels.delete(id);
+
+      this.emit('state', { id: this.id, remote, state: 'closed' });
 
       if (!silent) {
         this.driver.emit([this.room, id], {
@@ -586,8 +611,6 @@ export class Peer {
           id: this.id,
         });
       }
-
-      this.emit('state', { id: this.id, remote, state: 'closed' });
     };
 
     const remote: RemotePeer = {
@@ -638,7 +661,7 @@ export class Peer {
       const { candidate } = e;
       if (!candidate) return;
 
-      log('peer:icecandidate', { id: this.id, remote, candidate });
+      log('peer:icecandidate', { id: this.id, candidate, remote });
 
       this.driver.emit([this.room, id], {
         type: 'ice',
@@ -655,12 +678,15 @@ export class Peer {
 
         log('peer:negotiationneeded', { id: this.id, remote });
 
-        this._makingOffer.add(id);
-
-        const offer = await connection.createOffer();
-        await connection.setLocalDescription(offer);
-
-        this._makingOffer.delete(id);
+        let offer;
+        try {
+          this._makingOffer.add(id);
+          offer = await connection.createOffer();
+          await connection.setLocalDescription(offer);
+        }
+        finally {
+          this._makingOffer.delete(id);
+        }
 
         this.driver.emit([this.room, id], {
           type: 'sdp',
@@ -674,7 +700,6 @@ export class Peer {
           }, {} as { [key: string]: string }),
         });
       } catch (error) {
-        this._makingOffer.delete(id);
         this.emit('error', { id: this.id, remote, error, code: 'NEGOTIATION_ERROR' });
       }
     });
@@ -715,14 +740,14 @@ export class Peer {
     return remote;
   }
 
-  async _signalHandler(e: any) {
-    const { type, id } = e;
+  async _signalHandler(signal: any) {
+    const { type, id } = signal;
     if (!type || !id || this.id === id) return;
 
-    log('peer:signal', { id: this.id, signal: e });
+    log('peer:signal', { id: this.id, signal });
 
     if (type === 'invoke') {
-      const { metadata, channels, streams } = e;
+      const { metadata, channels, streams } = signal;
 
       try {
         // verify the incoming connection and reject if verification fails
@@ -734,8 +759,8 @@ export class Peer {
         let remote = this.connections.get(id);
 
         // get filtered list of channels
-        const remoteChannels = new Set(channels || []);
         const localChannels = new Map<string, ChannelOptions>();
+        const remoteChannels = new Set(channels || []);
         for (const channelOptions of this.channels.values()) {
           const { label = '', filter } = channelOptions;
           if (remoteChannels.has(label)) continue;
@@ -773,8 +798,8 @@ export class Peer {
             type: 'invoke',
             id: this.id,
             metadata: this.metadata,
-            channels: Array.from(localChannels.keys()),
-            streams: Array.from(localStreams.keys()),
+            channels: Array.from(remote?.channels.keys() || []),
+            streams: Array.from(remote?.streams.keys() || []),
           });
         }
       }
@@ -787,7 +812,7 @@ export class Peer {
 
     // set remote description and create answer
     if (type === 'sdp') {
-      const { description, metadata, labels } = e;
+      const { description, metadata, labels } = signal;
 
       let remote = this.connections.get(id);
       if (!remote) {
@@ -802,16 +827,22 @@ export class Peer {
       try {
         const { connection } = remote;
 
-        const offerCollision = description.type === 'offer'
-          && (this._makingOffer.has(id) || connection.signalingState !== 'stable');
+        const readyForOffer = !this._makingOffer.has(id) &&
+          (connection.signalingState === 'stable' || this._pendingAnswer.has(id));
+        const offerCollision = description.type === 'offer' && !readyForOffer;
+
         const isPolite = this.id > id;
+        if (!isPolite && offerCollision) return;
 
-        if (offerCollision && isPolite) return;
-
-        // HOTFIX: seems to help with some edge cases of glare and offer collisions
-        // if (offerCollision) await timeout(100);
-
-        await connection.setRemoteDescription(description);
+        try {
+          if (description.type === 'answer') {
+            this._pendingAnswer.add(id);
+          }
+          await connection.setRemoteDescription(description);
+        }
+        finally {
+          this._pendingAnswer.delete(id);
+        }
 
         await this._addQueuedCandidates(remote);
 
@@ -835,7 +866,7 @@ export class Peer {
 
     // add ice candidate
     if (type === 'ice') {
-      const { candidate } = e;
+      const { candidate } = signal;
       const remote = this.connections.get(id);
 
       const { sdp } = remote?.connection.remoteDescription || {};
