@@ -1,21 +1,22 @@
 import { test, expect } from '@playwright/test';
 import type { Peer } from '../src/index.js';
 
-const { DEBUG } = process.env;
+// Enable debug logging from the page console
+const DEBUG = 'peerix:*';
 
 test('peer connections', async ({ page }) => {
   await page.goto('./tests/sandbox.html');
 
-  // if (DEBUG) {
-  page.on('console', (msg) => {
-    console.log(`CONSOLE: ${msg.text()}`);
-  });
-  // }
+  if (DEBUG) {
+    page.on('console', (msg) => {
+      console.log(`CONSOLE: ${msg.text()}`);
+    });
+  }
 
-  const [peer1, peer2] = await page.evaluate(async () => {
+  const [peer1, peer2] = await page.evaluate(async (debug) => {
     const { Peer } = await import('../src/index.js');
 
-    localStorage.debug = 'peerix:*';
+    if (debug) localStorage.debug = debug;
 
     const peer1 = new Peer({ id: '1' });
     const peer2 = new Peer({ id: '2' });
@@ -88,7 +89,7 @@ test('peer connections', async ({ page }) => {
     ]);
 
     return [await peer1Promise, await peer2Promise];
-  });
+  }, DEBUG);
 
   expect({ peer1, peer2 }).toEqual({
     peer1: [
@@ -109,16 +110,16 @@ test('peer connections', async ({ page }) => {
 test('data channels', async ({ page }) => {
   await page.goto('./tests/sandbox.html');
 
-  // if (DEBUG) {
-  page.on('console', (msg) => {
-    console.log(`CONSOLE: ${msg.text()}`);
-  });
-  // }
+  if (DEBUG) {
+    page.on('console', (msg) => {
+      console.log(`CONSOLE: ${msg.text()}`);
+    });
+  }
 
-  const [peer1, peer2] = await page.evaluate(async () => {
+  const [peer1, peer2] = await page.evaluate(async (debug) => {
     const { Peer } = await import('../src/index.js');
 
-    // localStorage.debug = 'peerix:*';
+    if (debug) localStorage.debug = debug;
 
     const peer1 = new Peer({ id: '1' });
     const peer2 = new Peer({ id: '2' });
@@ -203,7 +204,7 @@ test('data channels', async ({ page }) => {
     peer2.join({ room: 'test', metadata: { name: 'peer2' } });
 
     return [await peer1Promise, await peer2Promise];
-  });
+  }, DEBUG);
 
   expect({ peer1, peer2 }).toEqual({
     peer1: [
@@ -333,10 +334,10 @@ test('media streams', async ({ page }) => {
     });
   }
 
-  const [peer1, peer2] = await page.evaluate(async () => {
+  const [peer1, peer2] = await page.evaluate(async (debug) => {
     const { Peer } = await import('../src/index.js');
 
-    localStorage.debug = 'peerix:*';
+    if (debug) localStorage.debug = debug;
 
     const createSyntheticMediaStream = ({ width = 640, height = 360, video = true, audio = true } = {}) => {
       const tracks = [];
@@ -458,7 +459,7 @@ test('media streams', async ({ page }) => {
     ]);
 
     return [await peer1Promise, await peer2Promise];
-  });
+  }, DEBUG);
 
   expect({ peer1, peer2 }).toEqual({
     peer1: [

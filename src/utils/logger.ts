@@ -36,7 +36,6 @@ export default async function log(namespace: string, ...args: any) {
   }
   const ns = `${PREFIX}:${namespace}`;
   if (!isEnabled(ns, allow, deny)) return;
-  const ts = new Date().toISOString().slice(11, -1);
   const data = [];
   for (const arg of args) {
     const res = typeof arg === 'function' ? await arg() : arg;
@@ -77,6 +76,9 @@ function stringify(value: any): string {
       }
       if (typeof v?.toObject === 'function') {
         return v.toObject();
+      }
+      if (typeof v?.toJSON === 'function') {
+        return v.toJSON();
       }
       return v;
     });

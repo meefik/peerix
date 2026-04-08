@@ -1,6 +1,13 @@
 import type { SignalingDriver } from './signaling.js';
 
 /**
+ * Unique identifier for a peer.
+ * 
+ * @group Peers
+ */
+export type PeerId = string;
+
+/**
  * Possible peer connection states.
  * 
  * @group Peers
@@ -16,7 +23,7 @@ export interface PeerOptions {
   /**
    * Unique peer identifier. A random UUID is generated when omitted.
    */
-  id?: string;
+  id?: PeerId;
   /**
    * Signaling driver instance for message exchange between peers.
    * If omitted, a default in-memory driver is used, which is suitable for testing purposes only.
@@ -61,7 +68,7 @@ export interface PeerOptions {
   /**
    * Optional callback to accept or reject incoming peer connections.
    */
-  verify?: (options: { id: string; metadata?: any }) => Promise<boolean> | boolean;
+  verify?: (options: { id: PeerId; metadata?: any }) => Promise<boolean> | boolean;
 }
 
 /**
@@ -73,7 +80,7 @@ export interface RemotePeer {
   /**
    * Remote peer identifier.
    */
-  id: string;
+  id: PeerId;
   /**
    * Metadata advertised by the remote peer.
    */
@@ -153,7 +160,7 @@ export interface StreamOptions {
   /**
    * Optional callback to allow or block publishing to a remote peer.
    */
-  filter?: (options: { id: string; metadata?: any; label: string }) => boolean;
+  filter?: (options: { id: PeerId; metadata?: any; label: string }) => boolean;
 }
 
 /**
@@ -186,7 +193,7 @@ export interface ChannelOptions {
   /**
    * Optional callback to allow or block this channel for a remote peer.
    */
-  filter?: (options: { id: string; metadata?: any; label: string }) => boolean;
+  filter?: (options: { id: PeerId; metadata?: any; label: string }) => boolean;
 }
 
 /**
@@ -202,7 +209,7 @@ export interface SendOptions {
   /**
    * Optional callback to allow or block sending to a remote channel.
    */
-  filter?: (options: { id: string; metadata?: any; label: string }) => boolean;
+  filter?: (options: { id: PeerId; metadata?: any; label: string }) => boolean;
 }
 
 /**
@@ -214,29 +221,29 @@ export interface PeerEvents {
   /**
    * Emitted when a remote peer connection state changes.
    */
-  state: [{ remote: RemotePeer; state: PeerConnectionState }];
+  state: [{ id: PeerId; remote: RemotePeer; state: PeerConnectionState }];
   /**
    * Emitted when a remote peer publishes a media stream.
    */
-  publish: [{ remote: RemotePeer; stream: MediaStream; track: MediaStreamTrack; label: string }];
+  publish: [{ id: PeerId; remote: RemotePeer; stream: MediaStream; track: MediaStreamTrack; label: string }];
   /**
    * Emitted when a remote peer unpublishes a media stream.
    */
-  unpublish: [{ remote: RemotePeer; stream: MediaStream; track: MediaStreamTrack; label: string }];
+  unpublish: [{ id: PeerId; remote: RemotePeer; stream: MediaStream; track: MediaStreamTrack; label: string }];
   /**
    * Emitted when a data channel is opened.
    */
-  open: [{ remote: RemotePeer; channel: RTCDataChannel }];
+  open: [{ id: PeerId; remote: RemotePeer; channel: RTCDataChannel }];
   /**
    * Emitted when a data channel is closed.
    */
-  close: [{ remote: RemotePeer; channel: RTCDataChannel }];
+  close: [{ id: PeerId; remote: RemotePeer; channel: RTCDataChannel }];
   /**
    * Emitted when a message is received on a data channel.
    */
-  message: [{ remote: RemotePeer; channel: RTCDataChannel; data: any }];
+  message: [{ id: PeerId; remote: RemotePeer; channel: RTCDataChannel; data: any }];
   /**
    * Emitted when an error occurs with a remote peer connection or channel.
    */
-  error: [{ remote?: RemotePeer; channel?: RTCDataChannel; error: any; code?: string }];
+  error: [{ id: PeerId; remote?: RemotePeer; channel?: RTCDataChannel; error: any; code?: string }];
 }

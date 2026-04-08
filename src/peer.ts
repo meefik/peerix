@@ -168,6 +168,8 @@ export class Peer {
 
     this._signal = this._signalHandler.bind(this);
 
+    log('peer:join', { id: this.id, room: this.room, metadata: this.metadata });
+
     this.driver.on([this.room], this._signal);
     this.driver.on([this.room, this.id], this._signal);
 
@@ -176,8 +178,6 @@ export class Peer {
       id: this.id,
       metadata: this.metadata,
     });
-
-    log('peer:join', { room: this.room, metadata: this.metadata });
   }
 
   /**
@@ -200,7 +200,7 @@ export class Peer {
 
     delete this._signal;
 
-    log('peer:leave', { room: this.room });
+    log('peer:leave', { id: this.id, room: this.room });
   }
 
   /**
@@ -235,6 +235,8 @@ export class Peer {
       }
     }
 
+    log('peer:publish', { id: this.id, label, stream: newStream, ...opts });
+
     if (this._signal) {
       this.driver.emit([this.room], {
         type: 'invoke',
@@ -242,8 +244,6 @@ export class Peer {
         metadata: this.metadata,
       });
     }
-
-    log('peer:publish', { label, options });
   }
 
   /**
@@ -268,6 +268,8 @@ export class Peer {
       }
     }
 
+    log('peer:unpublish', { id: this.id, label, stream });
+
     for (const remote of this.connections.values()) {
       const { connection } = remote;
       const senders = connection.getSenders();
@@ -278,8 +280,6 @@ export class Peer {
         if (sender) connection.removeTrack(sender);
       }
     }
-
-    log('peer:unpublish', { label });
   }
 
   /**
@@ -293,6 +293,8 @@ export class Peer {
 
     this.channels.set(label, { ...opts, label });
 
+    log('peer:open', { id: this.id, label, ...opts });
+
     if (this._signal) {
       this.driver.emit([this.room], {
         type: 'invoke',
@@ -300,8 +302,6 @@ export class Peer {
         metadata: this.metadata,
       });
     }
-
-    log('peer:open', { label, options });
   }
 
   /**
@@ -315,13 +315,13 @@ export class Peer {
 
     this.channels.delete(label);
 
+    log('peer:close', { id: this.id, label });
+
     for (const remote of this.connections.values()) {
       const channel = remote.channels.get(label);
       if (channel) channel.close();
       remote.channels.delete(label);
     }
-
-    log('peer:close', { label });
   }
 
   /**
@@ -338,6 +338,8 @@ export class Peer {
 
     const { label, filter } = typeof options === 'object'
       ? options : { label: options };
+
+    log('peer:send', { id: this.id, message, options });
 
     for (const remote of this.connections.values()) {
       if (typeof label === 'string') {
@@ -361,8 +363,6 @@ export class Peer {
         }
       }
     }
-
-    log('peer:send', { message, options });
   }
 
   /**
@@ -439,15 +439,12 @@ export class Peer {
         try {
           const ufrag = this._parseUfrag(sdp);
           if (!sdp || ufrag !== candidate.usernameFragment) {
-            console.warn('### ignoring queued candidate', { localId: this.id, remoteId: id, ufrag: candidate.usernameFragment });
             continue;
           }
-
-          console.log('### adding queued candidate', { localId: this.id, remoteId: id, ufrag: candidate.usernameFragment });
           await connection.addIceCandidate(candidate);
         }
         catch (error) {
-          this.emit('error', { remote, error, code: 'QUEUED_CANDIDATE_ERROR' });
+          this.emit('error', { id: this.id, remote, error, code: 'QUEUED_CANDIDATE_ERROR' });
         }
       }
       this._candidateQueues.delete(id);
@@ -465,11 +462,11 @@ export class Peer {
     remote.channels.set(label, channel);
 
     channel.addEventListener('open', () => {
-      this.emit('open', { remote, channel });
+      this.emit('open', { id: this.id, remote, channel });
     });
     channel.addEventListener('close', () => {
       remote.channels.delete(label);
-      this.emit('close', { remote, channel });
+      this.emit('close', { id: this.id, remote, channel });
 
       // close connection if there are no more active streams or channels
       if (!remote.channels.size && !remote.streams.size) {
@@ -477,10 +474,10 @@ export class Peer {
       }
     });
     channel.addEventListener('message', (e) => {
-      this.emit('message', { remote, channel, data: e.data });
+      this.emit('message', { id: this.id, remote, channel, data: e.data });
     });
     channel.addEventListener('error', (e) => {
-      this.emit('error', { remote, channel, error: e.error, code: 'CHANNEL_ERROR' });
+      this.emit('error', { id: this.id, remote, channel, error: e.error, code: 'CHANNEL_ERROR' });
     });
   }
 
@@ -562,7 +559,7 @@ export class Peer {
         () => {
           dispose();
           const error = new Error('Connection timeout');
-          this.emit('error', { remote, error, code: 'CONNECTION_TIMEOUT' });
+          this.emit('error', { id: this.id, remote, error, code: 'CONNECTION_TIMEOUT' });
         },
         this.connectionTimeout * 1000,
       ) : undefined;
@@ -590,7 +587,7 @@ export class Peer {
         });
       }
 
-      this.emit('state', { remote, state: 'closed' });
+      this.emit('state', { id: this.id, remote, state: 'closed' });
     };
 
     const remote: RemotePeer = {
@@ -611,24 +608,24 @@ export class Peer {
       if (iceConnectionState === 'checking') {
         const state = 'connecting';
         remote.state = state;
-        this.emit('state', { remote, state });
+        this.emit('state', { id: this.id, remote, state });
       }
       else if (iceConnectionState === 'connected') {
         stopConnectionTimeout();
         const state = 'connected';
         remote.state = state;
-        this.emit('state', { remote, state });
+        this.emit('state', { id: this.id, remote, state });
       }
       else if (iceConnectionState === 'disconnected') {
         const state = 'disconnected';
         remote.state = state;
-        this.emit('state', { remote, state });
+        this.emit('state', { id: this.id, remote, state });
         stopConnectionTimeout = setConnectionTimeout();
       }
       else if (iceConnectionState === 'failed') {
         const state = 'failed';
         remote.state = state;
-        this.emit('state', { remote, state });
+        this.emit('state', { id: this.id, remote, state });
         dispose();
       }
       else if (iceConnectionState === 'closed') {
@@ -641,6 +638,8 @@ export class Peer {
       const { candidate } = e;
       if (!candidate) return;
 
+      log('peer:icecandidate', { id: this.id, remote, candidate });
+
       this.driver.emit([this.room, id], {
         type: 'ice',
         id: this.id,
@@ -651,9 +650,10 @@ export class Peer {
     });
 
     connection.addEventListener('negotiationneeded', async () => {
-      console.warn('### negotiationneeded', { localId: this.id, remoteId: id, signalingState: connection.signalingState, makingOffer: this._makingOffer.has(id) });
       try {
         if (connection.signalingState !== 'stable') return;
+
+        log('peer:negotiationneeded', { id: this.id, remote });
 
         this._makingOffer.add(id);
 
@@ -675,7 +675,7 @@ export class Peer {
         });
       } catch (error) {
         this._makingOffer.delete(id);
-        this.emit('error', { remote, error, code: 'NEGOTIATION_ERROR' });
+        this.emit('error', { id: this.id, remote, error, code: 'NEGOTIATION_ERROR' });
       }
     });
 
@@ -698,7 +698,7 @@ export class Peer {
           if (!stream.getTracks().length) {
             streams.delete(label);
           }
-          this.emit('unpublish', { remote, stream, track, label });
+          this.emit('unpublish', { id: this.id, remote, stream, track, label });
 
           // close connection if there are no more active streams or channels
           if (!remote.channels.size && !remote.streams.size) {
@@ -707,10 +707,10 @@ export class Peer {
         });
       }
 
-      this.emit('publish', { remote, stream, track, label });
+      this.emit('publish', { id: this.id, remote, stream, track, label });
     });
 
-    this.emit('state', { remote, state: 'new' });
+    this.emit('state', { id: this.id, remote, state: 'new' });
 
     return remote;
   }
@@ -719,7 +719,7 @@ export class Peer {
     const { type, id } = e;
     if (!type || !id || this.id === id) return;
 
-    log('peer:signal', e);
+    log('peer:signal', { id: this.id, signal: e });
 
     if (type === 'invoke') {
       const { metadata, channels, streams } = e;
@@ -779,7 +779,7 @@ export class Peer {
         }
       }
       catch (error) {
-        this.emit('error', { error, code: 'INVOKE_ERROR' });
+        this.emit('error', { id: this.id, error, code: 'INVOKE_ERROR' });
       }
 
       return;
@@ -806,13 +806,10 @@ export class Peer {
           && (this._makingOffer.has(id) || connection.signalingState !== 'stable');
         const isPolite = this.id > id;
 
-        console.warn('### description', { localId: this.id, remoteId: id, type: description.type, signalingState: connection.signalingState, makingOffer: this._makingOffer.has(id), offerCollision, isPolite });
-        if (offerCollision && isPolite) {
-          return console.warn('### ignoring offer', { lid: this.id, rid: id, isPolite, offerCollision });
-        }
+        if (offerCollision && isPolite) return;
 
         // HOTFIX: seems to help with some edge cases of glare and offer collisions
-        if (offerCollision) await timeout(100);
+        // if (offerCollision) await timeout(100);
 
         await connection.setRemoteDescription(description);
 
@@ -830,7 +827,7 @@ export class Peer {
           });
         }
       } catch (error) {
-        this.emit('error', { remote, error, code: 'DESCRIPTION_ERROR' });
+        this.emit('error', { id: this.id, remote, error, code: 'DESCRIPTION_ERROR' });
       }
 
       return;
@@ -845,7 +842,6 @@ export class Peer {
       const ufrag = this._parseUfrag(sdp);
 
       if (!remote || ufrag !== candidate.usernameFragment) {
-        console.log('### queueing candidate', { localId: this.id, remoteId: id, ufrag: candidate.usernameFragment });
         const queue = this._candidateQueues.get(id);
         if (!queue) this._candidateQueues.set(id, [candidate]);
         else queue.push(candidate);
@@ -854,11 +850,10 @@ export class Peer {
 
       try {
         const { connection } = remote;
-        console.log('### adding candidate', { localId: this.id, remoteId: id, ufrag: candidate.usernameFragment });
         await connection.addIceCandidate(candidate);
       }
       catch (error) {
-        this.emit('error', { remote, error, code: 'CANDIDATE_ERROR' });
+        this.emit('error', { id: this.id, remote, error, code: 'CANDIDATE_ERROR' });
       }
 
       return;
