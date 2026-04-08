@@ -747,6 +747,7 @@ export class Peer {
 
     if (type === 'invoke') {
       const { metadata, channels, streams } = signal;
+      const isPolite = this.id > id;
 
       try {
         // verify the incoming connection and reject if verification fails
@@ -758,21 +759,23 @@ export class Peer {
         let remote = this.connections.get(id);
 
         // get filtered list of channels
-        const localChannels = new Map<string, ChannelOptions>();
-        const remoteChannels = new Set(channels || []);
-        for (const channelOptions of this.channels.values()) {
-          const { label = '', filter } = channelOptions;
-          if (remoteChannels.has(label)) continue;
-          if (remote?.channels.has(label)) continue;
-          if (typeof filter === 'function') {
-            const allowed = filter({ id, metadata, label });
-            if (!allowed) continue;
+        const filteredChannels = new Map<string, ChannelOptions>();
+        if (!isPolite || channels) {
+          const remoteChannels = new Set(channels || []);
+          for (const channelOptions of this.channels.values()) {
+            const { label = '', filter } = channelOptions;
+            if (remoteChannels.has(label)) continue;
+            if (remote?.channels.has(label)) continue;
+            if (typeof filter === 'function') {
+              const allowed = filter({ id, metadata, label });
+              if (!allowed) continue;
+            }
+            filteredChannels.set(label, channelOptions);
           }
-          localChannels.set(label, channelOptions);
         }
 
         // get filtered list of streams
-        const localStreams = new Map<string, StreamOptions>();
+        const filteredStreams = new Map<string, StreamOptions>();
         for (const streamOptions of this.streams.values()) {
           const { label = '', filter } = streamOptions;
           if (remote?.streams.has(label)) continue;
@@ -780,19 +783,21 @@ export class Peer {
             const allowed = filter({ id, metadata, label });
             if (!allowed) continue;
           }
-          localStreams.set(label, streamOptions);
+          filteredStreams.set(label, streamOptions);
         }
 
-        if (localChannels.size || localStreams.size) {
+        // create peer connection, publish streams and create channels
+        if (filteredChannels.size || filteredStreams.size) {
           if (!remote) {
             remote = this.#createRemote(id, metadata);
             this.connections.set(id, remote);
           }
-          this.#publishStreams(remote, localStreams);
-          this.#createChannels(remote, localChannels);
+          this.#publishStreams(remote, filteredStreams);
+          this.#createChannels(remote, filteredChannels);
         }
 
-        if (!channels && !streams) {
+        // inform the initiator about existing channels and streams
+        if (!channels && !streams || !isPolite) {
           this.driver.emit([this.room, id], {
             type: 'invoke',
             id: this.id,
