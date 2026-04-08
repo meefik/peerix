@@ -7,11 +7,7 @@
  * well as a context for handler execution.
  */
 export default class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<keyof T, Map<(...args: any[]) => void, boolean>> {
-  /**
-   * Optional context for handler execution. If set, handlers will be invoked with
-   * this context instead of the emitter instance.
-   */
-  readonly context: any;
+  #context: any;
 
   /**
    * Create a new EventEmitter instance.
@@ -21,7 +17,7 @@ export default class EventEmitter<T extends { [K in keyof T]: any[] }> extends M
   constructor(context?: any) {
     super();
     if (context) {
-      this.context = context;
+      this.#context = context;
     }
   }
 
@@ -96,18 +92,14 @@ export default class EventEmitter<T extends { [K in keyof T]: any[] }> extends M
   emit<K extends keyof T>(event: K | K[], ...args: T[K]) {
     if (event) {
       const events = Array.isArray(event) ? event : [event];
+      const context = this.#context || this;
       for (const ev of events) {
         if (this.has(ev)) {
           for (const [handler, once] of this.get(ev) || []) {
             if (once) {
               this.off(ev, handler);
             }
-            try {
-              handler.apply(this.context || this, args);
-            }
-            catch (err) {
-              console.error(err);
-            }
+            setTimeout(() => handler.apply(context, args), 0);
           }
         }
       }

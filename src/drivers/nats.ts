@@ -25,12 +25,12 @@ import type { SignalingDriver } from '../types/signaling.js';
  * ```
  */
 export class NatsDriver implements SignalingDriver {
-  private _connect: (config?: any) => Promise<any>;
-  private _nc?: any;
-  private _prefix: string;
-  private _secret?: string;
-  private _cryptoKey?: CryptoKey;
-  private _events: Map<string, Map<(...args: any[]) => void, any>>;
+  #events: Map<string, Map<(...args: any[]) => void, any>>;
+  #connect: (config?: any) => Promise<any>;
+  #nc?: any;
+  #prefix: string;
+  #secret?: string;
+  #cryptoKey?: CryptoKey;
 
   /**
    * Create a new instance of the driver.
@@ -42,10 +42,10 @@ export class NatsDriver implements SignalingDriver {
    */
   constructor(options: { connect: (config?: any) => Promise<any>; secret?: string; prefix?: string }) {
     const { connect, secret, prefix = '' } = options || {};
-    this._connect = connect;
-    this._secret = secret;
-    this._prefix = prefix;
-    this._events = new Map();
+    this.#connect = connect;
+    this.#secret = secret;
+    this.#prefix = prefix;
+    this.#events = new Map();
   }
 
   /**
@@ -55,9 +55,9 @@ export class NatsDriver implements SignalingDriver {
    * @param config Optional configuration options.
    */
   async open(config?: any) {
-    this._nc = await this._connect(config);
-    if (this._secret) {
-      this._cryptoKey = await createEncryptionKey(this._secret);
+    this.#nc = await this.#connect(config);
+    if (this.#secret) {
+      this.#cryptoKey = await createEncryptionKey(this.#secret);
     }
   }
 
@@ -65,60 +65,60 @@ export class NatsDriver implements SignalingDriver {
    * Closes the connection to the NATS server.
    */
   async close() {
-    if (this._nc) {
-      await this._nc.close();
-      delete this._nc;
+    if (this.#nc) {
+      await this.#nc.close();
+      this.#nc = undefined;
     }
-    if (this._cryptoKey) {
-      delete this._cryptoKey;
+    if (this.#cryptoKey) {
+      this.#cryptoKey = undefined;
     }
   }
 
   async on(namespace: string[], handler: (data: any) => void) {
-    const ns = await getNS(namespace, this._prefix, !!this._cryptoKey);
-    const sub = this._nc.subscribe(ns, {
+    const ns = await getNS(namespace, this.#prefix, !!this.#cryptoKey);
+    const sub = this.#nc.subscribe(ns, {
       callback: async (err: Error, msg: any) => {
         if (err) {
           console.error(err);
           return;
         }
         let data = msg.data;
-        if (this._cryptoKey) {
-          data = await decrypt(data, this._cryptoKey);
+        if (this.#cryptoKey) {
+          data = await decrypt(data, this.#cryptoKey);
         }
         const payload = JSON.parse(new TextDecoder().decode(data));
         handler(payload);
       },
     });
-    let handlers = this._events.get(ns);
+    let handlers = this.#events.get(ns);
     if (!handlers) {
       handlers = new Map();
-      this._events.set(ns, handlers);
+      this.#events.set(ns, handlers);
     }
     handlers.set(handler, sub);
   }
 
   async off(namespace: string[], handler: (data: any) => void) {
-    const ns = await getNS(namespace, this._prefix, !!this._cryptoKey);
-    const handlers = this._events.get(ns);
+    const ns = await getNS(namespace, this.#prefix, !!this.#cryptoKey);
+    const handlers = this.#events.get(ns);
     const sub = handlers?.get(handler);
     if (sub) {
       sub.unsubscribe();
       handlers?.delete(handler);
     }
     if (!handlers?.size) {
-      this._events.delete(ns);
+      this.#events.delete(ns);
     }
   }
 
   async emit(namespace: string[], message: any) {
-    const ns = await getNS(namespace, this._prefix, !!this._cryptoKey);
-    if (this._nc) {
+    const ns = await getNS(namespace, this.#prefix, !!this.#cryptoKey);
+    if (this.#nc) {
       let data = new TextEncoder().encode(JSON.stringify(message));
-      if (this._cryptoKey) {
-        data = await encrypt(data, this._cryptoKey);
+      if (this.#cryptoKey) {
+        data = await encrypt(data, this.#cryptoKey);
       }
-      this._nc.publish(ns, data);
+      this.#nc.publish(ns, data);
     }
   }
 }

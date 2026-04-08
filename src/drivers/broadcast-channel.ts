@@ -13,8 +13,8 @@ import type { SignalingDriver } from '../types/signaling.js';
  * ```
  */
 export class BroadcastChannelDriver implements SignalingDriver {
-  private _events: Map<string, Set<(data: any) => void>>;
-  private _bc: BroadcastChannel;
+  #events: Map<string, Set<(data: any) => void>>;
+  #bc: BroadcastChannel;
 
   /**
    * Create a new instance of the driver.
@@ -22,11 +22,11 @@ export class BroadcastChannelDriver implements SignalingDriver {
    * @param channelName Optional BroadcastChannel name (defaults to 'peerix').
    */
   constructor(channelName: string) {
-    this._events = new Map();
-    this._bc = new BroadcastChannel(channelName || 'peerix');
-    this._bc.onmessage = (e) => {
+    this.#events = new Map();
+    this.#bc = new BroadcastChannel(channelName || 'peerix');
+    this.#bc.onmessage = (e) => {
       const { ns, data } = e.data;
-      const handlers = this._events.get(ns);
+      const handlers = this.#events.get(ns);
       if (!ns || !handlers) return;
       for (const handler of handlers) {
         try {
@@ -41,26 +41,26 @@ export class BroadcastChannelDriver implements SignalingDriver {
 
   on(namespace: string[], handler: (data: any) => void) {
     const ns = namespace.join(':');
-    let handlers = this._events.get(ns);
+    let handlers = this.#events.get(ns);
     if (!handlers) {
       handlers = new Set();
-      this._events.set(ns, handlers);
+      this.#events.set(ns, handlers);
     }
     handlers.add(handler);
   }
 
   off(namespace: string[], handler: (data: any) => void) {
     const ns = namespace.join(':');
-    const handlers = this._events.get(ns);
+    const handlers = this.#events.get(ns);
     if (handlers) {
       if (handler) handlers.delete(handler);
       else handlers.clear();
-      if (!handlers.size) this._events.delete(ns);
+      if (!handlers.size) this.#events.delete(ns);
     }
   }
 
   emit(namespace: string[], data: any) {
     const ns = namespace.join(':');
-    this._bc.postMessage({ ns, data });
+    this.#bc.postMessage({ ns, data });
   }
 }

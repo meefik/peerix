@@ -11,10 +11,10 @@ import { Peer } from '../peer.js';
  * @group Addons
  */
 export class Addon {
-  private _emitter: EventEmitter<AddonEvents>;
+  #emitter: EventEmitter<AddonEvents>;
 
   constructor() {
-    this._emitter = new EventEmitter<AddonEvents>(this);
+    this.#emitter = new EventEmitter<AddonEvents>(this);
   }
 
   /**
@@ -44,7 +44,7 @@ export class Addon {
    * @param handler Event handler.
    */
   on<K extends keyof AddonEvents>(event: K | K[], handler: (...args: AddonEvents[K]) => void) {
-    this._emitter.on(event, handler);
+    this.#emitter.on(event, handler);
   }
 
   /**
@@ -54,7 +54,7 @@ export class Addon {
    * @param handler Event handler.
    */
   once<K extends keyof AddonEvents>(event: K | K[], handler: (...args: AddonEvents[K]) => void) {
-    this._emitter.once(event, handler);
+    this.#emitter.once(event, handler);
   }
 
   /**
@@ -64,7 +64,7 @@ export class Addon {
    * @param handler Optional event handler to remove. If not provided, all handlers for the event(s) will be removed.
    */
   off<K extends keyof AddonEvents>(event: K | K[], handler?: (...args: AddonEvents[K]) => void) {
-    this._emitter.off(event, handler);
+    this.#emitter.off(event, handler);
   }
 
   /**
@@ -74,6 +74,6 @@ export class Addon {
    * @param args Arguments to pass to the event handlers.
    */
   emit<K extends keyof AddonEvents>(event: K | K[], ...args: AddonEvents[K]) {
-    this._emitter.emit(event, ...args);
+    this.#emitter.emit(event, ...args);
   }
 }
