@@ -85,6 +85,10 @@ export class Peer {
    * Optional metadata announced to other peers in signaling messages.
    */
   metadata?: any;
+  /**
+   * Indicates whether the peer is currently active (joined a room).
+   */
+  active: boolean;
 
   /**
    * Internal event emitter used by on/once/off/emit helpers.
@@ -132,6 +136,7 @@ export class Peer {
     this.driver = driver;
     this.id = id;
     this.room = '';
+    this.active = false;
     this.iceServers = iceServers;
     this.iceTransportPolicy = iceTransportPolicy;
     this.connectionTimeout = connectionTimeout;
@@ -148,21 +153,13 @@ export class Peer {
   }
 
   /**
-   * Indicates whether the peer is currently active.
-   *
-   * @returns True if the Peer is joined to a room, false otherwise.
-   */
-  get active(): boolean {
-    return !!this.#signaling;
-  }
-
-  /**
    * Join a room and start listening for incoming connections.
    *
    * @param options Room name or join options.
    */
   async join(options?: string | JoinOptions) {
-    if (this.#signaling) return;
+    if (this.active) return;
+    this.active = true;
 
     const { room = 'default', metadata } = typeof options === 'object'
       ? options : { room: options };
@@ -173,7 +170,6 @@ export class Peer {
     log('peer:join', { id: this.id, room: this.room, metadata: this.metadata });
 
     this.#signaling = this.#signalHandler.bind(this);
-
     this.driver.on([this.room], this.#signaling);
     this.driver.on([this.room, this.id], this.#signaling);
 
@@ -188,12 +184,15 @@ export class Peer {
     * Leave the current room and close all active remote connections.
    */
   async leave() {
-    if (!this.#signaling) return;
+    if (!this.active) return;
 
-    log('peer:leave', { id: this.id, room: this.room });
+    log('peer:leave', { id: this.id, room: this.room, metadata: this.metadata });
 
-    this.driver.off([this.room], this.#signaling);
-    this.driver.off([this.room, this.id], this.#signaling);
+    if (this.#signaling) {
+      this.driver.off([this.room], this.#signaling);
+      this.driver.off([this.room, this.id], this.#signaling);
+      this.#signaling = undefined;
+    }
 
     for (const remote of this.connections.values()) {
       remote.dispose();
@@ -205,7 +204,7 @@ export class Peer {
     this.#pendingAnswer.clear();
     this.#streamLabels.clear();
 
-    this.#signaling = undefined;
+    this.active = false;
   }
 
   /**
@@ -242,7 +241,7 @@ export class Peer {
 
     log('peer:publish', { id: this.id, label, stream: newStream, ...opts });
 
-    if (this.#signaling) {
+    if (this.active) {
       this.driver.emit([this.room], {
         type: 'invoke',
         id: this.id,
@@ -300,7 +299,7 @@ export class Peer {
 
     log('peer:open', { id: this.id, label, ...opts });
 
-    if (this.#signaling) {
+    if (this.active) {
       this.driver.emit([this.room], {
         type: 'invoke',
         id: this.id,
@@ -339,7 +338,7 @@ export class Peer {
    * @param options Optional send options or channel label.
    */
   async send(message: any, options?: string | SendOptions) {
-    if (!this.#signaling) return;
+    if (!this.active) return;
 
     const { label, filter } = typeof options === 'object'
       ? options : { label: options };
