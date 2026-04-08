@@ -60,12 +60,6 @@ peer.on('state', (e) => {
   );
 });
 
-// listen for errors
-peer.on('error', (e) => {
-  const { error, code } = e;
-  console.error('Error:', error, 'Code:', code);
-});
-
 // join a room
 peer.join({
   room: 'room-id',
@@ -83,7 +77,7 @@ Work with data channels to exchange messages with other peers:
 
 ```js
 // listen for open channel event
-peer.on('open', (e) => {
+peer.on('channel:open', (e) => {
   const { remote, channel } = e;
   console.log(
     'Channel opened with peer:', remote.id, 
@@ -94,7 +88,7 @@ peer.on('open', (e) => {
 });
 
 // listen for close channel event
-peer.on('close', (e) => {
+peer.on('channel:close', (e) => {
   const { remote, channel } = e;
   console.log(
     'Channel closed with peer:', remote.id, 
@@ -103,7 +97,7 @@ peer.on('close', (e) => {
 });
 
 // listen for incoming messages
-peer.on('message', (e) => {
+peer.on('channel:message', (e) => {
   const { remote, channel, data } = e;
   console.log(
     'Received message from peer:', remote.id,
@@ -129,7 +123,7 @@ Work with media streams to share audio and video with other peers:
 
 ```js
 // listen for peer publishing a track in a stream
-peer.on('publish', (e) => {
+peer.on('track:add', (e) => {
   const { remote, stream, track, label } = e;
   console.log(
     'Peer:', remote.id,
@@ -140,7 +134,7 @@ peer.on('publish', (e) => {
 });
 
 // listen for peer unpublishing a track in a stream
-peer.on('unpublish', (e) => {
+peer.on('track:remove', (e) => {
   const { remote, stream, track, label } = e;
   console.log(
     'Peer:', remote.id,

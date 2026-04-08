@@ -50,19 +50,11 @@ export interface PeerOptions {
    */
   connectionTimeout?: number;
   /**
-   * Reconnection interval in seconds after an unexpected disconnection.
-   * By default, it is set to 30 seconds. Use 0 to disable automatic reconnection.
+   * Discovery interval in seconds to find other peers in the same room.
+   * It is used to trigger connection attempts to newly discovered peers.
+   * By default, it is set to 30 seconds. Use 0 to disable automatic discovery.
    */
-  reconnectionInterval?: number;
-  /**
-   * Optional callback to accept or reject incoming peer connections.
-   * 
-   * @param options Options describing the incoming peer connection.
-   * @param options.id Remote peer identifier.
-   * @param options.metadata Remote peer metadata.
-   * @returns A boolean or a promise that resolves to a boolean indicating whether the incoming connection should be accepted.
-   */
-  verify?: (options: { id: string; metadata?: any }) => Promise<boolean> | boolean;
+  discoveryInterval?: number;
 }
 
 /**
@@ -119,12 +111,81 @@ export interface JoinOptions {
    * Optional metadata to advertise to the remote peer.
    */
   metadata?: any;
+  /**
+   * Optional callback to accept or reject incoming peer connections.
+   * 
+   * @param options Options describing the incoming peer connection.
+   * @param options.id Remote peer identifier.
+   * @param options.metadata Remote peer metadata.
+   * @returns A boolean or a promise that resolves to a boolean indicating whether the incoming connection should be accepted.
+   */
+  verify?: (options: { id: string; metadata?: any }) => Promise<boolean> | boolean;
+}
+
+/**
+ * Event emitted on peer connection state changes.
+ * 
+ * @group Peers
+ */
+export interface StateEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * New connection state.
+   */
+  state: PeerConnectionState;
+}
+
+/**
+ * Events emitted by {@link Peer} instances.
+ * 
+ * @group Peers
+ */
+export interface PeerEvents {
+  /**
+   * Emitted when a remote peer connection state changes.
+   */
+  'state': [StateEvent];
+  /**
+   * Emitted when a remote peer publishes a media track.
+   */
+  'track:add': [TrackAddEvent];
+  /**
+   * Emitted when a remote peer unpublishes a media track.
+   */
+  'track:remove': [TrackRemoveEvent];
+  /**
+   * Channel created or received from a remote peer.
+   */
+  'channel': [ChannelEvent];
+  /**
+   * Emitted when a data channel is opened.
+   */
+  'channel:open': [ChannelOpenEvent];
+  /**
+   * Emitted when a data channel is closed.
+   */
+  'channel:close': [ChannelCloseEvent];
+  /**
+   * Emitted when a message is received on a data channel.
+   */
+  'channel:message': [ChannelMessageEvent];
+  /**
+   * Emitted when an error occurs with a remote peer connection or channel.
+   */
+  'channel:error': [ChannelErrorEvent];
 }
 
 /**
  * Local stream publication options.
  * 
- * @group Peers
+ * @group Streams
  */
 export interface StreamOptions {
   /**
@@ -160,13 +221,69 @@ export interface StreamOptions {
    * @param options.label Stream label.
    * @returns A boolean indicating whether the stream should be published to the specified peer.
    */
-  filter?: (options: { id: string; metadata?: any; label: string }) => boolean;
+  verify?: (options: { id: string; metadata?: any; label: string }) => Promise<boolean> | boolean;
+}
+
+/**
+ * Emitted when a remote peer publishes a media track.
+ * 
+ * @group Streams
+ */
+export interface TrackAddEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Media stream associated with the event.
+   */
+  stream: MediaStream;
+  /**
+   * Media track associated with the event.
+   */
+  track: MediaStreamTrack;
+  /**
+   * Label of the media stream.
+   */
+  label: string;
+}
+
+/**
+ * Emitted when a remote peer unpublishes a media track.
+ * 
+ * @group Streams
+ */
+export interface TrackRemoveEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Media stream associated with the event.
+   */
+  stream: MediaStream;
+  /**
+   * Media track associated with the event.
+   */
+  track: MediaStreamTrack;
+  /**
+   * Label of the media stream.
+   */
+  label: string;
 }
 
 /**
  * Options used to create negotiated RTCDataChannel instances.
  * 
- * @group Peers
+ * @group Channels
  */
 export interface ChannelOptions {
   /**
@@ -199,13 +316,13 @@ export interface ChannelOptions {
    * @param options.label Channel label.
    * @returns A boolean indicating whether the channel should be created for the specified peer.
    */
-  filter?: (options: { id: string; metadata?: any; label: string }) => boolean;
+  verify?: (options: { id: string; metadata?: any; label: string }) => Promise<boolean> | boolean;
 }
 
 /**
  * Optional selectors/filters used by `Peer.send`.
  * 
- * @group Peers
+ * @group Channels
  */
 export interface SendOptions {
   /**
@@ -221,91 +338,15 @@ export interface SendOptions {
    * @param options.label Target channel label.
    * @returns A boolean indicating whether the message should be sent to the specified channel.
    */
-  filter?: (options: { id: string; metadata?: any; label: string }) => boolean;
+  verify?: (options: { id: string; metadata?: any; label: string }) => Promise<boolean> | boolean;
 }
 
 /**
- * Event emitted on peer connection state changes.
+ * Emitted when a data channel created or received from a remote peer.
  * 
- * @group Peers
+ * @group Channels
  */
-export interface PeerStateEvent {
-  /**
-   * Local peer identifier.
-   */
-  id: string;
-  /**
-   * Remote peer object containing connection details.
-   */
-  remote: RemotePeer;
-  /**
-   * New connection state.
-   */
-  state: PeerConnectionState;
-}
-
-/**
- * Emitted when a remote peer publishes a media track.
- * 
- * @group Peers
- */
-export interface PeerTrackPublishEvent {
-  /**
-   * Local peer identifier.
-   */
-  id: string;
-  /**
-   * Remote peer object containing connection details.
-   */
-  remote: RemotePeer;
-  /**
-   * Media stream associated with the event.
-   */
-  stream: MediaStream;
-  /**
-   * Media track associated with the event.
-   */
-  track: MediaStreamTrack;
-  /**
-   * Label of the media stream.
-   */
-  label: string;
-}
-
-/**
- * Emitted when a remote peer unpublishes a media track.
- * 
- * @group Peers
- */
-export interface PeerTrackUnpublishEvent {
-  /**
-   * Local peer identifier.
-   */
-  id: string;
-  /**
-   * Remote peer object containing connection details.
-   */
-  remote: RemotePeer;
-  /**
-   * Media stream associated with the event.
-   */
-  stream: MediaStream;
-  /**
-   * Media track associated with the event.
-   */
-  track: MediaStreamTrack;
-  /**
-   * Label of the media stream.
-   */
-  label: string;
-}
-
-/**
- * Emitted when a data channel is opened.
- * 
- * @group Peers
- */
-export interface PeerChannelOpenEvent {
+export interface ChannelEvent {
   /**
    * Local peer identifier.
    */
@@ -318,14 +359,42 @@ export interface PeerChannelOpenEvent {
    * Opened data channel.
    */
   channel: RTCDataChannel;
+  /**
+   * Label of the data channel.
+   */
+  label: string;
+}
+
+/**
+ * Emitted when a data channel is opened.
+ * 
+ * @group Channels
+ */
+export interface ChannelOpenEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Opened data channel.
+   */
+  channel: RTCDataChannel;
+  /**
+   * Label of the data channel.
+   */
+  label: string;
 }
 
 /**
  * Emitted when a data channel is closed.
  * 
- * @group Peers
+ * @group Channels
  */
-export interface PeerChannelCloseEvent {
+export interface ChannelCloseEvent {
   /**
    * Local peer identifier.
    */
@@ -338,14 +407,18 @@ export interface PeerChannelCloseEvent {
    * Closed data channel.
    */
   channel: RTCDataChannel;
+  /**
+   * Label of the data channel.
+   */
+  label: string;
 }
 
 /**
  * Emitted when a message is received on a data channel.
  * 
- * @group Peers
+ * @group Channels
  */
-export interface PeerMessageEvent {
+export interface ChannelMessageEvent {
   /**
    * Local peer identifier.
    */
@@ -359,6 +432,10 @@ export interface PeerMessageEvent {
    */
   channel: RTCDataChannel;
   /**
+   * Label of the data channel.
+   */
+  label: string;
+  /**
    * Received message data.
    */
   data: any;
@@ -367,9 +444,9 @@ export interface PeerMessageEvent {
 /**
  * Emitted when an error occurs with a remote peer connection or channel.
  * 
- * @group Peers
+ * @group Channels
  */
-export interface PeerErrorEvent {
+export interface ChannelErrorEvent {
   /**
    * Local peer identifier.
    */
@@ -377,53 +454,25 @@ export interface PeerErrorEvent {
   /**
    * Remote peer object containing connection details.
    */
-  remote?: RemotePeer;
+  remote: RemotePeer;
   /**
    * Data channel associated with the error, if applicable.
    */
-  channel?: RTCDataChannel;
+  channel: RTCDataChannel;
   /**
-   * Error object or message.
+   * Label of the data channel.
    */
-  error: any;
+  label: string;
   /**
-   * Optional error code.
+   * Error object containing details about the error.
+   * 
+   * Available error codes:
+   * - 'PEER_CONNECTION_TIMEOUT': Indicates a connection timeout error.
+   * - 'PEER_DATACHANNEL_ERROR': Indicates an error related to a data channel.
+   * 
+   * @param name The name of the error.
+   * @param message The error message providing details about the error.
+   * @param code Optional error code for categorizing the error.
    */
-  code?: string;
-}
-
-/**
- * Events emitted by {@link Peer} instances.
- * 
- * @group Peers
- */
-export interface PeerEvents {
-  /**
-   * Emitted when a remote peer connection state changes.
-   */
-  state: [PeerStateEvent];
-  /**
-   * Emitted when a remote peer publishes a media track.
-   */
-  publish: [PeerTrackPublishEvent];
-  /**
-   * Emitted when a remote peer unpublishes a media track.
-   */
-  unpublish: [PeerTrackUnpublishEvent];
-  /**
-   * Emitted when a data channel is opened.
-   */
-  open: [PeerChannelOpenEvent];
-  /**
-   * Emitted when a data channel is closed.
-   */
-  close: [PeerChannelCloseEvent];
-  /**
-   * Emitted when a message is received on a data channel.
-   */
-  message: [PeerMessageEvent];
-  /**
-   * Emitted when an error occurs with a remote peer connection or channel.
-   */
-  error: [PeerErrorEvent];
+  error: Error;
 }
