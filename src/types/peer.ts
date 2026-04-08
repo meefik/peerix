@@ -1,11 +1,5 @@
+import type { Peer } from '../peer.js';
 import type { SignalingDriver } from './signaling.js';
-
-/**
- * Unique identifier for a peer.
- * 
- * @group Peers
- */
-export type PeerId = string;
 
 /**
  * Possible peer connection states.
@@ -23,7 +17,7 @@ export interface PeerOptions {
   /**
    * Unique peer identifier. A random UUID is generated when omitted.
    */
-  id?: PeerId;
+  id?: string;
   /**
    * Signaling driver instance for message exchange between peers.
    * If omitted, a default in-memory driver is used, which is suitable for testing purposes only.
@@ -56,19 +50,19 @@ export interface PeerOptions {
    */
   connectionTimeout?: number;
   /**
-   * Whether to keep the connection alive indefinitely.
-   * If true, the connection will not be closed automatically when there are no active streams or channels.
-   */
-  keepConnection?: boolean;
-  /**
    * Reconnection interval in seconds after an unexpected disconnection.
    * By default, it is set to 30 seconds. Use 0 to disable automatic reconnection.
    */
   reconnectionInterval?: number;
   /**
    * Optional callback to accept or reject incoming peer connections.
+   * 
+   * @param options Options describing the incoming peer connection.
+   * @param options.id Remote peer identifier.
+   * @param options.metadata Remote peer metadata.
+   * @returns A boolean or a promise that resolves to a boolean indicating whether the incoming connection should be accepted.
    */
-  verify?: (options: { id: PeerId; metadata?: any }) => Promise<boolean> | boolean;
+  verify?: (options: { id: string; metadata?: any }) => Promise<boolean> | boolean;
 }
 
 /**
@@ -80,7 +74,7 @@ export interface RemotePeer {
   /**
    * Remote peer identifier.
    */
-  id: PeerId;
+  id: string;
   /**
    * Metadata advertised by the remote peer.
    */
@@ -159,8 +153,14 @@ export interface StreamOptions {
   videoBitrate?: number;
   /**
    * Optional callback to allow or block publishing to a remote peer.
+   * 
+   * @param options Options describing the target peer and stream.
+   * @param options.id Remote peer identifier.
+   * @param options.metadata Remote peer metadata.
+   * @param options.label Stream label.
+   * @returns A boolean indicating whether the stream should be published to the specified peer.
    */
-  filter?: (options: { id: PeerId; metadata?: any; label: string }) => boolean;
+  filter?: (options: { id: string; metadata?: any; label: string }) => boolean;
 }
 
 /**
@@ -192,8 +192,14 @@ export interface ChannelOptions {
   protocol?: string;
   /**
    * Optional callback to allow or block this channel for a remote peer.
+   * 
+   * @param options Options describing the target peer and channel.
+   * @param options.id Remote peer identifier.
+   * @param options.metadata Remote peer metadata.
+   * @param options.label Channel label.
+   * @returns A boolean indicating whether the channel should be created for the specified peer.
    */
-  filter?: (options: { id: PeerId; metadata?: any; label: string }) => boolean;
+  filter?: (options: { id: string; metadata?: any; label: string }) => boolean;
 }
 
 /**
@@ -208,8 +214,182 @@ export interface SendOptions {
   label?: string;
   /**
    * Optional callback to allow or block sending to a remote channel.
+   * 
+   * @param options Options describing the target peer and channel.
+   * @param options.id Remote peer identifier.
+   * @param options.metadata Remote peer metadata.
+   * @param options.label Target channel label.
+   * @returns A boolean indicating whether the message should be sent to the specified channel.
    */
-  filter?: (options: { id: PeerId; metadata?: any; label: string }) => boolean;
+  filter?: (options: { id: string; metadata?: any; label: string }) => boolean;
+}
+
+/**
+ * Event emitted on peer connection state changes.
+ * 
+ * @group Peers
+ */
+export interface PeerStateEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * New connection state.
+   */
+  state: PeerConnectionState;
+}
+
+/**
+ * Emitted when a remote peer publishes a media track.
+ * 
+ * @group Peers
+ */
+export interface PeerTrackPublishEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Media stream associated with the event.
+   */
+  stream: MediaStream;
+  /**
+   * Media track associated with the event.
+   */
+  track: MediaStreamTrack;
+  /**
+   * Label of the media stream.
+   */
+  label: string;
+}
+
+/**
+ * Emitted when a remote peer unpublishes a media track.
+ * 
+ * @group Peers
+ */
+export interface PeerTrackUnpublishEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Media stream associated with the event.
+   */
+  stream: MediaStream;
+  /**
+   * Media track associated with the event.
+   */
+  track: MediaStreamTrack;
+  /**
+   * Label of the media stream.
+   */
+  label: string;
+}
+
+/**
+ * Emitted when a data channel is opened.
+ * 
+ * @group Peers
+ */
+export interface PeerChannelOpenEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Opened data channel.
+   */
+  channel: RTCDataChannel;
+}
+
+/**
+ * Emitted when a data channel is closed.
+ * 
+ * @group Peers
+ */
+export interface PeerChannelCloseEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Closed data channel.
+   */
+  channel: RTCDataChannel;
+}
+
+/**
+ * Emitted when a message is received on a data channel.
+ * 
+ * @group Peers
+ */
+export interface PeerMessageEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Data channel that received the message.
+   */
+  channel: RTCDataChannel;
+  /**
+   * Received message data.
+   */
+  data: any;
+}
+
+/**
+ * Emitted when an error occurs with a remote peer connection or channel.
+ * 
+ * @group Peers
+ */
+export interface PeerErrorEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote?: RemotePeer;
+  /**
+   * Data channel associated with the error, if applicable.
+   */
+  channel?: RTCDataChannel;
+  /**
+   * Error object or message.
+   */
+  error: any;
+  /**
+   * Optional error code.
+   */
+  code?: string;
 }
 
 /**
@@ -221,29 +401,29 @@ export interface PeerEvents {
   /**
    * Emitted when a remote peer connection state changes.
    */
-  state: [{ id: PeerId; remote: RemotePeer; state: PeerConnectionState }];
+  state: [PeerStateEvent];
   /**
-   * Emitted when a remote peer publishes a media stream.
+   * Emitted when a remote peer publishes a media track.
    */
-  publish: [{ id: PeerId; remote: RemotePeer; stream: MediaStream; track: MediaStreamTrack; label: string }];
+  publish: [PeerTrackPublishEvent];
   /**
-   * Emitted when a remote peer unpublishes a media stream.
+   * Emitted when a remote peer unpublishes a media track.
    */
-  unpublish: [{ id: PeerId; remote: RemotePeer; stream: MediaStream; track: MediaStreamTrack; label: string }];
+  unpublish: [PeerTrackUnpublishEvent];
   /**
    * Emitted when a data channel is opened.
    */
-  open: [{ id: PeerId; remote: RemotePeer; channel: RTCDataChannel }];
+  open: [PeerChannelOpenEvent];
   /**
    * Emitted when a data channel is closed.
    */
-  close: [{ id: PeerId; remote: RemotePeer; channel: RTCDataChannel }];
+  close: [PeerChannelCloseEvent];
   /**
    * Emitted when a message is received on a data channel.
    */
-  message: [{ id: PeerId; remote: RemotePeer; channel: RTCDataChannel; data: any }];
+  message: [PeerMessageEvent];
   /**
    * Emitted when an error occurs with a remote peer connection or channel.
    */
-  error: [{ id: PeerId; remote?: RemotePeer; channel?: RTCDataChannel; error: any; code?: string }];
+  error: [PeerErrorEvent];
 }
