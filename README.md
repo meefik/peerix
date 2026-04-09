@@ -51,7 +51,7 @@ const driver = new BroadcastChannelDriver();
 const peer = new Peer({ driver });
 
 // listen for peer connection state changes
-peer.on('state', (e) => {
+peer.on('connection', (e) => {
   const { remote, state } = e;
   console.log(
     'State changed for peer:', remote.id, 
@@ -122,7 +122,45 @@ peer.send('Hello, peers!', { label: 'chat' });
 Work with media streams to share audio and video with other peers:
 
 ```js
-// listen for peer publishing a track in a stream
+// listen for a remote peer publishing a stream
+peer.on('stream:add', (e) => {
+  const { remote, stream, label } = e;
+  console.log(
+    'Peer:', remote.id,
+    'published a stream with label:', label,
+    'stream state:', stream.active
+  );
+});
+
+// listen for a remote peer unpublishing a stream
+peer.on('stream:remove', (e) => {
+  const { remote, stream, label } = e;
+  console.log(
+    'Peer:', remote.id,
+    'unpublished a stream with label:', label,
+    'stream state:', stream.active
+  );
+});
+
+// get a media stream from the user's camera and microphone
+const stream = await navigator.mediaDevices.getUserMedia(
+  { video: true, audio: true }
+);
+
+// start sharing the stream with the room
+peer.publish({ label: 'camera', stream });
+
+// later, if you no longer want to share the stream, you can unpublish it
+// peer.unpublish({ label: 'camera' });
+```
+
+> [!NOTE]
+> The stream label can be any string and should be unique for each media stream.
+
+In addition to stream-level events, you can also listen for track-level events to get more granular information about the media tracks being added or removed from the stream:
+
+```js
+// listen for a remote peer adding a track to the stream
 peer.on('track:add', (e) => {
   const { remote, stream, track, label } = e;
   console.log(
@@ -133,7 +171,7 @@ peer.on('track:add', (e) => {
   );
 });
 
-// listen for peer unpublishing a track in a stream
+// listen for a remote peer removing a track from the stream
 peer.on('track:remove', (e) => {
   const { remote, stream, track, label } = e;
   console.log(
@@ -143,21 +181,21 @@ peer.on('track:remove', (e) => {
     'with label:', label
   );
 });
-
-// get a media stream from the user's camera and microphone
-const stream = await navigator.mediaDevices.getUserMedia(
-  { video: true, audio: true }
-);
-
-// publish the stream to the room or replace it with a new one
-peer.publish({ label: 'camera', stream });
-
-// later, if you want to stop sharing the stream, you can unpublish it
-// peer.unpublish({ label: 'camera' });
 ```
 
-> [!NOTE]
-> The stream label can be any string and should be unique for each media stream.
+You can republish a new stream with the same label to update the media being shared with other peers:
+
+```js
+// get a new media stream from the user's camera without microphone
+const newStream = await navigator.mediaDevices.getUserMedia(
+  { video: true, audio: false }
+);
+
+// republish the new stream with the same label to update the media
+peer.publish({ label: 'camera', stream: newStream });
+```
+
+In this case, the tracks from the old stream will be removed and replaced with the tracks from the new stream for all connected peers and new peers that join the room. On the remote peers, you will receive a `track:remove` event for the old tracks and a `track:add` event for the new tracks. This allows you to easily switch between different media sources or update the media being shared without having to manage individual tracks manually. 
 
 ## Signaling Drivers
 

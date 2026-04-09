@@ -1,4 +1,5 @@
 import type { Peer } from '../peer.js';
+import type { PeerixError } from '../error.js';
 import type { SignalingDriver } from './signaling.js';
 
 /**
@@ -117,9 +118,9 @@ export interface JoinOptions {
    * @param options Options describing the incoming peer connection.
    * @param options.id Remote peer identifier.
    * @param options.metadata Remote peer metadata.
-   * @returns A boolean or a promise that resolves to a boolean indicating whether the incoming connection should be accepted.
+   * @returns A boolean indicating whether the incoming connection should be accepted.
    */
-  verify?: (options: { id: string; metadata?: any }) => Promise<boolean> | boolean;
+  verify?: (options: { id: string; metadata?: any }) => boolean;
 }
 
 /**
@@ -127,7 +128,7 @@ export interface JoinOptions {
  * 
  * @group Peers
  */
-export interface StateEvent {
+export interface ConnectionStateEvent {
   /**
    * Local peer identifier.
    */
@@ -143,6 +144,22 @@ export interface StateEvent {
 }
 
 /**
+ * Event emitted when an error occurs in any background operations.
+ * 
+ * @group Peers
+ */
+export interface PeerErrorEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Error object containing details about the error.
+   */
+  error: PeerixError;
+}
+
+/**
  * Events emitted by {@link Peer} instances.
  * 
  * @group Peers
@@ -151,7 +168,13 @@ export interface PeerEvents {
   /**
    * Emitted when a remote peer connection state changes.
    */
-  'state': [StateEvent];
+  'connection': [ConnectionStateEvent];
+  /**
+   * Emitted when an error occurs in any background operations.
+   */
+  'error': [PeerErrorEvent];
+  'stream:add': [StreamAddEvent];
+  'stream:remove': [StreamRemoveEvent];
   /**
    * Emitted when a remote peer publishes a media track.
    */
@@ -221,11 +244,60 @@ export interface StreamOptions {
    * @param options.label Stream label.
    * @returns A boolean indicating whether the stream should be published to the specified peer.
    */
-  verify?: (options: { id: string; metadata?: any; label: string }) => Promise<boolean> | boolean;
+  verify?: (options: { id: string; metadata?: any; label: string }) => boolean;
 }
 
 /**
- * Emitted when a remote peer publishes a media track.
+ * Emitted when a remote peer publishes a media stream.
+ * 
+ * @group Streams
+ */
+export interface StreamAddEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Media stream associated with the event.
+   */
+  stream: MediaStream;
+  /**
+   * Label of the media stream.
+   */
+  label: string;
+}
+
+/**
+ * Emitted when a remote peer unpublishes a media stream.
+ * 
+ * @group Streams
+ */
+export interface StreamRemoveEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Media stream associated with the event.
+   */
+  stream: MediaStream;
+  /**
+   * Label of the media stream.
+   */
+  label: string;
+}
+
+
+/**
+ * Emitted when a remote peer add a media track to a published stream.
  * 
  * @group Streams
  */
@@ -253,7 +325,7 @@ export interface TrackAddEvent {
 }
 
 /**
- * Emitted when a remote peer unpublishes a media track.
+ * Emitted when a remote peer removes a media track from a published stream.
  * 
  * @group Streams
  */
@@ -338,7 +410,7 @@ export interface SendOptions {
    * @param options.label Target channel label.
    * @returns A boolean indicating whether the message should be sent to the specified channel.
    */
-  verify?: (options: { id: string; metadata?: any; label: string }) => Promise<boolean> | boolean;
+  verify?: (options: { id: string; metadata?: any; label: string }) => boolean;
 }
 
 /**
@@ -465,14 +537,6 @@ export interface ChannelErrorEvent {
   label: string;
   /**
    * Error object containing details about the error.
-   * 
-   * Available error codes:
-   * - 'PEER_CONNECTION_TIMEOUT': Indicates a connection timeout error.
-   * - 'PEER_DATACHANNEL_ERROR': Indicates an error related to a data channel.
-   * 
-   * @param name The name of the error.
-   * @param message The error message providing details about the error.
-   * @param code Optional error code for categorizing the error.
    */
   error: Error;
 }
