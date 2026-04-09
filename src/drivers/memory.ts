@@ -14,17 +14,17 @@ import type { SignalingDriver } from '../types/signaling.js';
  */
 export class MemoryDriver implements SignalingDriver {
   #events: Map<string, Set<(data: any) => void>>;
-  #delay?: number;
+  #delay: number;
 
   /**
    * Create a new instance of the driver.
    * 
    * @param options Optional configuration for the driver.
-   * @param options.delay Maximum delay (in milliseconds) for message delivery to simulate network latency. The delay will be a random value between 75% and 125% of the specified delay.
+   * @param options.delay Delay (in milliseconds) for message delivery to simulate network latency. The delay will be a random value between 75% and 125% of the specified delay.
    */
   constructor(options?: { delay?: number }) {
     this.#events = new Map();
-    this.#delay = options?.delay;
+    this.#delay = options?.delay || 0;
   }
 
   on(namespace: string[], handler: (data: any) => void) {
@@ -52,17 +52,8 @@ export class MemoryDriver implements SignalingDriver {
     const handlers = this.#events.get(ns);
     if (!handlers) return;
     for (const handler of handlers) {
-      try {
-        if (typeof this.#delay === 'number' && this.#delay >= 0) {
-          const delay = ~~(0.5 * Math.random() * this.#delay + 0.75 * this.#delay);
-          setTimeout(() => handler(message), delay);
-        } else {
-          handler(message);
-        }
-      }
-      catch (err) {
-        /* swallow errors */
-      }
+      const delay = ~~(0.5 * Math.random() * this.#delay + 0.75 * this.#delay);
+      setTimeout(() => handler(message), delay);
     }
   }
 }

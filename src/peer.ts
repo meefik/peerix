@@ -2,7 +2,7 @@ import type { SignalingDriver } from './types/signaling.js';
 import type { PeerOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents } from './types/peer.js';
 import { MemoryDriver } from './drivers/memory.js';
 import EventEmitter from './utils/emitter.js';
-import { UUIDv4 } from './utils/helpers.js';
+import { UUIDv4, timeout } from './utils/helpers.js';
 import log from './utils/logger.js';
 import { PeerixError, ErrorCode } from './error.js';
 
@@ -1097,10 +1097,16 @@ export class Peer {
       const isPolite = this.id > id;
       if (!isPolite && offerCollision) return;
 
+      // wait to avoid interrupting previous operations 
+      while (this.#makingOffer.has(id) || this.#pendingAnswer.has(id)) {
+        await timeout(0);
+        console.log('timeout', this.id);
+      }
+
       try {
         await this.#setRemoteDescription(remote, description);
 
-        await this.#addQueuedIceCandidates(remote);
+        this.#addQueuedIceCandidates(remote);
 
         if (description.type === 'offer') {
           const answer = await this.#createAnswer(remote);
