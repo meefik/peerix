@@ -176,20 +176,12 @@ export class Peer {
 
     log('peer:join', { id: this.id, room: this.room, metadata: this.metadata });
 
-    try {
-      this.#signaling = this.#signalHandler.bind(this);
-      await this.driver.on([this.room], this.#signaling);
-      await this.driver.on([this.room, this.id], this.#signaling);
-
-      await this.driver.emit([this.room], {
-        type: 'invoke',
-        id: this.id,
-        metadata: this.metadata,
-      });
-    }
-    catch (err) {
-      this.#reportError(err, 'PEER_SIGNALING_FAILED');
-    }
+    await this.#registerSignalHandlers([this.room], [this.room, this.id]);
+    await this.#sendSignal([this.room], {
+      type: 'invoke',
+      id: this.id,
+      metadata: this.metadata,
+    });
   }
 
   /**
@@ -200,16 +192,7 @@ export class Peer {
 
     log('peer:leave', { id: this.id, room: this.room, metadata: this.metadata });
 
-    if (this.#signaling) {
-      try {
-        await this.driver.off([this.room], this.#signaling);
-        await this.driver.off([this.room, this.id], this.#signaling);
-        this.#signaling = undefined;
-      }
-      catch (err) {
-        this.#reportError(err, 'PEER_SIGNALING_FAILED');
-      }
-    }
+    await this.#unregisterSignalHandlers([this.room], [this.room, this.id]);
 
     for (const remote of this.connections.values()) {
       remote.dispose();
@@ -259,18 +242,11 @@ export class Peer {
 
     this.streams.set(label, { label, stream: newStream, ...opts });
 
-    if (this.active) {
-      try {
-        await this.driver.emit([this.room], {
-          type: 'invoke',
-          id: this.id,
-          metadata: this.metadata,
-        });
-      }
-      catch (err) {
-        this.#reportError(err, 'PEER_SIGNALING_FAILED');
-      }
-    }
+    await this.#sendSignal([this.room], {
+      type: 'invoke',
+      id: this.id,
+      metadata: this.metadata,
+    });
   }
 
   /**
@@ -327,18 +303,11 @@ export class Peer {
 
     this.channels.set(label, { label, ...opts });
 
-    if (this.active) {
-      try {
-        await this.driver.emit([this.room], {
-          type: 'invoke',
-          id: this.id,
-          metadata: this.metadata,
-        });
-      }
-      catch (err) {
-        this.#reportError(err, 'PEER_SIGNALING_FAILED');
-      }
-    }
+    await this.#sendSignal([this.room], {
+      type: 'invoke',
+      id: this.id,
+      metadata: this.metadata,
+    });
   }
 
   /**
@@ -841,14 +810,10 @@ export class Peer {
       this.emit('connection', { id: this.id, remote, state: 'closed' });
 
       if (!silent) {
-        try {
-          await this.driver.emit([this.room, id], {
-            type: 'dispose',
-            id: this.id,
-          });
-        } catch (err) {
-          this.#reportError(err, 'PEER_SIGNALING_FAILED');
-        }
+        await this.#sendSignal([this.room, id], {
+          type: 'dispose',
+          id: this.id,
+        });
       }
     };
 
@@ -902,18 +867,13 @@ export class Peer {
 
       log('peer:connection:icecandidate', { id: this.id, candidate, remote });
 
-      try {
-        await this.driver.emit([this.room, id], {
-          type: 'ice',
-          id: this.id,
-          candidate: typeof candidate.toJSON === 'function'
-            ? candidate.toJSON()
-            : candidate,
-        });
-      }
-      catch (err) {
-        this.#reportError(err, 'PEER_SIGNALING_FAILED');
-      }
+      await this.#sendSignal([this.room, id], {
+        type: 'ice',
+        id: this.id,
+        candidate: typeof candidate.toJSON === 'function'
+          ? candidate.toJSON()
+          : candidate,
+      });
     });
 
     connection.addEventListener('negotiationneeded', async () => {
@@ -922,23 +882,18 @@ export class Peer {
       try {
         const offer = await this.#createOffer(remote);
         if (offer) {
-          try {
-            await this.driver.emit([this.room, id], {
-              type: 'sdp',
-              id: this.id,
-              metadata: this.metadata,
-              description: offer,
-              labels: Array.from(this.streams.keys())
-                .reduce((acc, label) => {
-                  const { stream } = this.streams.get(label) || {};
-                  if (stream) acc[stream.id] = label;
-                  return acc;
-                }, {} as { [key: string]: string }),
-            });
-          }
-          catch (err) {
-            this.#reportError(err, 'PEER_SIGNALING_FAILED');
-          }
+          await this.#sendSignal([this.room, id], {
+            type: 'sdp',
+            id: this.id,
+            metadata: this.metadata,
+            description: offer,
+            labels: Array.from(this.streams.keys())
+              .reduce((acc, label) => {
+                const { stream } = this.streams.get(label) || {};
+                if (stream) acc[stream.id] = label;
+                return acc;
+              }, {} as { [key: string]: string }),
+          });
         }
       }
       catch (err) {
@@ -1005,12 +960,58 @@ export class Peer {
     return answer;
   }
 
+  async #registerSignalHandlers(...namespaces: string[][]) {
+    log('peer:signal:register', { id: this.id, namespaces });
+
+    try {
+      this.#signaling = this.#signalHandler.bind(this);
+
+      for (const namespace of namespaces) {
+        await this.driver.on(namespace, this.#signaling);
+      }
+    }
+    catch (err) {
+      this.#reportError(err, 'PEER_SIGNALING_FAILED');
+    }
+  }
+
+  async #unregisterSignalHandlers(...namespaces: string[][]) {
+    log('peer:signal:unregister', { id: this.id, namespaces });
+
+    try {
+      if (this.#signaling) {
+        for (const namespace of namespaces) {
+          await this.driver.off(namespace, this.#signaling);
+        }
+
+        this.#signaling = undefined;
+      }
+    }
+    catch (err) {
+      this.#reportError(err, 'PEER_SIGNALING_FAILED');
+    }
+  }
+
+  async #sendSignal(namespace: string[], signal: any) {
+    if (!this.active) return;
+
+    log('peer:signal:send', { id: this.id, namespace, signal });
+
+    try {
+      await this.driver.emit(namespace, signal);
+    }
+    catch (err) {
+      this.#reportError(err, 'PEER_SIGNALING_FAILED');
+    }
+  }
+
   async #signalHandler(signal: any) {
     const { type, id } = signal;
-    if (!type || !id || this.id === id) return;
+    if (!this.active || !type || !id || this.id === id) return;
 
-    log('peer:signal', { id: this.id, signal });
+    log('peer:signal:receive', { id: this.id, signal });
 
+    // handle incoming connection
     if (type === 'invoke') {
       const { metadata, channels, streams } = signal;
       const isPolite = this.id > id;
@@ -1032,7 +1033,7 @@ export class Peer {
       const filteredStreams = this.#getFilteredStreams(id, metadata);
 
       // create peer connection, publish streams and create channels
-      if (filteredChannels?.size || filteredStreams?.size) {
+      if (filteredChannels.size || filteredStreams.size) {
         let remote = this.connections.get(id);
         if (!remote) {
           try {
@@ -1050,19 +1051,14 @@ export class Peer {
 
       // inform the initiator about existing channels and streams
       if (!channels && !streams || !isPolite) {
-        try {
-          const remote = this.connections.get(id);
-          await this.driver.emit([this.room, id], {
-            type: 'invoke',
-            id: this.id,
-            metadata: this.metadata,
-            channels: Array.from(remote?.channels.keys() || []),
-            streams: Array.from(remote?.streams.keys() || []),
-          });
-        }
-        catch (err) {
-          this.#reportError(err, 'PEER_SIGNALING_FAILED');
-        }
+        const remote = this.connections.get(id);
+        await this.#sendSignal([this.room, id], {
+          type: 'invoke',
+          id: this.id,
+          metadata: this.metadata,
+          channels: Array.from(remote?.channels.keys() || []),
+          streams: Array.from(remote?.streams.keys() || []),
+        });
       }
 
       return;
@@ -1100,7 +1096,6 @@ export class Peer {
       // wait to avoid interrupting previous operations 
       while (this.#makingOffer.has(id) || this.#pendingAnswer.has(id)) {
         await timeout(0);
-        console.log('timeout', this.id);
       }
 
       try {
@@ -1111,17 +1106,12 @@ export class Peer {
         if (description.type === 'offer') {
           const answer = await this.#createAnswer(remote);
           if (answer) {
-            try {
-              await this.driver.emit([this.room, id], {
-                type: 'sdp',
-                id: this.id,
-                metadata: this.metadata,
-                description: answer,
-              });
-            }
-            catch (err) {
-              this.#reportError(err, 'PEER_SIGNALING_FAILED');
-            }
+            await this.#sendSignal([this.room, id], {
+              type: 'sdp',
+              id: this.id,
+              metadata: this.metadata,
+              description: answer,
+            });
           }
         }
       }
