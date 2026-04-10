@@ -550,7 +550,7 @@ export class Peer {
         // close connection if there are no more active streams or channels
         if (!channels.size && !streams.size) {
           // TODO: add a delay before disposing
-          remote.dispose();
+          // remote.dispose();
         }
       });
       channel.addEventListener('message', (e) => {
@@ -581,29 +581,47 @@ export class Peer {
       const labels = this.#streamLabels.get(id) || {};
       const label = labels[stream.id] || stream.id;
 
-      if (!streams.has(label)) {
-        streams.set(label, stream);
-        stream.addEventListener('removetrack', (e) => {
-          const { track } = e;
+      const addTrack = () => {
+        if (!streams.has(label)) {
+          streams.set(label, stream);
+          this.emit('stream:add', { id: this.id, remote, stream, label });
+        }
 
-          this.emit('track:remove', { id: this.id, remote, stream, track, label });
+        this.emit('track:add', { id: this.id, remote, stream, track, label });
+      };
 
-          if (!stream.getTracks().length) {
-            streams.delete(label);
-            this.emit('stream:remove', { id: this.id, remote, stream, label });
-          }
+      const removeTrack = () => {
+        stream.removeTrack(track);
+        this.emit('track:remove', { id: this.id, remote, stream, track, label });
 
-          // close connection if there are no more active streams or channels
-          if (!channels.size && !streams.size) {
-            // TODO: add a delay before disposing
-            remote.dispose();
-          }
-        });
+        if (!stream.getTracks().length) {
+          streams.delete(label);
+          this.emit('stream:remove', { id: this.id, remote, stream, label });
+        }
 
-        this.emit('stream:add', { id: this.id, remote, stream, label });
-      }
+        // close connection if there are no more active streams or channels
+        if (!channels.size && !streams.size) {
+          // TODO: add a delay before disposing
+          // remote.dispose();
+        }
+      };
 
-      this.emit('track:add', { id: this.id, remote, stream, track, label });
+      console.log('track', { id: this.id, muted: track.muted, readyState: track.readyState, label });
+
+      // TODO: removetrack event relates to remoteTrack(), ended relates to track.stop()
+
+      track.addEventListener('ended', removeTrack);
+      track.addEventListener('mute', removeTrack);
+      track.addEventListener('unmute', () => {
+        console.log('unmute', { id: this.id, muted: track.muted, readyState: track.readyState, label });
+        addTrack();
+      });
+
+      setInterval(() => {
+        console.log('track', { id: this.id, enabled: track.enabled, muted: track.muted, readyState: track.readyState });
+      }, 1000);
+
+      // addTrack();
     }
     catch (err) {
       this.#reportError(err, 'PEER_MEDIASTREAM_ERROR');
@@ -933,6 +951,15 @@ export class Peer {
     connection.addEventListener('track', (e) => {
       const { track, streams: [stream] } = e;
       this.#setupMediaStream(remote, stream, track);
+    });
+
+    connection.addEventListener('signalingstatechange', (e) => {
+      const { signalingState } = connection;
+      const noSenders = !connection.getSenders().some((sender: RTCRtpSender) => sender.track && sender.track.readyState !== 'ended');
+      const noChannels = !remote.channels.size;
+      const noStreams = !remote.streams.size;
+
+      console.log('signalingstatechange', { id: this.id, signalingState, noSenders, noChannels, noStreams, remote: { id } });
     });
 
     this.connections.set(id, remote);
