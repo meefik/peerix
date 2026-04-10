@@ -22,7 +22,7 @@ export class MemoryDriver implements SignalingDriver {
    * @param options Optional configuration for the driver.
    * @param options.delay Delay (in milliseconds) for message delivery to simulate network latency. The delay will be a random value between 75% and 125% of the specified delay.
    */
-  constructor(options?: { delay?: number }) {
+  constructor(options?: { delay?: number; }) {
     this.#events = new Map();
     this.#delay = options?.delay || 0;
   }

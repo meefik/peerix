@@ -38,7 +38,7 @@ export interface PeerOptions {
    * }]
    * ```
    */
-  iceServers?: { urls: string | string[]; username?: string; credential?: string }[];
+  iceServers?: { urls: string | string[]; username?: string; credential?: string; }[];
   /**
    * ICE policy used by created RTCPeerConnection instances. 
    * If set to 'relay', only relay candidates will be used, 
@@ -94,7 +94,7 @@ export interface RemotePeer {
    * @param options Optional settings for disposing the remote peer.
    * @param options.silent If true, suppresses emitting a 'leave' message via the signaling driver.
    */
-  dispose: (options?: { silent?: boolean }) => void;
+  dispose: (options?: { silent?: boolean; }) => void;
 }
 
 /**
@@ -120,7 +120,7 @@ export interface JoinOptions {
    * @param options.metadata Remote peer metadata.
    * @returns A boolean indicating whether the incoming connection should be accepted.
    */
-  verify?: (options: { id: string; metadata?: any }) => boolean;
+  verify?: (options: { id: string; metadata?: any; }) => boolean;
 }
 
 /**
@@ -244,7 +244,7 @@ export interface StreamOptions {
    * @param options.label Stream label.
    * @returns A boolean indicating whether the stream should be published to the specified peer.
    */
-  verify?: (options: { id: string; metadata?: any; label: string }) => boolean;
+  verify?: (options: { id: string; metadata?: any; label: string; }) => boolean;
 }
 
 /**
@@ -388,7 +388,7 @@ export interface ChannelOptions {
    * @param options.label Channel label.
    * @returns A boolean indicating whether the channel should be created for the specified peer.
    */
-  verify?: (options: { id: string; metadata?: any; label: string }) => Promise<boolean> | boolean;
+  verify?: (options: { id: string; metadata?: any; label: string; }) => Promise<boolean> | boolean;
 }
 
 /**
@@ -410,7 +410,7 @@ export interface SendOptions {
    * @param options.label Target channel label.
    * @returns A boolean indicating whether the message should be sent to the specified channel.
    */
-  verify?: (options: { id: string; metadata?: any; label: string }) => boolean;
+  verify?: (options: { id: string; metadata?: any; label: string; }) => boolean;
 }
 
 /**

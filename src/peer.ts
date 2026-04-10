@@ -57,7 +57,7 @@ export class Peer {
   /**
    * STUN/TURN servers passed to every RTCPeerConnection instance.
    */
-  readonly iceServers: { urls: string | string[]; username?: string; credential?: string }[];
+  readonly iceServers: { urls: string | string[]; username?: string; credential?: string; }[];
   /**
    * ICE transport policy for created peer connections.
    */
@@ -116,7 +116,7 @@ export class Peer {
   /**
    * Media stream labels for incoming streams, indexed by remote peer id.
    */
-  #streamLabels: Map<string, { [key: string]: string }>;
+  #streamLabels: Map<string, { [key: string]: string; }>;
   /**
    * Active signaling handler registered on the signaling driver.
    */
@@ -124,7 +124,7 @@ export class Peer {
   /**
    * Optional callback to accept or reject incoming peer connections.
    */
-  #verify?: (options: { id: string; metadata?: any }) => Promise<boolean> | boolean;
+  #verify?: (options: { id: string; metadata?: any; }) => Promise<boolean> | boolean;
 
   /**
    * Creates an instance of Peer.
@@ -185,7 +185,7 @@ export class Peer {
   }
 
   /**
-    * Leave the current room and close all active remote connections.
+   * Leave the current room and close all active remote connections.
    */
   async leave() {
     if (!this.active) return;
@@ -254,7 +254,7 @@ export class Peer {
    *
    * @param options Stream label, MediaStream instance, or object containing `label`.
    */
-  async unpublish(options: string | MediaStream | { label: string }) {
+  async unpublish(options: string | MediaStream | { label: string; }) {
     if (options instanceof MediaStream) {
       options = { label: options.id };
     }
@@ -315,7 +315,7 @@ export class Peer {
    *
    * @param options Channel label or object containing `label`.
    */
-  async close(options: string | { label: string }) {
+  async close(options: string | { label: string; }) {
     const { label = 'default' } = typeof options === 'object'
       ? options : { label: options };
 
@@ -466,8 +466,9 @@ export class Peer {
   /**
    * Queue an ICE candidate for a remote peer if its remote description is not yet set or the username fragment does not match.
    * 
-   * @param remote Remote peer descriptor.
+   * @param id Remote peer id.
    * @param candidate ICE candidate to queue.
+   * @param remote Remote peer descriptor, if a connection already exists.
    */
   #queueIceCandidate(id: string, candidate: RTCIceCandidateInit, remote?: RemotePeer): boolean {
     const { sdp } = remote?.connection.remoteDescription || {};
@@ -523,10 +524,10 @@ export class Peer {
   }
 
   /**
-   * Helper method to create a data channel.
+   * Set up event listeners on a data channel and register it with the remote peer.
    * 
    * @param remote Remote peer descriptor.
-   * @param channel Data channel instance.
+   * @param channel Data channel instance to configure.
    */
   #setupDataChannel(remote: RemotePeer, channel: RTCDataChannel) {
     const { label = '' } = channel;
@@ -548,6 +549,7 @@ export class Peer {
 
         // close connection if there are no more active streams or channels
         if (!channels.size && !streams.size) {
+          // TODO: add a delay before disposing
           remote.dispose();
         }
       });
@@ -593,6 +595,7 @@ export class Peer {
 
           // close connection if there are no more active streams or channels
           if (!channels.size && !streams.size) {
+            // TODO: add a delay before disposing
             remote.dispose();
           }
         });
@@ -635,7 +638,7 @@ export class Peer {
    * Helper method to add or replace media tracks for a remote peer.
    * 
    * @param remote Remote peer descriptor.
-   * @param streams Map of stream options keyed by stream ID.
+   * @param streams Map of stream options keyed by stream label.
    */
   #publishStreams(remote: RemotePeer, streams: Map<string, StreamOptions>) {
     const { connection } = remote;
@@ -663,7 +666,7 @@ export class Peer {
       try {
         const { stream, audioBitrate, videoBitrate } = options;
 
-        const bitrate: { [key: string]: number } = {
+        const bitrate: { [key: string]: number; } = {
           audio: (audioBitrate || 0) | 0,
           video: (videoBitrate || 0) | 0,
         };
@@ -709,6 +712,17 @@ export class Peer {
     }
   }
 
+  /**
+   * Return a filtered map of local channels that should be created for a remote peer.
+   *
+   * Channels already present in `labelsToIgnore` (i.e. already open on the remote side)
+   * as well as channels rejected by their `verify` callback are excluded.
+   *
+   * @param id Remote peer id.
+   * @param metadata Metadata associated with the remote peer.
+   * @param labelsToIgnore Channel labels to skip (polite-peer glare avoidance).
+   * @returns Filtered map of channel options keyed by channel label.
+   */
   #getFilteredChannels(id: string, metadata: any, labelsToIgnore?: string[]) {
     const filteredChannels = new Map<string, ChannelOptions>();
 
@@ -739,6 +753,16 @@ export class Peer {
     return filteredChannels;
   }
 
+  /**
+   * Return a filtered map of local streams that should be published to a remote peer.
+   *
+   * Streams rejected by their `verify` callback or already tracked on the remote side
+   * are excluded.
+   *
+   * @param id Remote peer id.
+   * @param metadata Metadata associated with the remote peer.
+   * @returns Filtered map of stream options keyed by stream label.
+   */
   #getFilteredStreams(id: string, metadata: any) {
     const filteredStreams = new Map<string, StreamOptions>();
 
@@ -892,7 +916,7 @@ export class Peer {
                 const { stream } = this.streams.get(label) || {};
                 if (stream) acc[stream.id] = label;
                 return acc;
-              }, {} as { [key: string]: string }),
+              }, {} as { [key: string]: string; }),
           });
         }
       }
@@ -911,11 +935,19 @@ export class Peer {
       this.#setupMediaStream(remote, stream, track);
     });
 
+    this.connections.set(id, remote);
+
     this.emit('connection', { id: this.id, remote, state: 'new' });
 
     return remote;
   }
 
+  /**
+   * Create an SDP offer and set it as the local description for a remote peer connection.
+   *
+   * @param remote Remote peer descriptor.
+   * @returns The created RTCSessionDescriptionInit offer.
+   */
   async #createOffer(remote: RemotePeer) {
     const { id, connection } = remote;
 
@@ -933,6 +965,15 @@ export class Peer {
     }
   }
 
+  /**
+   * Apply a remote SDP description to a peer connection.
+   *
+   * When the description is an answer, tracks pending-answer state so that
+   * glare detection logic in the signal handler stays accurate.
+   *
+   * @param remote Remote peer descriptor.
+   * @param description SDP offer or answer received from the remote peer.
+   */
   async #setRemoteDescription(remote: RemotePeer, description: RTCSessionDescriptionInit) {
     const { id, connection } = remote;
 
@@ -949,6 +990,12 @@ export class Peer {
     }
   }
 
+  /**
+   * Create an SDP answer and set it as the local description for a remote peer connection.
+   *
+   * @param remote Remote peer descriptor.
+   * @returns The created RTCSessionDescriptionInit answer.
+   */
   async #createAnswer(remote: RemotePeer) {
     const { connection } = remote;
 
@@ -960,6 +1007,11 @@ export class Peer {
     return answer;
   }
 
+  /**
+   * Subscribe the internal signal handler to all specified signaling namespaces.
+   *
+   * @param namespaces One or more namespace arrays to subscribe to.
+   */
   async #registerSignalHandlers(...namespaces: string[][]) {
     log('peer:signal:register', { id: this.id, namespaces });
 
@@ -975,6 +1027,11 @@ export class Peer {
     }
   }
 
+  /**
+   * Unsubscribe the internal signal handler from all specified signaling namespaces.
+   *
+   * @param namespaces One or more namespace arrays to unsubscribe from.
+   */
   async #unregisterSignalHandlers(...namespaces: string[][]) {
     log('peer:signal:unregister', { id: this.id, namespaces });
 
@@ -992,6 +1049,14 @@ export class Peer {
     }
   }
 
+  /**
+   * Emit a signaling message to the given namespace via the configured driver.
+   *
+   * Does nothing when the peer is not active.
+   *
+   * @param namespace Target namespace for the signal.
+   * @param signal Signal payload to send.
+   */
   async #sendSignal(namespace: string[], signal: any) {
     if (!this.active) return;
 
@@ -1005,6 +1070,14 @@ export class Peer {
     }
   }
 
+  /**
+   * Handle an incoming signaling message dispatched by the driver.
+   *
+   * Processes `invoke`, `sdp`, `ice`, and `dispose` message types to establish,
+   * negotiate, and tear down peer connections.
+   *
+   * @param signal Incoming signal payload from the signaling driver.
+   */
   async #signalHandler(signal: any) {
     const { type, id } = signal;
     if (!this.active || !type || !id || this.id === id) return;
@@ -1038,7 +1111,6 @@ export class Peer {
         if (!remote) {
           try {
             remote = this.#createPeerConnection(id, metadata);
-            this.connections.set(id, remote);
           }
           catch (err) {
             this.#reportError(err, 'PEER_CONNECTION_FAILED');
@@ -1072,7 +1144,6 @@ export class Peer {
       if (!remote) {
         try {
           remote = this.#createPeerConnection(id, metadata);
-          this.connections.set(id, remote);
         }
         catch (err) {
           this.#reportError(err, 'PEER_CONNECTION_FAILED');

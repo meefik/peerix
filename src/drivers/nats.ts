@@ -40,7 +40,7 @@ export class NatsDriver implements SignalingDriver {
    * @param options.secret An optional secret key for encrypting messages.
    * @param options.prefix An optional prefix for NATS subjects.
    */
-  constructor(options: { connect: (config?: any) => Promise<any>; secret?: string; prefix?: string }) {
+  constructor(options: { connect: (config?: any) => Promise<any>; secret?: string; prefix?: string; }) {
     const { connect, secret, prefix = '' } = options || {};
     this.#connect = connect;
     this.#secret = secret;
