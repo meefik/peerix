@@ -591,12 +591,17 @@ export class Peer {
       };
 
       const removeTrack = () => {
-        stream.removeTrack(track);
-        this.emit('track:remove', { id: this.id, remote, stream, track, label });
+        const hasTrack = stream.getTracks().indexOf(track) !== -1;
+        if (hasTrack) {
+          stream.removeTrack(track);
+          this.emit('track:remove', { id: this.id, remote, stream, track, label });
+        }
 
-        if (!stream.getTracks().length) {
-          streams.delete(label);
-          this.emit('stream:remove', { id: this.id, remote, stream, label });
+        if (!stream.active || !stream.getTracks().length) {
+          if (streams.has(label)) {
+            streams.delete(label);
+            this.emit('stream:remove', { id: this.id, remote, stream, label });
+          }
         }
 
         // close connection if there are no more active streams or channels
@@ -606,22 +611,15 @@ export class Peer {
         }
       };
 
-      console.log('track', { id: this.id, muted: track.muted, readyState: track.readyState, label });
-
-      // TODO: removetrack event relates to remoteTrack(), ended relates to track.stop()
+      // TODO: Is it the same as track ended event?
+      // stream.addEventListener('removetrack', (e) => {
+      //   console.log('stream removetrack event', { id: this.id, remote, stream, track: e.track, label });
+      // });
 
       track.addEventListener('ended', removeTrack);
       track.addEventListener('mute', removeTrack);
-      track.addEventListener('unmute', () => {
-        console.log('unmute', { id: this.id, muted: track.muted, readyState: track.readyState, label });
-        addTrack();
-      });
 
-      setInterval(() => {
-        console.log('track', { id: this.id, enabled: track.enabled, muted: track.muted, readyState: track.readyState });
-      }, 1000);
-
-      // addTrack();
+      addTrack();
     }
     catch (err) {
       this.#reportError(err, 'PEER_MEDIASTREAM_ERROR');
@@ -635,11 +633,12 @@ export class Peer {
    * @param channels Map of channel options keyed by channel label.
    */
   #createChannels(remote: RemotePeer, channels: Map<string, ChannelOptions>) {
-    const { connection } = remote;
+    const { connection, channels: remoteChannels } = remote;
 
     for (const channelOptions of channels.values()) {
       try {
         const { label = '', verify, ...opts } = channelOptions || {};
+        if (remoteChannels.has(label)) continue;
 
         log('peer:connection:createdatachannel', { id: this.id, remote, label, ...opts });
 
@@ -658,7 +657,7 @@ export class Peer {
    * @param remote Remote peer descriptor.
    * @param streams Map of stream options keyed by stream label.
    */
-  #publishStreams(remote: RemotePeer, streams: Map<string, StreamOptions>) {
+  async #publishStreams(remote: RemotePeer, streams: Map<string, StreamOptions>) {
     const { connection } = remote;
 
     const setBitrate = (id: string, bitrate: number) => {
@@ -692,28 +691,30 @@ export class Peer {
         const tracks = stream.getTracks();
         const senders = connection.getSenders();
 
-        // Replace existing senders or add new ones for each track in the stream
+        // Add new tracks that are not already being sent
         for (const track of tracks) {
-          const senderExists = senders.some((sender) => sender.track && sender.track.id === track.id);
-          if (!senderExists) {
-            const sender = senders.find((sender) => sender.track
-              && sender.track.readyState === 'ended' && sender.track.kind === track.kind);
-            if (sender) {
+          const trackExists = senders.some(sender => sender.track && sender.track.id === track.id);
+          if (!trackExists) {
+            // TODO: optimize by reusing existing sender if track of the same kind exists
+            const freeSender = senders.find(sender =>
+              sender.track && sender.track.kind === track.kind && sender.track.readyState === 'ended'
+            );
+            if (freeSender) {
               log('peer:connection:replacetrack', { id: this.id, track, stream, remote });
 
-              sender.replaceTrack(track);
-            }
-            else {
+              await freeSender.replaceTrack(track);
+            } else {
               log('peer:connection:addtrack', { id: this.id, track, stream, remote });
 
               connection.addTrack(track, stream);
             }
+
             // set bitrate for new or existing sender
             setBitrate(track.id, bitrate[track.kind]);
           }
         }
 
-        // Remove senders for tracks that no longer exist in the stream
+        // Remove tracks that are no longer present
         for (const sender of senders) {
           if (!sender.track) continue;
           const trackExists = tracks.some(track => sender.track && track.id === sender.track.id);
@@ -758,9 +759,6 @@ export class Peer {
           if (!allowed) continue;
         }
 
-        const remote = this.connections.get(id);
-        if (remote?.channels.has(label)) continue;
-
         filteredChannels.set(label, channelOptions);
       }
       catch (err) {
@@ -792,9 +790,6 @@ export class Peer {
           const allowed = verify({ id, metadata, label });
           if (!allowed) continue;
         }
-
-        const remote = this.connections.get(id);
-        if (remote?.streams.has(label)) continue;
 
         filteredStreams.set(label, streamOptions);
       }
@@ -953,14 +948,15 @@ export class Peer {
       this.#setupMediaStream(remote, stream, track);
     });
 
-    connection.addEventListener('signalingstatechange', (e) => {
-      const { signalingState } = connection;
-      const noSenders = !connection.getSenders().some((sender: RTCRtpSender) => sender.track && sender.track.readyState !== 'ended');
-      const noChannels = !remote.channels.size;
-      const noStreams = !remote.streams.size;
+    // DEBUG
+    // connection.addEventListener('signalingstatechange', (e) => {
+    //   const { signalingState } = connection;
+    //   const noSenders = !connection.getSenders().some((sender: RTCRtpSender) => sender.track && sender.track.readyState !== 'ended');
+    //   const noChannels = !remote.channels.size;
+    //   const noStreams = !remote.streams.size;
 
-      console.log('signalingstatechange', { id: this.id, signalingState, noSenders, noChannels, noStreams, remote: { id } });
-    });
+    //   console.log('signalingstatechange', { id: this.id, signalingState, noSenders, noChannels, noStreams, remote: { id } });
+    // });
 
     this.connections.set(id, remote);
 
@@ -1145,18 +1141,17 @@ export class Peer {
           }
         }
         this.#createChannels(remote, filteredChannels);
-        this.#publishStreams(remote, filteredStreams);
+        await this.#publishStreams(remote, filteredStreams);
       }
 
       // inform the initiator about existing channels and streams
       if (!channels && !streams || !isPolite) {
-        const remote = this.connections.get(id);
         await this.#sendSignal([this.room, id], {
           type: 'invoke',
           id: this.id,
           metadata: this.metadata,
-          channels: Array.from(remote?.channels.keys() || []),
-          streams: Array.from(remote?.streams.keys() || []),
+          channels: Array.from(filteredChannels.keys() || []),
+          streams: Array.from(filteredStreams.keys() || []),
         });
       }
 
