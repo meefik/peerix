@@ -64,12 +64,18 @@ function stringify(value: any): string {
           id: v.id,
           active: v.active,
           tracks: v.getTracks().map(t => (
-            { id: t.id, kind: t.kind, label: t.label, enabled: t.enabled }),
+            {
+              id: t.id, kind: t.kind, enabled: t.enabled,
+              muted: t.muted, readyState: t.readyState
+            }),
           ),
         };
       }
       if (v instanceof MediaStreamTrack) {
-        return { id: v.id, kind: v.kind, label: v.label, enabled: v.enabled };
+        return {
+          id: v.id, kind: v.kind, enabled: v.enabled,
+          muted: v.muted, readyState: v.readyState
+        };
       }
       if (v instanceof RTCDataChannel) {
         return { id: v.id, label: v.label, readyState: v.readyState };

@@ -235,16 +235,6 @@ export interface StreamOptions {
    * For example, 64000 for 64 kbps.
    */
   videoBitrate?: number;
-  /**
-   * Optional callback to allow or block publishing to a remote peer.
-   * 
-   * @param options Options describing the target peer and stream.
-   * @param options.id Remote peer identifier.
-   * @param options.metadata Remote peer metadata.
-   * @param options.label Stream label.
-   * @returns A boolean indicating whether the stream should be published to the specified peer.
-   */
-  verify?: (options: { id: string; metadata?: any; label: string; }) => boolean;
 }
 
 /**
@@ -379,16 +369,6 @@ export interface ChannelOptions {
    * Optional subprotocol name.
    */
   protocol?: string;
-  /**
-   * Optional callback to allow or block this channel for a remote peer.
-   * 
-   * @param options Options describing the target peer and channel.
-   * @param options.id Remote peer identifier.
-   * @param options.metadata Remote peer metadata.
-   * @param options.label Channel label.
-   * @returns A boolean indicating whether the channel should be created for the specified peer.
-   */
-  verify?: (options: { id: string; metadata?: any; label: string; }) => Promise<boolean> | boolean;
 }
 
 /**
@@ -405,12 +385,11 @@ export interface SendOptions {
    * Optional callback to allow or block sending to a remote channel.
    * 
    * @param options Options describing the target peer and channel.
-   * @param options.id Remote peer identifier.
-   * @param options.metadata Remote peer metadata.
-   * @param options.label Target channel label.
+   * @param options.remote Remote peer descriptor.
+   * @param options.channel Target data channel.
    * @returns A boolean indicating whether the message should be sent to the specified channel.
    */
-  verify?: (options: { id: string; metadata?: any; label: string; }) => boolean;
+  filter?: (options: { remote: RemotePeer; channel: RTCDataChannel; }) => boolean | Promise<boolean>;
 }
 
 /**
