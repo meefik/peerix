@@ -208,10 +208,18 @@ export class Peer {
   }
 
   /**
-   * Publish or update a local media stream.
+   * Publish new or update an existing media stream to all remote peers under 
+   * a given label.
    *
-   * When already active, this updates senders on every current connection and
-   * triggers negotiation where applicable.
+   * If you pass a MediaStream instance directly, it will be published under 
+   * a label equal to the stream id. Otherwise, you can specify an explicit 
+   * label in the options object. If a stream with the same label already 
+   * exists, it will be updated and its tracks will be added/removed as needed
+   * to minimize renegotiations.
+   * 
+   * If the stream is published with the `managed` option, its tracks will be
+   * automatically stopped when the stream is unpublished or replaced with 
+   * a new stream.
    *
    * @param options Stream descriptor or MediaStream instance.
    */
@@ -222,9 +230,6 @@ export class Peer {
     const { label = 'default', stream, ...opts } = options;
 
     const oldStreamOptions = this.streams.get(label);
-
-    // keep persistent media stream across several publish() calls 
-    // with the same label to avoid unnecessary renegotiations
 
     const {
       stream: newStream = new MediaStream(),
@@ -293,7 +298,15 @@ export class Peer {
   }
 
   /**
-   * Stop publishing a previously published local stream.
+   * Stop publishing a previously published media stream with the given label 
+   * and remove it from all remote peers.
+   * 
+   * If you pass a MediaStream instance directly, it will be unpublished based 
+   * on its id as label. Otherwise, you can specify the label in the options 
+   * object or pass it directly as a string. 
+   * 
+   * If the stream was published with the `managed` option, its tracks will be 
+   * stopped automatically.
    *
    * @param options Stream label, MediaStream instance, or object containing `label`.
    */
@@ -338,7 +351,12 @@ export class Peer {
   }
 
   /**
-   * Register or create a negotiated data channel with all remote peers.
+   * Open a data channel with the given label and options to all remote peers.
+   * If a channel with the same label already exists, it will be reused.
+   * 
+   * You can open a channel with the same label on both local and remote peers
+   * or only on one side. In any case, only one channel will be created for 
+   * each label. You can send data through the channel in both directions.
    *
    * @param options Channel options or channel label.
    */
@@ -358,8 +376,9 @@ export class Peer {
   }
 
   /**
-   * Close and unregister a negotiated data channel by id.
-   *
+   * Close a previously opened data channel with the given label 
+   * and remove it from all remote peers.
+   * 
    * @param options Channel label or object containing `label`.
    */
   async close(options: string | { label: string; }) {
@@ -474,7 +493,8 @@ export class Peer {
   }
 
   /**
-   * Emit one or more events.
+   * Emit one or more events. 
+   * Usually you would not call this method directly.
    *
    * @param event Event name or list of event names.
    * @param args Event payload.
@@ -591,12 +611,6 @@ export class Peer {
       channel.addEventListener('close', () => {
         channels.delete(label);
         this.emit('channel:close', { id: this.id, remote, channel, label });
-
-        // close connection if there are no more active streams or channels
-        if (!channels.size && !streams.size) {
-          // TODO: add a delay before disposing
-          // remote.dispose();
-        }
       });
       channel.addEventListener('message', (e) => {
         this.emit('channel:message', { id: this.id, remote, channel, label, data: e.data });
@@ -648,24 +662,9 @@ export class Peer {
             this.emit('stream:remove', { id: this.id, remote, stream, label });
           }
         }
-
-        // close connection if there are no more active streams or channels
-        if (!channels.size && !streams.size) {
-          // TODO: add a delay before disposing
-          // remote.dispose();
-        }
       };
 
-      // TODO: Is it the same as track ended event?
-      // stream.addEventListener('removetrack', (e) => {
-      //   console.log('stream removetrack event', { id: this.id, remote, stream, track: e.track, label });
-      // });
-
       track.addEventListener('ended', removeTrack);
-      track.addEventListener('mute', removeTrack);
-      track.addEventListener('unmute', () => {
-        console.log('unmute event', { id: this.id, remote, stream, track, label });
-      });
 
       addTrack();
     }
@@ -832,6 +831,7 @@ export class Peer {
         const state = 'disconnected';
         remote.state = state;
         this.emit('connection', { id: this.id, remote, state });
+        stopConnectionTimeout();
         stopConnectionTimeout = setConnectionTimeout();
       }
       else if (iceConnectionState === 'failed') {
@@ -895,16 +895,6 @@ export class Peer {
       const { track, streams: [stream] } = e;
       this.#setupMediaStream(remote, stream, track);
     });
-
-    // DEBUG
-    // connection.addEventListener('signalingstatechange', (e) => {
-    //   const { signalingState } = connection;
-    //   const noSenders = !connection.getSenders().some((sender: RTCRtpSender) => sender.track && sender.track.readyState !== 'ended');
-    //   const noChannels = !remote.channels.size;
-    //   const noStreams = !remote.streams.size;
-
-    //   console.log('signalingstatechange', { id: this.id, signalingState, noSenders, noChannels, noStreams, remote: { id } });
-    // });
 
     this.connections.set(id, remote);
 
