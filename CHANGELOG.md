@@ -10,7 +10,7 @@ title: Changelog
 
 - Initial release of the project.
 - TypeScript support.
-- Core functionality: peer connection, signaling, media streams, and data channels.
+- Core functionality: peer connections, signaling, media streams, and data channels.
 - Basic documentation and API reference.
 - Automated tests for core features.
 - Logging for better debugging.
