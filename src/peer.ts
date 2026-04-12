@@ -85,6 +85,10 @@ export class Peer {
   readonly addons: Set<any>;
 
   /**
+   * Indicates whether the peer is currently active (joined a room).
+   */
+  active: boolean;
+  /**
    * Current room name. Empty until join() is called.
    */
   room: string;
@@ -92,10 +96,6 @@ export class Peer {
    * Optional metadata announced to other peers in signaling messages.
    */
   metadata?: any;
-  /**
-   * Indicates whether the peer is currently active (joined a room).
-   */
-  active: boolean;
 
   /**
    * Internal event emitter used by on/once/off/emit helpers.
@@ -118,6 +118,10 @@ export class Peer {
    */
   #streamLabels: Map<string, { [key: string]: string; }>;
   /**
+   * Prefix string used to namespace signaling messages for this peer.
+   */
+  #prefix: string;
+  /**
    * Active signaling handler registered on the signaling driver.
    */
   #signaling?: (e: any) => void;
@@ -135,6 +139,7 @@ export class Peer {
     const {
       id = UUIDv4(),
       driver = defaultDriver,
+      prefix = 'signal',
       iceServers = [],
       iceTransportPolicy = 'all',
       connectionTimeout = 15,
@@ -153,9 +158,10 @@ export class Peer {
     this.addons = new Set();
     this.#emitter = new EventEmitter<PeerEvents>(this);
     this.#candidateQueues = new Map();
-    this.#streamLabels = new Map();
     this.#makingOffer = new Set();
     this.#pendingAnswer = new Set();
+    this.#streamLabels = new Map();
+    this.#prefix = prefix;
   }
 
   /**
@@ -164,19 +170,21 @@ export class Peer {
    * @param options Room name or join options.
    */
   async join(options?: string | JoinOptions) {
-    if (this.active) return;
-    this.active = true;
+    if (!this.active) {
+      this.active = true;
 
-    const { room = 'default', metadata, verify } = typeof options === 'object'
-      ? options : { room: options };
+      const { room = 'default', metadata, verify } =
+        typeof options === 'object' ? options : { room: options };
 
-    this.room = room;
-    this.metadata = metadata;
-    this.#verify = verify;
+      this.room = room;
+      this.metadata = metadata;
+      this.#verify = verify;
 
-    log('peer:join', { id: this.id, room: this.room, metadata: this.metadata });
+      log('peer:join', { id: this.id, room: this.room, metadata: this.metadata });
 
-    await this.#registerSignalHandlers([this.room], [this.room, this.id]);
+      await this.#registerSignalHandlers([this.room], [this.room, this.id]);
+    }
+
     await this.#sendSignal([this.room], {
       type: 'invoke',
       id: this.id,
@@ -289,12 +297,9 @@ export class Peer {
       }
     }
 
-    // TODO: not always necessary
-    // await this.#sendSignal([this.room], {
-    //   type: 'invoke',
-    //   id: this.id,
-    //   metadata: this.metadata,
-    // });
+    if (this.active) {
+      await this.join();
+    }
   }
 
   /**
@@ -314,8 +319,8 @@ export class Peer {
     if (options instanceof MediaStream) {
       options = { label: options.id };
     }
-    const { label = 'default' } = typeof options === 'object'
-      ? options : { label: options };
+    const { label = 'default' } =
+      typeof options === 'object' ? options : { label: options };
 
     const oldStreamOptions = this.streams.get(label);
     const { stream, managed } = oldStreamOptions || {};
@@ -361,18 +366,16 @@ export class Peer {
    * @param options Channel options or channel label.
    */
   async open(options: string | ChannelOptions) {
-    const { label = 'default', ...opts } = typeof options === 'object'
-      ? options : { label: options };
+    const { label = 'default', ...opts } =
+      typeof options === 'object' ? options : { label: options };
 
     log('peer:open', { id: this.id, label, ...opts });
 
     this.channels.set(label, { label, ...opts });
 
-    await this.#sendSignal([this.room], {
-      type: 'invoke',
-      id: this.id,
-      metadata: this.metadata,
-    });
+    if (this.active) {
+      await this.join();
+    }
   }
 
   /**
@@ -382,8 +385,8 @@ export class Peer {
    * @param options Channel label or object containing `label`.
    */
   async close(options: string | { label: string; }) {
-    const { label = 'default' } = typeof options === 'object'
-      ? options : { label: options };
+    const { label = 'default' } =
+      typeof options === 'object' ? options : { label: options };
 
     log('peer:close', { id: this.id, label });
 
@@ -409,8 +412,8 @@ export class Peer {
   async send(message: any, options?: string | SendOptions) {
     if (!this.active) return;
 
-    const { label, filter } = typeof options === 'object'
-      ? options : { label: options };
+    const { label, filter } =
+      typeof options === 'object' ? options : { label: options };
 
     log('peer:send', { id: this.id, label, message });
 
@@ -596,7 +599,7 @@ export class Peer {
    */
   #setupDataChannel(remote: RemotePeer, channel: RTCDataChannel) {
     const { label = '' } = channel;
-    const { channels, streams } = remote;
+    const { channels } = remote;
 
     try {
       if (channels.has(label)) {
@@ -634,7 +637,7 @@ export class Peer {
    * @param track Media track to add.
    */
   #setupMediaStream(remote: RemotePeer, stream: MediaStream, track: MediaStreamTrack) {
-    const { id, channels, streams } = remote;
+    const { id, streams } = remote;
 
     try {
       const labels = this.#streamLabels.get(id) || {};
@@ -977,10 +980,12 @@ export class Peer {
     log('peer:signal:register', { id: this.id, namespaces });
 
     try {
-      this.#signaling = this.#signalHandler.bind(this);
+      if (!this.#signaling) {
+        this.#signaling = this.#signalHandler.bind(this);
 
-      for (const namespace of namespaces) {
-        await this.driver.on(namespace, this.#signaling);
+        for (const namespace of namespaces) {
+          await this.driver.on([this.#prefix, ...namespace], this.#signaling);
+        }
       }
     }
     catch (err) {
@@ -999,7 +1004,7 @@ export class Peer {
     try {
       if (this.#signaling) {
         for (const namespace of namespaces) {
-          await this.driver.off(namespace, this.#signaling);
+          await this.driver.off([this.#prefix, ...namespace], this.#signaling);
         }
 
         this.#signaling = undefined;
@@ -1024,7 +1029,7 @@ export class Peer {
     log('peer:signal:send', { id: this.id, namespace, signal });
 
     try {
-      await this.driver.emit(namespace, signal);
+      await this.driver.emit([this.#prefix, ...namespace], signal);
     }
     catch (err) {
       this.#reportError(err, 'PEER_SIGNALING_FAILED');
@@ -1048,7 +1053,7 @@ export class Peer {
     // verify the incoming connection and reject if verification fails
     if (this.#verify) {
       try {
-        const verified = this.#verify({ id, metadata });
+        const verified = await this.#verify({ id, metadata });
         if (!verified) return;
       }
       catch (err) {
@@ -1091,13 +1096,13 @@ export class Peer {
       }
 
       // inform the initiator about existing channels and streams
-      if (!channels && !streams || !isPolite) {
+      if ((!channels && !streams) || !isPolite) {
         await this.#sendSignal([this.room, id], {
           type: 'invoke',
           id: this.id,
           metadata: this.metadata,
-          channels: Array.from(allowedChannels.keys() || []),
-          streams: Array.from(this.streams.keys() || []),
+          channels: Array.from(allowedChannels.keys()),
+          streams: Array.from(this.streams.keys()),
         });
       }
 
