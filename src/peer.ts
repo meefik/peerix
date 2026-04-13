@@ -1,4 +1,4 @@
-import type { SignalingDriver } from './types/signaling.js';
+import type { SignalingDriver, SignalingNamespace } from './types/signaling.js';
 import type { PeerOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents } from './types/peer.js';
 import { MemoryDriver } from './drivers/memory.js';
 import EventEmitter from './utils/emitter.js';
@@ -989,7 +989,7 @@ export class Peer {
           const handler = method.bind(this);
           const topics = useNamespaces ? namespaces.map(ns => [key, ...ns]) : [[key]];
           for (const topic of topics) {
-            await this.driver.on(topic, handler);
+            await this.driver.on(topic as SignalingNamespace, handler);
           }
           this.#driverHandlers.set(key, handler);
         }
@@ -1021,7 +1021,7 @@ export class Peer {
         if (handler) {
           const topics = useNamespaces ? namespaces.map(ns => [key, ...ns]) : [[key]];
           for (const topic of topics) {
-            await this.driver.off(topic, handler);
+            await this.driver.off(topic as SignalingNamespace, handler);
           }
           this.#driverHandlers.delete(key);
         }

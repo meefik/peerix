@@ -11,23 +11,21 @@ Read the full documentation and API reference on the official website:
 
 ## How It Works
 
-Peerix is a front-end library that runs entirely in the browser, which allows for low-latency media streaming and data sharing between peers. It is designed to work in a decentralized manner, allowing peers to connect directly to each other without relying on a central server for media relay. However, it does require a signaling server for peers to discover each other and establish connections. You can use various built-in signaling drivers, or you can implement your own custom driver to fit your application's needs.
+Peerix is a front-end library that runs entirely in the browser, allowing for low-latency media streaming and data sharing between peers. It is designed to work in a decentralized manner, allowing peers to connect directly to each other without relying on a central server for media relay. However, it does require a signaling server for peers to discover each other and establish connections. You can use various built-in signaling drivers, or you can implement your own custom driver to fit your application's needs.
 
-Peerix uses ICE (Interactive Connectivity Establishment) to establish peer-to-peer connections. You can use public STUN servers for NAT traversal. However, for better connectivity and performance, especially in restrictive network environments, it is recommended to use your own TURN server or a third-party TURN service.
+Peerix is composed of several key components:
 
-Here is a high-level overview of the Peerix architecture:
+- **Peers**: The core components that manage connections between peers, including:
+  - **Lifecycle Events**: Track connection state changes and peer availability.
+  - **Media Streams**: Handle audio and video streaming between peers.
+  - **Data Channels**: Enable message exchange and data sharing between peers.
+- **Signaling Drivers**: Facilitate peer discovery and connection management through various signaling servers (such as NATS, BroadcastChannel, or custom implementations).
+- **STUN/TURN servers**: Enable NAT traversal and media relay in restrictive network environments.
+- **Add-ons**: Optional extensions and utilities for enhanced functionality.
 
-```mermaid
-graph TD
-  PX{{Peerix}} --> SD(Signaling Drivers)
-  SD --> SS[Signaling Servers]
-  PX --> ICE[STUN/TURN Servers]
-  PX --> PC(Peers)
-  PC --> LCE(Lifecycle Events)
-  PC --> MS(Media Streams)
-  PC --> DC(Data Channels)
-  PX --> ADD(Add-ons)
-```
+Together, these components work to abstract the complexities of WebRTC and provide a simple API for building real-time peer-to-peer applications.
+
+Peerix uses ICE (Interactive Connectivity Establishment) to establish peer-to-peer connections. Public STUN servers can be used for NAT traversal, but for better connectivity and performance—especially in restrictive network environments—you should use your own TURN server or a reputable third-party TURN service.
 
 Peerix is not an SFU (Selective Forwarding Unit) or MCU (Multipoint Control Unit), and it does not provide server-side media processing or routing capabilities. Instead, it focuses on enabling direct peer-to-peer communication between clients, allowing you to build applications that leverage the full potential of WebRTC without the need for a central media server.
 
@@ -70,7 +68,6 @@ peer.join({
 // peer.leave();
 ```
 
-> [!NOTE]
 > The room identifier can be any string, but it should be the same for all peers that want to connect with each other.
 
 Work with data channels to exchange messages with other peers:
@@ -116,7 +113,6 @@ peer.send('Hello, peers!', { label: 'chat' });
 // peer.close({ label: 'chat' });
 ```
 
-> [!NOTE]
 > The channel label can be any string and should be unique for each data channel.
 
 Work with media streams to share audio and video with other peers:
@@ -154,7 +150,6 @@ peer.publish({ label: 'camera', stream });
 // peer.unpublish({ label: 'camera' });
 ```
 
-> [!NOTE]
 > The stream label can be any string and should be unique for each media stream.
 
 In addition to stream-level events, you can also listen for track-level events to get more granular information about the media tracks being added or removed from the stream:
@@ -204,20 +199,45 @@ Peerix supports multiple signaling drivers for peer discovery and connection man
 - `BroadcastChannelDriver`: Uses the BroadcastChannel API for communication between tabs in the same browser.
 - `NatsDriver`: Uses [NATS](https://nats.io/) messaging system for communication between peers across different browsers and devices over the internet. It supports E2EE to protect the privacy of signaling messages and is recommended for production applications.
 
-You can also implement your own custom signaling driver by adhering to the following interface:
+You can also implement your own custom signaling driver by adhering to the following TypeScript interface:
 
-```js
-class CustomDriver {
-  on(namespace, handler) { /* ... */ }
-  off(namespace, handler) { /* ... */ }
-  emit(namespace, message) { /* ... */ }
+```typescript
+interface SignalingDriver {
+  /**
+   * Indicates whether the driver is currently active 
+   * and ready to send and receive signaling messages.
+   */
+  active?: boolean;
+
+  /**
+   * Subscribe to a namespace for signaling messages and driver events.
+   *
+   * @param namespace Namespace segments used for message routing.
+   * @param handler Callback invoked when a signaling message or driver event is received.
+   */
+  on(namespace: string[], handler: (message?: any) => void): Promise<void> | void;
+
+  /**
+   * Unsubscribe a previously registered namespace handler.
+   *
+   * @param namespace Namespace segments used for message routing.
+   * @param handler Handler reference originally passed to `on`.
+   */
+  off(namespace: string[], handler: (message?: any) => void): Promise<void> | void;
+
+  /**
+   * Publish a signaling message or driver event to a namespace.
+   *
+   * @param namespace Target namespace segments.
+   * @param message Optional message to deliver.
+   */
+  emit(namespace: string[], message?: any): Promise<void> | void;
 }
 ```
 
 This driver interface allows you to integrate Peerix with any signaling mechanism you prefer.
 
-> [!TIP]
-> Use NATS for production applications. It is a high-performance messaging system that enables efficient communication between peers for signaling purposes directly from the browser.
+> Consider using NATS for production applications. NATS is a high-performance messaging system that enables efficient signaling between peers from the browser.
 
 If you do not want to create your own signaling server, you can use the NATS driver with a public NATS server or set up your own NATS server for better performance and reliability. Using NATS allows you to use Peerix without any server-side code because all signaling is handled through NATS servers directly from the browser.
 
@@ -244,7 +264,6 @@ You should install the `nats.ws` package to use the NATS Driver, as it provides 
 
 ICE (Interactive Connectivity Establishment) is a framework used in WebRTC to find the best path to connect peers. It involves using STUN (Session Traversal Utilities for NAT) servers for NAT traversal and TURN (Traversal Using Relays around NAT) servers for relaying media when direct peer-to-peer connections are not possible.
 
-> [!TIP]
 > Use TURN servers for better connectivity in restrictive network environments.
 
 Peerix allows you to specify ICE servers for better connectivity and performance, especially in restrictive network environments. Use `iceServers` option when creating the `Peer` instance to provide custom STUN and TURN servers:

@@ -16,7 +16,7 @@ export interface SignalingDriver {
    * @param namespace Namespace segments used for message routing.
    * @param handler Callback invoked when a signaling message or driver event is received.
    */
-  on(namespace: string[], handler: (message?: any) => void): Promise<void> | void;
+  on(namespace: SignalingNamespace, handler: (message?: any) => void): Promise<void> | void;
 
   /**
    * Unsubscribe a previously registered namespace handler.
@@ -24,7 +24,7 @@ export interface SignalingDriver {
    * @param namespace Namespace segments used for message routing.
    * @param handler Handler reference originally passed to `on`.
    */
-  off(namespace: string[], handler: (message?: any) => void): Promise<void> | void;
+  off(namespace: SignalingNamespace, handler: (message?: any) => void): Promise<void> | void;
 
   /**
    * Publish a signaling message or driver event to a namespace.
@@ -32,7 +32,7 @@ export interface SignalingDriver {
    * @param namespace Target namespace segments.
    * @param message Optional message to deliver.
    */
-  emit(namespace: string[], message?: any): Promise<void> | void;
+  emit(namespace: SignalingNamespace, message?: any): Promise<void> | void;
 }
 
 /**
