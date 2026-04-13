@@ -21,7 +21,8 @@ export interface PeerOptions {
   id?: string;
   /**
    * Signaling driver instance for message exchange between peers.
-   * If omitted, a default in-memory driver is used, which is suitable for testing purposes only.
+   * If omitted, a default in-memory driver is used, which is suitable 
+   * for testing purposes only.
    */
   driver?: SignalingDriver;
   /**
@@ -50,12 +51,6 @@ export interface PeerOptions {
    * By default, it is set to 15 seconds. Use 0 to disable the timeout.
    */
   connectionTimeout?: number;
-  /**
-   * Discovery interval in seconds to find other peers in the same room.
-   * It is used to trigger connection attempts to newly discovered peers.
-   * By default, it is set to 30 seconds. Use 0 to disable automatic discovery.
-   */
-  discoveryInterval?: number;
 }
 
 /**
@@ -173,14 +168,20 @@ export interface PeerEvents {
    * Emitted when an error occurs in any background operations.
    */
   'error': [PeerErrorEvent];
+  /**
+   * Emitted when a remote peer publishes a media stream.
+   */
   'stream:add': [StreamAddEvent];
+  /**
+   * Emitted when a remote peer unpublishes a media stream.
+   */
   'stream:remove': [StreamRemoveEvent];
   /**
-   * Emitted when a remote peer publishes a media track.
+   * Emitted when a remote peer adds a media track to a published stream.
    */
   'track:add': [TrackAddEvent];
   /**
-   * Emitted when a remote peer unpublishes a media track.
+   * Emitted when a remote peer removes a media track from a published stream.
    */
   'track:remove': [TrackRemoveEvent];
   /**

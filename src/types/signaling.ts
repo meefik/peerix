@@ -1,19 +1,22 @@
 /**
  * Transport contract used by {@link Peer} to exchange signaling messages.
- *
- * Implementations are expected to route payloads by `namespace` and invoke
- * subscribed handlers when matching messages arrive.
  * 
  * @group Drivers
  */
 export interface SignalingDriver {
   /**
-   * Subscribe to signaling messages in a namespace.
+   * Indicates whether the driver is currently active 
+   * and ready to send and receive signaling messages.
+   */
+  active?: boolean;
+
+  /**
+   * Subscribe to a namespace for signaling messages and driver events.
    *
    * @param namespace Namespace segments used for message routing.
-   * @param handler Callback invoked with message payload.
+   * @param handler Callback invoked when a signaling message or driver event is received.
    */
-  on(namespace: string[], handler: (data: any) => void): Promise<void> | void;
+  on(namespace: string[], handler: (message?: any) => void): Promise<void> | void;
 
   /**
    * Unsubscribe a previously registered namespace handler.
@@ -21,13 +24,31 @@ export interface SignalingDriver {
    * @param namespace Namespace segments used for message routing.
    * @param handler Handler reference originally passed to `on`.
    */
-  off(namespace: string[], handler: (data: any) => void): Promise<void> | void;
+  off(namespace: string[], handler: (message?: any) => void): Promise<void> | void;
 
   /**
-   * Publish a signaling message to a namespace.
+   * Publish a signaling message or driver event to a namespace.
    *
    * @param namespace Target namespace segments.
-   * @param data Signaling payload to deliver.
+   * @param message Optional message to deliver.
    */
-  emit(namespace: string[], data: any): Promise<void> | void;
+  emit(namespace: string[], message?: any): Promise<void> | void;
 }
+
+/**
+ * Signaling namespace segments used for message routing and driver events.
+ * 
+ * Possible namespaces include:
+ * - `[ 'active' ]` : emitted when the signaling driver is ready to send and receive messages.
+ * - `[ 'inactive' ]` : emitted when the signaling driver is no longer able to send and receive messages.
+ * - `[ 'error' ]` : emitted when the driver encounters an asynchronous error.
+ * - `[ 'message', 'room-id' ]` : subscribe and publish signaling messages related to a specific room.
+ * - `[ 'message', 'room-id', 'peer-id' ]` : subscribe and publish signaling messages related to a specific peer in a room.
+ * 
+ * @group Drivers
+ */
+export type SignalingNamespace =
+  | ['active']
+  | ['inactive']
+  | ['error']
+  | ['message', ...string[]];

@@ -9,11 +9,11 @@ import type { SignalingDriver } from '../types/signaling.js';
  * @group Drivers
  * @example
  * ```javascript
- * const driver = new BroadcastChannelDriver('my-channel');
+ * const driver = new BroadcastChannelDriver('peerix');
  * ```
  */
 export class BroadcastChannelDriver implements SignalingDriver {
-  #events: Map<string, Set<(data: any) => void>>;
+  #events: Map<string, Set<(message?: any) => void>>;
   #bc: BroadcastChannel;
 
   /**
@@ -25,21 +25,16 @@ export class BroadcastChannelDriver implements SignalingDriver {
     this.#events = new Map();
     this.#bc = new BroadcastChannel(channelName || 'peerix');
     this.#bc.onmessage = (e) => {
-      const { ns, data } = e.data;
+      const { ns, msg } = e.data;
       const handlers = this.#events.get(ns);
       if (!ns || !handlers) return;
       for (const handler of handlers) {
-        try {
-          handler(data);
-        }
-        catch (err) {
-          /* swallow errors */
-        }
+        setTimeout(() => handler(msg), 0);
       }
     };
   }
 
-  on(namespace: string[], handler: (data: any) => void) {
+  on(namespace: string[], handler: (message?: any) => void) {
     const ns = namespace.join(':');
     let handlers = this.#events.get(ns);
     if (!handlers) {
@@ -49,18 +44,30 @@ export class BroadcastChannelDriver implements SignalingDriver {
     handlers.add(handler);
   }
 
-  off(namespace: string[], handler: (data: any) => void) {
+  off(namespace: string[], handler: (message?: any) => void) {
     const ns = namespace.join(':');
     const handlers = this.#events.get(ns);
     if (handlers) {
-      if (handler) handlers.delete(handler);
-      else handlers.clear();
-      if (!handlers.size) this.#events.delete(ns);
+      handlers.delete(handler);
+      if (!handlers.size) {
+        this.#events.delete(ns);
+      }
     }
   }
 
-  emit(namespace: string[], data: any) {
+  emit(namespace: string[], message?: any) {
     const ns = namespace.join(':');
-    this.#bc.postMessage({ ns, data });
+    const [event] = namespace;
+    if (event === 'message') {
+      this.#bc.postMessage({ ns, msg: message });
+    }
+    else {
+      const handlers = this.#events.get(ns);
+      if (handlers) {
+        for (const handler of handlers) {
+          setTimeout(() => handler(message), 0);
+        }
+      }
+    }
   }
 }

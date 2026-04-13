@@ -19,18 +19,45 @@ import type { SignalingDriver } from '../types/signaling.js';
  * const driver = new NatsDriver({
  *   connect: async () => await connect({ servers: ['wss://demo.nats.io:8443'] }),
  *   secret: 'your-secret-key',
+ *   prefix: 'peerix',
  * });
  * 
  * await driver.open();
  * ```
  */
 export class NatsDriver implements SignalingDriver {
-  #events: Map<string, Map<(...args: any[]) => void, any>>;
+  #events: Map<string, Map<(message?: any) => void, any>>;
   #connect: (config?: any) => Promise<any>;
   #nc?: any;
   #prefix: string;
   #secret?: string;
   #cryptoKey?: CryptoKey;
+
+  /**
+   * Indicates whether the driver is currently active and connected to the NATS server.
+   */
+  active: boolean;
+
+  /**
+   * Listens for NATS connection status events.
+   */
+  async #trackConnectionStatus() {
+    try {
+      for await (const s of this.#nc.status()) {
+        if (s.type === 'reconnect') {
+          this.active = true;
+          this.emit(['active']);
+        }
+        if (s.type === 'disconnect') {
+          this.active = false;
+          this.emit(['inactive']);
+        }
+      }
+    }
+    catch (error) {
+      this.emit(['error'], error);
+    }
+  }
 
   /**
    * Create a new instance of the driver.
@@ -46,6 +73,7 @@ export class NatsDriver implements SignalingDriver {
     this.#secret = secret;
     this.#prefix = prefix;
     this.#events = new Map();
+    this.active = false;
   }
 
   /**
@@ -59,12 +87,18 @@ export class NatsDriver implements SignalingDriver {
     if (this.#secret) {
       this.#cryptoKey = await createEncryptionKey(this.#secret);
     }
+    this.#trackConnectionStatus();
+
+    this.active = true;
+    this.emit(['active']);
   }
 
   /**
    * Closes the connection to the NATS server.
    */
   async close() {
+    const wasActive = this.active;
+
     if (this.#nc) {
       await this.#nc.close();
       this.#nc = undefined;
@@ -72,24 +106,38 @@ export class NatsDriver implements SignalingDriver {
     if (this.#cryptoKey) {
       this.#cryptoKey = undefined;
     }
+
+    this.active = false;
+    if (wasActive) {
+      this.emit(['inactive']);
+    }
   }
 
-  async on(namespace: string[], handler: (data: any) => void) {
-    const ns = await getNS(namespace, this.#prefix, !!this.#cryptoKey);
-    const sub = this.#nc.subscribe(ns, {
-      callback: async (err: Error, msg: any) => {
-        if (err) {
-          console.error(err);
-          return;
-        }
-        let data = msg.data;
-        if (this.#cryptoKey) {
-          data = await decrypt(data, this.#cryptoKey);
-        }
-        const payload = JSON.parse(new TextDecoder().decode(data));
-        handler(payload);
-      },
-    });
+  async on(namespace: string[], handler: (message?: any) => void) {
+    const [event, ...subnamespace] = namespace;
+    let sub;
+
+    if (event === 'message') {
+      const subject = await getSubject(subnamespace, this.#prefix, !!this.#cryptoKey);
+      sub = this.#nc.subscribe(subject, {
+        callback: async (err: Error, msg: any) => {
+          try {
+            if (err) throw err;
+            let data = msg.data;
+            if (this.#cryptoKey) {
+              data = await decrypt(data, this.#cryptoKey);
+            }
+            const payload = JSON.parse(new TextDecoder().decode(data));
+            setTimeout(() => handler(payload), 0);
+          }
+          catch (error) {
+            this.emit(['error'], error);
+          }
+        },
+      });
+    }
+
+    const ns = namespace.join(':');
     let handlers = this.#events.get(ns);
     if (!handlers) {
       handlers = new Map();
@@ -98,32 +146,44 @@ export class NatsDriver implements SignalingDriver {
     handlers.set(handler, sub);
   }
 
-  async off(namespace: string[], handler: (data: any) => void) {
-    const ns = await getNS(namespace, this.#prefix, !!this.#cryptoKey);
+  async off(namespace: string[], handler: (message?: any) => void) {
+    const ns = namespace.join(':');
     const handlers = this.#events.get(ns);
-    const sub = handlers?.get(handler);
-    if (sub) {
-      sub.unsubscribe();
-      handlers?.delete(handler);
-    }
-    if (!handlers?.size) {
-      this.#events.delete(ns);
+    if (handlers) {
+      const sub = handlers.get(handler);
+      handlers.delete(handler);
+      if (!handlers?.size) {
+        this.#events.delete(ns);
+      }
+      if (sub) {
+        sub.unsubscribe();
+      }
     }
   }
 
-  async emit(namespace: string[], message: any) {
-    const ns = await getNS(namespace, this.#prefix, !!this.#cryptoKey);
-    if (this.#nc) {
+  async emit(namespace: string[], message?: any) {
+    const [event, ...subnamespace] = namespace;
+    if (event === 'message') {
+      const subject = await getSubject(subnamespace, this.#prefix, !!this.#cryptoKey);
       let data = new TextEncoder().encode(JSON.stringify(message));
       if (this.#cryptoKey) {
         data = await encrypt(data, this.#cryptoKey);
       }
-      this.#nc.publish(ns, data);
+      this.#nc.publish(subject, data);
+    }
+    else {
+      const ns = namespace.join(':');
+      const handlers = this.#events.get(ns);
+      if (handlers) {
+        for (const handler of handlers.keys()) {
+          setTimeout(() => handler(message), 0);
+        }
+      }
     }
   }
 }
 
-async function getNS(namespace: string[], prefix: string, hash: boolean) {
+async function getSubject(namespace: string[], prefix: string, hash: boolean) {
   const parts = await Promise.all(
     [prefix, ...namespace]
       .filter(Boolean)

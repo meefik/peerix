@@ -114,42 +114,51 @@
       }
     };
 
-    peer.on('state', (e) => {
+    peer.on('connection', (e) => {
       const { remote, state } = e;
-      log(`event: state, peer: ${remote.id}, state: ${state}`);
+      log(`event: connection, peer: ${remote.id}, state: ${state}`);
     });
 
     peer.on('error', (e) => {
-      const { remote, channel, error, code } = e;
-      log(`event: error, peer: ${remote?.id}, channel: ${channel?.label}, code: ${code}, error: ${error.message}`);
+      const { remote, channel, error } = e;
+      log(`event: error, peer: ${remote?.id}, channel: ${channel?.label}, error: ${error.message}`);
     });
 
-    peer.on('open', (e) => {
+    peer.on('channel:open', (e) => {
       const { remote, channel } = e;
-      log(`event: open, peer: ${remote.id}, channel: ${channel.label}`);
+      log(`event: channel:open, peer: ${remote.id}, channel: ${channel.label}`);
     });
 
-    peer.on('close', (e) => {
+    peer.on('channel:close', (e) => {
       const { remote, channel } = e;
-      log(`event: close, peer: ${remote.id}, channel: ${channel.label}`);
+      log(`event: channel:close, peer: ${remote.id}, channel: ${channel.label}`);
     });
 
-    peer.on('message', (e) => {
+    peer.on('channel:message', (e) => {
       const { remote, channel, data } = e;
-      log(`event: message, peer: ${remote.id}, channel: ${channel.label}, data: ${data}`);
+      log(`event: channel:message, peer: ${remote.id}, channel: ${channel.label}, data: ${data}`);
     });
 
-    peer.on('publish', (e) => {
+    peer.on('stream:add', (e) => {
       const { remote, stream, track } = e;
-      log(`event: publish, peer: ${remote.id}, track: ${track.kind} ${track.id}, stream: ${stream.id}`);
+      log(`event: stream:add, peer: ${remote.id}, stream: ${stream.id}, number of tracks: ${stream.getTracks().length}`);
       addStream(stream);
     });
 
-    peer.on('unpublish', (e) => {
+    peer.on('stream:remove', (e) => {
       const { remote, stream, track } = e;
-      log(`event: unpublish, peer: ${remote.id}, track: ${track.kind} ${track.id}, stream: ${stream.id}`);
-      const isEmpty = !stream.getTracks().length;
-      if (isEmpty) removeStream(stream);
+      log(`event: stream:remove, peer: ${remote.id}, stream: ${stream.id}, number of tracks: ${stream.getTracks().length}`);
+      removeStream(stream);
+    });
+
+    peer.on('track:add', (e) => {
+      const { remote, stream, track } = e;
+      log(`event: track:add, peer: ${remote.id}, track: ${track.kind} ${track.id}, stream: ${stream.id}, number of tracks: ${stream.getTracks().length}`);
+    });
+
+    peer.on('track:remove', (e) => {
+      const { remote, stream, track } = e;
+      log(`event: track:remove, peer: ${remote.id}, track: ${track.kind} ${track.id}, stream: ${stream.id}, number of tracks: ${stream.getTracks().length}`);
     });
 
     const joinButton = document.getElementById('join');
@@ -206,7 +215,7 @@
       peer.publish({ label: 'default', stream, managed: true });
     });
 
-    function createSyntheticMediaStream({ width = 640, height = 360, video = true, audio = true } = {}) {
+    function createSyntheticMediaStream({ width = 640, height = 360, video = true, audio = true, fps = 15 } = {}) {
       const tracks = [];
       let draw = () => { };
 
@@ -229,12 +238,12 @@
           ctx.textAlign = 'center';
           ctx.fillText(`Synthetic Feed: ${new Date().toLocaleTimeString()}`, canvas.width / 2, canvas.height / 2);
           if (syntheticStream?.active) {
-            requestAnimationFrame(draw);
+            setTimeout(draw, ~~(1000 / fps));
           }
         }
 
-        // Capture the canvas at 15 frames per second
-        const videoStream = canvas.captureStream(15);
+        // Capture the canvas at the specified frames per second
+        const videoStream = canvas.captureStream(fps);
 
         tracks.push(...videoStream.getVideoTracks());
       }

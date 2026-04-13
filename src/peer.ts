@@ -54,18 +54,6 @@ export class Peer {
    * Signaling transport used to exchange SDP and ICE messages.
    */
   readonly driver: SignalingDriver;
-  /**
-   * STUN/TURN servers passed to every RTCPeerConnection instance.
-   */
-  readonly iceServers: { urls: string | string[]; username?: string; credential?: string; }[];
-  /**
-   * ICE transport policy for created peer connections.
-   */
-  readonly iceTransportPolicy: 'all' | 'relay';
-  /**
-   * Maximum time in seconds to wait for ICE connection establishment.
-   */
-  readonly connectionTimeout: number;
 
   /**
    * Active remote peers indexed by remote peer id.
@@ -98,6 +86,19 @@ export class Peer {
   metadata?: any;
 
   /**
+   * STUN/TURN servers passed to every RTCPeerConnection instance.
+   */
+  #iceServers: { urls: string | string[]; username?: string; credential?: string; }[];
+  /**
+   * ICE transport policy for created peer connections.
+   */
+  #iceTransportPolicy: 'all' | 'relay';
+  /**
+   * Maximum time in seconds to wait for ICE connection establishment.
+   */
+  #connectionTimeout: number;
+
+  /**
    * Internal event emitter used by on/once/off/emit helpers.
    */
   #emitter: EventEmitter<PeerEvents>;
@@ -118,13 +119,9 @@ export class Peer {
    */
   #streamLabels: Map<string, { [key: string]: string; }>;
   /**
-   * Prefix string used to namespace signaling messages for this peer.
+   * Internal references to signaling driver event handlers for proper cleanup on leave.
    */
-  #prefix: string;
-  /**
-   * Active signaling handler registered on the signaling driver.
-   */
-  #signaling?: (e: any) => void;
+  #driverHandlers: Map<string, (...args: any[]) => void>;
   /**
    * Optional callback to accept or reject incoming peer connections.
    */
@@ -139,29 +136,28 @@ export class Peer {
     const {
       id = UUIDv4(),
       driver = defaultDriver,
-      prefix = 'signal',
       iceServers = [],
       iceTransportPolicy = 'all',
       connectionTimeout = 15,
     } = options || {};
 
     this.driver = driver;
+    this.active = false;
     this.id = id;
     this.room = '';
-    this.active = false;
-    this.iceServers = iceServers;
-    this.iceTransportPolicy = iceTransportPolicy;
-    this.connectionTimeout = connectionTimeout;
     this.connections = new Map();
     this.streams = new Map();
     this.channels = new Map();
     this.addons = new Set();
+    this.#iceServers = iceServers;
+    this.#iceTransportPolicy = iceTransportPolicy;
+    this.#connectionTimeout = connectionTimeout;
     this.#emitter = new EventEmitter<PeerEvents>(this);
     this.#candidateQueues = new Map();
     this.#makingOffer = new Set();
     this.#pendingAnswer = new Set();
     this.#streamLabels = new Map();
-    this.#prefix = prefix;
+    this.#driverHandlers = new Map();
   }
 
   /**
@@ -182,10 +178,10 @@ export class Peer {
 
       log('peer:join', { id: this.id, room: this.room, metadata: this.metadata });
 
-      await this.#registerSignalHandlers([this.room], [this.room, this.id]);
+      await this.#registerDriverHandlers([this.room], [this.room, this.id]);
     }
 
-    await this.#sendSignal([this.room], {
+    await this.#emitDriverMessage([this.room], {
       type: 'invoke',
       id: this.id,
       metadata: this.metadata,
@@ -200,7 +196,7 @@ export class Peer {
 
     log('peer:leave', { id: this.id, room: this.room, metadata: this.metadata });
 
-    await this.#unregisterSignalHandlers([this.room], [this.room, this.id]);
+    await this.#unregisterDriverHandlers([this.room], [this.room, this.id]);
 
     for (const remote of this.connections.values()) {
       remote.dispose();
@@ -762,19 +758,20 @@ export class Peer {
     log('peer:createpeerconnection', { id: this.id, remote: { id, metadata } });
 
     const connection = new RTCPeerConnection({
-      iceServers: this.iceServers,
-      iceTransportPolicy: this.iceTransportPolicy,
+      iceServers: this.#iceServers,
+      iceTransportPolicy: this.#iceTransportPolicy,
     });
     const streams = new Map();
     const channels = new Map();
 
     const setConnectionTimeout = () => {
-      const timer = this.connectionTimeout > 0 ? setTimeout(
+      const timeout = this.#connectionTimeout;
+      const timer = timeout > 0 ? setTimeout(
         () => {
           dispose({ silent: true });
           this.#reportError('Connection timeout', 'PEER_CONNECTION_FAILED');
         },
-        this.connectionTimeout * 1000,
+        timeout * 1000,
       ) : undefined;
 
       return () => clearTimeout(timer);
@@ -797,7 +794,7 @@ export class Peer {
       this.emit('connection', { id: this.id, remote, state: 'closed' });
 
       if (!silent) {
-        await this.#sendSignal([this.room, id], {
+        await this.#emitDriverMessage([this.room, id], {
           type: 'dispose',
           id: this.id,
         });
@@ -855,7 +852,7 @@ export class Peer {
 
       log('peer:icecandidate', { id: this.id, candidate, remote });
 
-      await this.#sendSignal([this.room, id], {
+      await this.#emitDriverMessage([this.room, id], {
         type: 'ice',
         id: this.id,
         candidate: typeof candidate.toJSON === 'function'
@@ -870,7 +867,7 @@ export class Peer {
       try {
         const offer = await this.#createOffer(remote);
         if (offer) {
-          await this.#sendSignal([this.room, id], {
+          await this.#emitDriverMessage([this.room, id], {
             type: 'sdp',
             id: this.id,
             metadata: this.metadata,
@@ -933,7 +930,7 @@ export class Peer {
    * Apply a remote SDP description to a peer connection.
    *
    * When the description is an answer, tracks pending-answer state so that
-   * glare detection logic in the signal handler stays accurate.
+   * glare detection logic in the message handler stays accurate.
    *
    * @param remote Remote peer descriptor.
    * @param description SDP offer or answer received from the remote peer.
@@ -972,19 +969,29 @@ export class Peer {
   }
 
   /**
-   * Subscribe the internal signal handler to all specified signaling namespaces.
+   * Subscribe to all specified namespaces on the signaling driver.
    *
    * @param namespaces One or more namespace arrays to subscribe to.
    */
-  async #registerSignalHandlers(...namespaces: string[][]) {
-    log('peer:signal:register', { id: this.id, namespaces });
+  async #registerDriverHandlers(...namespaces: string[][]) {
+    log('driver:register', { id: this.id, namespaces });
+
+    const entries: Array<[string, (...args: any[]) => void, boolean]> = [
+      ['message', this.#driverMessageHandler, true],
+      ['active', this.#driverActiveHandler, false],
+      ['inactive', this.#driverInactiveHandler, false],
+      ['error', this.#driverErrorHandler, false],
+    ];
 
     try {
-      if (!this.#signaling) {
-        this.#signaling = this.#signalHandler.bind(this);
-
-        for (const namespace of namespaces) {
-          await this.driver.on([this.#prefix, ...namespace], this.#signaling);
+      for (const [key, method, useNamespaces] of entries) {
+        if (!this.#driverHandlers.has(key)) {
+          const handler = method.bind(this);
+          const topics = useNamespaces ? namespaces.map(ns => [key, ...ns]) : [[key]];
+          for (const topic of topics) {
+            await this.driver.on(topic, handler);
+          }
+          this.#driverHandlers.set(key, handler);
         }
       }
     }
@@ -994,20 +1001,30 @@ export class Peer {
   }
 
   /**
-   * Unsubscribe the internal signal handler from all specified signaling namespaces.
+   * Unsubscribe from all specified namespaces on the signaling driver.
    *
    * @param namespaces One or more namespace arrays to unsubscribe from.
    */
-  async #unregisterSignalHandlers(...namespaces: string[][]) {
-    log('peer:signal:unregister', { id: this.id, namespaces });
+  async #unregisterDriverHandlers(...namespaces: string[][]) {
+    log('driver:unregister', { id: this.id, namespaces });
+
+    const keys: Array<[string, boolean]> = [
+      ['message', true],
+      ['active', false],
+      ['inactive', false],
+      ['error', false],
+    ];
 
     try {
-      if (this.#signaling) {
-        for (const namespace of namespaces) {
-          await this.driver.off([this.#prefix, ...namespace], this.#signaling);
+      for (const [key, useNamespaces] of keys) {
+        const handler = this.#driverHandlers.get(key);
+        if (handler) {
+          const topics = useNamespaces ? namespaces.map(ns => [key, ...ns]) : [[key]];
+          for (const topic of topics) {
+            await this.driver.off(topic, handler);
+          }
+          this.#driverHandlers.delete(key);
         }
-
-        this.#signaling = undefined;
       }
     }
     catch (err) {
@@ -1016,20 +1033,23 @@ export class Peer {
   }
 
   /**
-   * Emit a signaling message to the given namespace via the configured driver.
+   * Emit a message to the given namespace via the configured driver.
    *
    * Does nothing when the peer is not active.
    *
-   * @param namespace Target namespace for the signal.
-   * @param signal Signal payload to send.
+   * @param namespace Target namespace for the message.
+   * @param message Message payload to send.
    */
-  async #sendSignal(namespace: string[], signal: any) {
+  async #emitDriverMessage(namespace: string[], message: any) {
     if (!this.active) return;
 
-    log('peer:signal:send', { id: this.id, namespace, signal });
+    log('driver:emit', { id: this.id, namespace, message });
 
     try {
-      await this.driver.emit([this.#prefix, ...namespace], signal);
+      const driverActive = this.driver.active;
+      if (driverActive || driverActive === undefined) {
+        await this.driver.emit(['message', ...namespace], message);
+      }
     }
     catch (err) {
       this.#reportError(err, 'PEER_SIGNALING_FAILED');
@@ -1037,18 +1057,57 @@ export class Peer {
   }
 
   /**
-   * Handle an incoming signaling message dispatched by the driver.
+   * Handle the driver becoming active.
+   */
+  async #driverActiveHandler() {
+    if (!this.active) return;
+
+    log('driver:active', { id: this.id });
+
+    // add random jitter to avoid multiple peers reconnecting at the same time
+    const jitter = 100 + Math.floor(Math.random() * 900);
+    setTimeout(() => {
+      if (this.active) this.join();
+    }, jitter);
+  }
+
+  /**
+   * Handle the driver becoming inactive.
+   */
+  async #driverInactiveHandler() {
+    if (!this.active) return;
+
+    log('driver:inactive', { id: this.id });
+  }
+
+  /**
+   * Handle an error emitted by the driver.
+   *
+   * @param error Error object or message emitted by the driver.
+   */
+  async #driverErrorHandler(error: any) {
+    if (!this.active) return;
+
+    log('driver:error', { id: this.id, error });
+
+    this.#reportError(error, 'PEER_SIGNALING_FAILED');
+  }
+
+  /**
+   * Handle an incoming message dispatched by the driver.
    *
    * Processes `invoke`, `sdp`, `ice`, and `dispose` message types to establish,
    * negotiate, and tear down peer connections.
    *
-   * @param signal Incoming signal payload from the signaling driver.
+   * @param message Incoming message from the signaling driver.
    */
-  async #signalHandler(signal: any) {
-    const { type, id, metadata } = signal;
-    if (!this.active || !type || !id || this.id === id) return;
+  async #driverMessageHandler(message: any) {
+    if (!this.active || !message) return;
 
-    log('peer:signal:receive', { id: this.id, signal });
+    const { type, id, metadata } = message;
+    if (!type || !id || this.id === id) return;
+
+    log('driver:message', { id: this.id, message });
 
     // verify the incoming connection and reject if verification fails
     if (this.#verify) {
@@ -1064,7 +1123,7 @@ export class Peer {
 
     // handle incoming connection
     if (type === 'invoke') {
-      const { channels, streams } = signal;
+      const { channels, streams } = message;
       const isPolite = this.id > id;
 
       // if polite, exclude channels that were created by another peer to avoid collisions
@@ -1076,6 +1135,12 @@ export class Peer {
       // create peer connection, publish streams and create channels
       if (allowedChannels.size || this.streams.size) {
         let remote = this.connections.get(id);
+
+        if (remote?.state === 'disconnected') {
+          remote.dispose({ silent: true });
+          remote = undefined;
+        }
+
         if (!remote) {
           try {
             remote = this.#createPeerConnection(id, metadata);
@@ -1097,7 +1162,7 @@ export class Peer {
 
       // inform the initiator about existing channels and streams
       if ((!channels && !streams) || !isPolite) {
-        await this.#sendSignal([this.room, id], {
+        await this.#emitDriverMessage([this.room, id], {
           type: 'invoke',
           id: this.id,
           metadata: this.metadata,
@@ -1111,7 +1176,7 @@ export class Peer {
 
     // set remote description and create answer
     if (type === 'sdp') {
-      const { description, labels } = signal;
+      const { description, labels } = message;
 
       let remote = this.connections.get(id);
       if (!remote) {
@@ -1145,12 +1210,12 @@ export class Peer {
       try {
         await this.#setRemoteDescription(remote, description);
 
-        this.#addQueuedIceCandidates(remote);
+        await this.#addQueuedIceCandidates(remote);
 
         if (description.type === 'offer') {
           const answer = await this.#createAnswer(remote);
           if (answer) {
-            await this.#sendSignal([this.room, id], {
+            await this.#emitDriverMessage([this.room, id], {
               type: 'sdp',
               id: this.id,
               metadata: this.metadata,
@@ -1168,7 +1233,7 @@ export class Peer {
 
     // add ice candidate
     if (type === 'ice') {
-      const { candidate } = signal;
+      const { candidate } = message;
       const remote = this.connections.get(id);
 
       const queued = this.#queueIceCandidate(id, candidate, remote);

@@ -13,7 +13,7 @@ import type { SignalingDriver } from '../types/signaling.js';
  * ```
  */
 export class MemoryDriver implements SignalingDriver {
-  #events: Map<string, Set<(data: any) => void>>;
+  #events: Map<string, Set<(message?: any) => void>>;
   #delay: number;
 
   /**
@@ -27,8 +27,8 @@ export class MemoryDriver implements SignalingDriver {
     this.#delay = options?.delay || 0;
   }
 
-  on(namespace: string[], handler: (data: any) => void) {
-    const ns = namespace.join(':') as string;
+  on(namespace: string[], handler: (message?: any) => void) {
+    const ns = namespace.join(':');
     let handlers = this.#events.get(ns);
     if (!handlers) {
       handlers = new Set();
@@ -37,17 +37,18 @@ export class MemoryDriver implements SignalingDriver {
     handlers.add(handler);
   }
 
-  off(namespace: string[], handler: (data: any) => void) {
-    const ns = namespace.join(':') as string;
+  off(namespace: string[], handler: (message?: any) => void) {
+    const ns = namespace.join(':');
     const handlers = this.#events.get(ns);
     if (handlers) {
-      if (handler) handlers.delete(handler);
-      else handlers.clear();
-      if (!handlers.size) this.#events.delete(ns);
+      handlers.delete(handler);
+      if (!handlers.size) {
+        this.#events.delete(ns);
+      }
     }
   }
 
-  emit(namespace: string[], message: any) {
+  emit(namespace: string[], message?: any) {
     const ns = namespace.join(':');
     const handlers = this.#events.get(ns);
     if (!handlers) return;
