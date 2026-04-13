@@ -226,8 +226,9 @@ export class Peer {
    * a new stream.
    *
    * @param options Stream descriptor or MediaStream instance.
+   * @returns The published MediaStream instance.
    */
-  async publish(options: StreamOptions | MediaStream) {
+  async publish(options: StreamOptions | MediaStream): Promise<MediaStream> {
     if (options instanceof MediaStream) {
       options = { label: options.id, stream: options };
     }
@@ -296,6 +297,8 @@ export class Peer {
     if (this.active) {
       await this.join();
     }
+
+    return newStream;
   }
 
   /**
@@ -310,8 +313,9 @@ export class Peer {
    * stopped automatically.
    *
    * @param options Stream label, MediaStream instance, or object containing `label`.
+   * @returns The unpublished MediaStream instance, or undefined if not found.
    */
-  async unpublish(options: string | MediaStream | { label: string; }) {
+  async unpublish(options: string | MediaStream | { label: string; }): Promise<MediaStream | undefined> {
     if (options instanceof MediaStream) {
       options = { label: options.id };
     }
@@ -349,6 +353,8 @@ export class Peer {
         }
       }
     }
+
+    return stream;
   }
 
   /**

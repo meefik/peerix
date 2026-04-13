@@ -4,7 +4,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Peerix Sandbox</title>
   <style>
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 16px;
+      margin: 2em;
+    }
+
     .container {
       display: flex;
       flex-direction: column;
@@ -18,29 +25,36 @@
       background-color: #333;
     }
 
-    #streams {
+    .streams {
       display: flex;
       gap: 0.5rem;
     }
 
-    #streams:empty::before {
-      content: 'No streams';
+    .streams:empty::before {
+      content: 'No active streams';
       color: #888;
+      font-size: 0.9em;
     }
 
-    #events {
+    .logs {
       border: 1px solid #ccc;
       height: 200px;
       overflow-y: auto;
       font-family: monospace;
       font-size: 0.9em;
       scroll-behavior: smooth;
+      font-size: 0.8em;
+    }
+
+    .logs:empty::before {
+      content: 'No events logged yet';
+      color: #888;
     }
   </style>
 </head>
 
 <body>
-  <h1>Peer Example</h1>
+  <h1>Peerix Sandbox</h1>
 
   <div class="container">
     <label>
@@ -51,114 +65,139 @@
     </label>
 
     <label>
-      <legend>Channels</legend>
+      <legend>Channel</legend>
       <input id="channel" placeholder="label" value="default" />
       <button id="open">Open</button>
       <button id="close">Close</button>
     </label>
 
     <label>
-      <legend>Messages</legend>
+      <legend>Message</legend>
       <input id="message" placeholder="text" />
       <input id="send-channel" placeholder="label" value="default" />
       <button id="send">Send</button>
     </label>
 
     <label>
-      <legend>Streams</legend>
+      <legend>Stream</legend>
+      <input id="stream-label" placeholder="label" value="default" />
       <button id="publish">Publish</button>
       <button id="unpublish">Unpublish</button>
-      <button id="audio-only">Audio Only</button>
-      <button id="video-only">Video Only</button>
+      <label>
+        <input id="audio-enabled" type="checkbox" checked /> Audio
+      </label>
+      <label>
+        <input id="video-enabled" type="checkbox" checked /> Video
+      </label>
+    </label>
+
+    <label>
+      <legend>Local Streams</legend>
+      <div id="local-streams" class="streams"></div>
     </label>
 
     <label>
       <legend>Remote Streams</legend>
-      <div id="streams"></div>
+      <div id="remote-streams" class="streams"></div>
     </label>
 
     <label>
-      <legend>Events</legend>
-      <div id="events"></div>
+      <legend>Event Log (<a href="#" id="clear-logs">clear</a>)</legend>
+      <div id="logs" class="logs"></div>
     </label>
   </div>
 
   <script type="module">
-    import { Peer, BroadcastChannelDriver } from 'peerix';
+    import { Peer, BroadcastChannelDriver } from '../src/index.js';
 
     const driver = new BroadcastChannelDriver('peerix-demo');
 
     const peer = new Peer({ driver });
 
-    const events = document.getElementById('events');
+    const logs = document.getElementById('logs');
     const log = (message) => {
       const el = document.createElement('div');
       el.textContent = message;
-      events.appendChild(el);
-      events.scrollTop = events.scrollHeight;
+      logs.appendChild(el);
+      logs.scrollTop = logs.scrollHeight;
     };
-    const streams = document.getElementById('streams');
-    const addStream = (stream) => {
+
+    const localStreams = document.getElementById('local-streams');
+    const remoteStreams = document.getElementById('remote-streams');
+    const addStream = (stream, isLocal = true) => {
       const video = document.getElementById(stream.id)
         || document.createElement('video');
       video.srcObject = stream;
       video.autoplay = true;
       video.playsInline = true;
       video.id = stream.id;
-      streams.appendChild(video);
+      if (isLocal) {
+        localStreams.appendChild(video);
+      } else {
+        remoteStreams.appendChild(video);
+      }
     };
-    const removeStream = (stream) => {
+    const removeStream = (stream, isLocal = true) => {
       const video = document.getElementById(stream.id);
       if (video) {
-        streams.removeChild(video);
+        if (isLocal) {
+          localStreams.removeChild(video);
+        } else {
+          remoteStreams.removeChild(video);
+        }
       }
     };
 
     peer.on('connection', (e) => {
       const { remote, state } = e;
-      log(`event: connection, peer: ${remote.id}, state: ${state}`);
+      log(`[connection] peer: ${remote.id}, state: ${state}`);
     });
 
     peer.on('error', (e) => {
-      const { remote, channel, error } = e;
-      log(`event: error, peer: ${remote?.id}, channel: ${channel?.label}, error: ${error.message}`);
+      const { id, error } = e;
+      log(`[error] peer: ${id}, error: ${error}`);
     });
 
     peer.on('channel:open', (e) => {
-      const { remote, channel } = e;
-      log(`event: channel:open, peer: ${remote.id}, channel: ${channel.label}`);
+      const { remote, channel, label } = e;
+      log(`[channel:open] peer: ${remote.id}, channel: ${label}`);
     });
 
     peer.on('channel:close', (e) => {
-      const { remote, channel } = e;
-      log(`event: channel:close, peer: ${remote.id}, channel: ${channel.label}`);
+      const { remote, channel, label } = e;
+      log(`[channel:close] peer: ${remote.id}, channel: ${label}`);
     });
 
     peer.on('channel:message', (e) => {
-      const { remote, channel, data } = e;
-      log(`event: channel:message, peer: ${remote.id}, channel: ${channel.label}, data: ${data}`);
+      const { remote, channel, label, data } = e;
+      log(`[channel:message] peer: ${remote.id}, channel: ${label}, data: ${data}`);
+    });
+
+    peer.on('channel:error', (e) => {
+      const { remote, channel, label, error } = e;
+      log(`[channel:error] peer: ${remote?.id}, channel: ${label}, error: ${error}`);
     });
 
     peer.on('stream:add', (e) => {
-      const { remote, stream, track } = e;
-      log(`event: stream:add, peer: ${remote.id}, stream: ${stream.id}, number of tracks: ${stream.getTracks().length}`);
-      addStream(stream);
+      const { remote, stream, label } = e;
+      log(`[stream:add] peer: ${remote.id}, stream: ${label} ${stream.id}, number of tracks: ${stream.getTracks().length}`);
+      addStream(stream, false);
     });
 
     peer.on('stream:remove', (e) => {
-      const { remote, stream, track } = e;
-      log(`event: stream:remove, peer: ${remote.id}, stream: ${stream.id}, number of tracks: ${stream.getTracks().length}`);
-      removeStream(stream);
+      const { remote, stream, label } = e;
+      log(`[stream:remove] peer: ${remote.id}, stream: ${label} ${stream.id}, number of tracks: ${stream.getTracks().length}`);
+      removeStream(stream, false);
     });
 
     peer.on('track:add', (e) => {
-      const { remote, stream, track } = e;
-      log(`event: track:add, peer: ${remote.id}, track: ${track.kind} ${track.id}, stream: ${stream.id}, number of tracks: ${stream.getTracks().length}`);
+      const { remote, stream, track, label } = e;
+      log(`[track:add] peer: ${remote.id}, track: ${track.kind} ${track.id}, stream: ${label} ${stream.id}, number of tracks: ${stream.getTracks().length}`);
     });
 
     peer.on('track:remove', (e) => {
-      const { remote, stream, track } = e;
-      log(`event: track:remove, peer: ${remote.id}, track: ${track.kind} ${track.id}, stream: ${stream.id}, number of tracks: ${stream.getTracks().length}`);
+      const { remote, stream, track, label } = e;
+      log(`[track:remove] peer: ${remote.id}, track: ${track.kind} ${track.id}, stream: ${label} ${stream.id}, number of tracks: ${stream.getTracks().length}`);
     });
 
     const joinButton = document.getElementById('join');
@@ -175,12 +214,14 @@
     const openButton = document.getElementById('open');
     openButton.addEventListener('click', () => {
       const label = document.getElementById('channel').value;
+
       if (label) peer.open({ label });
     });
 
     const closeButton = document.getElementById('close');
     closeButton.addEventListener('click', () => {
       const label = document.getElementById('channel').value;
+
       if (label) peer.close({ label });
     });
 
@@ -188,31 +229,36 @@
     sendButton.addEventListener('click', () => {
       const label = document.getElementById('send-channel').value;
       const message = document.getElementById('message').value;
+
       if (label) peer.send(message, { label });
       else peer.send(message);
     });
 
     const publishButton = document.getElementById('publish');
     publishButton.addEventListener('click', async () => {
-      const stream = createSyntheticMediaStream({ video: true, audio: true });
-      peer.publish({ label: 'default', stream, managed: true });
+      const isAudioEnabled = document.getElementById('audio-enabled').checked;
+      const isVideoEnabled = document.getElementById('video-enabled').checked;
+      const label = document.getElementById('stream-label').value || 'default';
+
+      const stream = createSyntheticMediaStream({ video: isVideoEnabled, audio: isAudioEnabled });
+      const newStream = await peer.publish({ label, stream, managed: true });
+
+      addStream(newStream, true);
     });
 
     const unpublishButton = document.getElementById('unpublish');
-    unpublishButton.addEventListener('click', () => {
-      peer.unpublish({ label: 'default' });
+    unpublishButton.addEventListener('click', async () => {
+      const label = document.getElementById('stream-label').value || 'default';
+
+      const oldStream = await peer.unpublish({ label });
+
+      removeStream(oldStream, true);
     });
 
-    const audioOnlyButton = document.getElementById('audio-only');
-    audioOnlyButton.addEventListener('click', async () => {
-      const stream = createSyntheticMediaStream({ video: false, audio: true });
-      peer.publish({ label: 'default', stream, managed: true });
-    });
-
-    const videoOnlyButton = document.getElementById('video-only');
-    videoOnlyButton.addEventListener('click', async () => {
-      const stream = createSyntheticMediaStream({ video: true, audio: false });
-      peer.publish({ label: 'default', stream, managed: true });
+    const clearLogsButton = document.getElementById('clear-logs');
+    clearLogsButton.addEventListener('click', (e) => {
+      e.preventDefault();
+      logs.innerHTML = '';
     });
 
     function createSyntheticMediaStream({ width = 640, height = 360, video = true, audio = true, fps = 15 } = {}) {
