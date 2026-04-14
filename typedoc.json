@@ -13,7 +13,6 @@
     "./src/index.ts"
   ],
   "plugin": [
-    "typedoc-plugin-mermaid",
     "typedoc-plugin-markdown"
   ],
   "outputs": [
