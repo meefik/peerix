@@ -4,7 +4,7 @@
   "hideGenerator": true,
   "hideBreadcrumbs": true,
   "includeVersion": true,
-  "customFooterHtml": "<a href=\"https://peerix.dev\" title=\"Peerix website\" target=\"_blank\">peerix.dev</a> <sup>↗</sup> | <a href=\"https://github.com/peerix-dev/peerix\" title=\"Peerix GitHub repository\" target=\"_blank\">GitHub</a> <sup>↗</sup> | <a href=\"llms-full.txt\" title=\"Full documentation for LLM context\" target=\"_blank\">AI-Ready Docs</a> <sup>↗</sup>",
+  "customFooterHtml": "<a href=\"https://peerix.dev\" title=\"Peerix website\" target=\"_blank\">peerix.dev</a> <sup>↗</sup> | <a href=\"https://github.com/peerix-dev/peerix\" title=\"Peerix GitHub repository\" target=\"_blank\">GitHub</a> <sup>↗</sup> | <a href=\"/llms-full.txt\" title=\"Full documentation for LLM context\" target=\"_blank\">AI-Ready Docs</a> <sup>↗</sup>",
   "favicon": "https://peerix.dev/favicon.ico",
   "headings": {
     "readme": false

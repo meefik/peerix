@@ -57,6 +57,21 @@ export class Peer {
 
   /**
    * Active remote peers indexed by remote peer id.
+   * 
+   * @example
+   * ```javascript
+   * const peers = Array.from(peer.connections.values()).map((remote) => {
+   *   const { id, state, metadata, streams, channels } = remote;
+   *   return {
+   *     id,
+   *     state,
+   *     metadata,
+   *     streams: Array.from(streams.keys()).join(', '),
+   *     channels: Array.from(channels.keys()).join(', '),
+   *   };
+   * });
+   * console.table(peers);
+   * ```
    */
   readonly connections: Map<string, RemotePeer>;
   /**
@@ -129,6 +144,12 @@ export class Peer {
 
   /**
    * Creates an instance of Peer.
+   * 
+   * @example
+   * ```javascript
+   * // create a new peer with default options
+   * const peer = new Peer();
+   * ```
    *
    * @param options Peer configuration options.
    */
@@ -162,6 +183,12 @@ export class Peer {
 
   /**
    * Join a room and start listening for incoming connections.
+   * 
+   * @example
+   * ```javascript
+   * // join a room with ID 'room-id' and custom metadata
+   * peer.join({ room: 'room-id', metadata: { name: 'Alice' } });
+   * ```
    *
    * @param options Room name or join options.
    */
@@ -190,6 +217,12 @@ export class Peer {
 
   /**
    * Leave the current room and close all active remote connections.
+   * 
+   * @example
+   * ```javascript
+   * // leave the current room
+   * peer.leave();
+   * ```
    */
   async leave() {
     if (!this.active) return;
@@ -229,6 +262,14 @@ export class Peer {
    * If the stream is published with the `managed` option, its tracks will be
    * automatically stopped when the stream is unpublished or replaced with 
    * a new stream.
+   * 
+   * @example
+   * ```javascript
+   * // get a media stream from the user's camera and microphone
+   * const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+   * // publish a media stream with an explicit label
+   * peer.publish({ label: 'camera', stream, managed: true });
+   * ```
    *
    * @param options Stream descriptor or MediaStream instance.
    * @returns The published MediaStream instance.
@@ -321,6 +362,12 @@ export class Peer {
    * 
    * If the stream was published with the `managed` option, its tracks will be 
    * stopped automatically.
+   * 
+   * @example
+   * ```javascript
+   * // unpublish a media stream with an explicit label
+   * peer.unpublish({ label: 'camera' });
+   * ```
    *
    * @param options Object containing a stream label or MediaStream instance.
    * @returns The unpublished MediaStream instance, or undefined if not found.
@@ -373,6 +420,12 @@ export class Peer {
    * You can open a channel with the same label on both local and remote peers
    * or only on one side. In any case, only one channel will be created for 
    * each label. You can send data through the channel in both directions.
+   * 
+   * @example
+   * ```javascript
+   * // open a channel with label 'chat'
+   * peer.open({ label: 'chat' });
+   * ```
    *
    * @param options Channel options or channel label.
    */
@@ -391,6 +444,12 @@ export class Peer {
    * Close a previously opened data channel with the given label 
    * and remove it from all remote peers.
    * 
+   * @example
+   * ```javascript
+   * // close the channel with label 'chat'
+   * peer.close({ label: 'chat' });
+   * ```
+   *
    * @param options Channel label or object containing `label`.
    */
   async close(options: string | { label: string; }) {
@@ -414,6 +473,14 @@ export class Peer {
    *
    * If `options` is omitted, the message is sent to all open channels for every
    * connected remote peer. If `options` is a string, it is treated as channel label.
+   * 
+   * @example
+   * ```javascript
+   * // send a message to all channels
+   * peer.send('Hello, peers!');
+   * // send a message to a specific channel
+   * peer.send('Hello, chat channel!', { label: 'chat' });
+   * ```
    *
    * @param message Message payload to send. This may be a string, a Blob, an ArrayBuffer, a TypedArray or a DataView object.
    * @param options Optional send options or channel label.
