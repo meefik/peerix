@@ -166,7 +166,7 @@ export class Peer {
    * @param options Room name or join options.
    */
   async join(options?: string | JoinOptions) {
-    if (!this.active) {
+    if (!this.active && options) {
       this.active = true;
 
       const { room = 'default', metadata, verify } =
@@ -200,6 +200,11 @@ export class Peer {
 
     for (const remote of this.connections.values()) {
       remote.dispose();
+
+      await this.#emitDriverMessage([this.room, remote.id], {
+        type: 'dispose',
+        id: this.id,
+      });
     }
     this.connections.clear();
 
@@ -228,11 +233,15 @@ export class Peer {
    * @param options Stream descriptor or MediaStream instance.
    * @returns The published MediaStream instance.
    */
-  async publish(options: StreamOptions | MediaStream): Promise<MediaStream> {
+  async publish(options: MediaStream | StreamOptions): Promise<MediaStream | undefined> {
     if (options instanceof MediaStream) {
       options = { label: options.id, stream: options };
     }
-    const { label = 'default', stream, ...opts } = options;
+    const { label = 'default', stream, ...opts } = options || {};
+
+    if (stream instanceof MediaStream === false || !stream.getTracks().length) {
+      return;
+    }
 
     const oldStreamOptions = this.streams.get(label);
 
@@ -264,6 +273,7 @@ export class Peer {
 
     this.streams.set(label, newStreamOptions);
 
+    const bitrateOptions = { audio: opts.audioBitrate, video: opts.videoBitrate };
     for (const remote of this.connections.values()) {
       const { connection } = remote;
       const senders = connection.getSenders();
@@ -274,10 +284,12 @@ export class Peer {
           const sender = senders.find(s => s.track?.id === removedTrack.id);
           if (sender) {
             await sender.replaceTrack(track);
+            await this.#setTrackBitrate(remote, track, bitrateOptions);
             continue;
           }
         }
         connection.addTransceiver(track, { direction: 'sendonly', streams: [newStream] });
+        await this.#setTrackBitrate(remote, track, bitrateOptions);
       }
 
       for (const track of removedTracks) {
@@ -294,9 +306,7 @@ export class Peer {
       }
     }
 
-    if (this.active) {
-      await this.join();
-    }
+    await this.join();
 
     return newStream;
   }
@@ -312,15 +322,14 @@ export class Peer {
    * If the stream was published with the `managed` option, its tracks will be 
    * stopped automatically.
    *
-   * @param options Stream label, MediaStream instance, or object containing `label`.
+   * @param options Object containing a stream label or MediaStream instance.
    * @returns The unpublished MediaStream instance, or undefined if not found.
    */
-  async unpublish(options: string | MediaStream | { label: string; }): Promise<MediaStream | undefined> {
+  async unpublish(options: MediaStream | { label?: string; }): Promise<MediaStream | undefined> {
     if (options instanceof MediaStream) {
       options = { label: options.id };
     }
-    const { label = 'default' } =
-      typeof options === 'object' ? options : { label: options };
+    const { label = 'default' } = options || {};
 
     const oldStreamOptions = this.streams.get(label);
     const { stream, managed } = oldStreamOptions || {};
@@ -369,15 +378,13 @@ export class Peer {
    */
   async open(options: string | ChannelOptions) {
     const { label = 'default', ...opts } =
-      typeof options === 'object' ? options : { label: options };
+      typeof options === 'object' ? options : { label: String(options) };
 
     log('peer:open', { id: this.id, label, ...opts });
 
     this.channels.set(label, { label, ...opts });
 
-    if (this.active) {
-      await this.join();
-    }
+    await this.join();
   }
 
   /**
@@ -388,7 +395,7 @@ export class Peer {
    */
   async close(options: string | { label: string; }) {
     const { label = 'default' } =
-      typeof options === 'object' ? options : { label: options };
+      typeof options === 'object' ? options : { label: String(options) };
 
     log('peer:close', { id: this.id, label });
 
@@ -415,7 +422,7 @@ export class Peer {
     if (!this.active) return;
 
     const { label, filter } =
-      typeof options === 'object' ? options : { label: options };
+      typeof options === 'object' ? options : { label: String(options) };
 
     log('peer:send', { id: this.id, label, message });
 
@@ -774,7 +781,7 @@ export class Peer {
       const timeout = this.#connectionTimeout;
       const timer = timeout > 0 ? setTimeout(
         () => {
-          dispose({ silent: true });
+          dispose();
           this.#reportError('Connection timeout', 'PEER_CONNECTION_FAILED');
         },
         timeout * 1000,
@@ -783,7 +790,7 @@ export class Peer {
       return () => clearTimeout(timer);
     };
 
-    const dispose = async ({ silent = false } = {}) => {
+    const dispose = () => {
       if (!this.connections.has(id)) return;
       this.connections.delete(id);
       stopConnectionTimeout();
@@ -798,13 +805,6 @@ export class Peer {
       this.#streamLabels.delete(id);
 
       this.emit('connection', { id: this.id, remote, state: 'closed' });
-
-      if (!silent) {
-        await this.#emitDriverMessage([this.room, id], {
-          type: 'dispose',
-          id: this.id,
-        });
-      }
     };
 
     const remote: RemotePeer = {
@@ -822,7 +822,12 @@ export class Peer {
     connection.addEventListener('iceconnectionstatechange', (e) => {
       const { iceConnectionState } = e.target as RTCPeerConnection;
 
-      if (iceConnectionState === 'checking') {
+      if (iceConnectionState === 'new') {
+        const state = 'new';
+        remote.state = state;
+        this.emit('connection', { id: this.id, remote, state });
+      }
+      else if (iceConnectionState === 'checking') {
         const state = 'connecting';
         remote.state = state;
         this.emit('connection', { id: this.id, remote, state });
