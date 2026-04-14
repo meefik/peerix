@@ -1139,8 +1139,13 @@ export class Peer {
 
       // if polite, exclude channels that were created by another peer to avoid collisions
       const allowedChannels = new Map(this.channels);
-      if (isPolite && channels) {
-        channels.forEach((k: string) => allowedChannels.delete(k));
+      if (isPolite) {
+        if (Array.isArray(channels)) {
+          channels.forEach((k: string) => allowedChannels.delete(k));
+        }
+        else {
+          allowedChannels.clear();
+        }
       }
 
       // create peer connection, publish streams and create channels
