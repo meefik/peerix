@@ -12,10 +12,16 @@
       margin: 2em;
     }
 
-    .container {
+    main {
       display: flex;
       flex-direction: column;
       gap: 1rem;
+    }
+
+    footer {
+      margin-top: 3em;
+      font-size: 0.9em;
+      color: #555;
     }
 
     video {
@@ -56,7 +62,7 @@
 <body>
   <h1>Peerix Sandbox</h1>
 
-  <div class="container">
+  <main class="container">
     <label>
       <legend>Room</legend>
       <input type="text" id="room" placeholder="Room ID" value="demo" />
@@ -105,7 +111,12 @@
       <legend>Event Log (<a href="#" id="clear-logs">clear</a>)</legend>
       <div id="logs" class="logs"></div>
     </label>
-  </div>
+  </main>
+
+  <footer>
+    <hr />
+    <p>&copy; <a href="https://peerix.dev" target="_blank">peerix.dev</a></p>
+  </footer>
 
   <script type="module">
     import { Peer, BroadcastChannelDriver } from '../src/index.js';
@@ -243,7 +254,7 @@
       const stream = createSyntheticMediaStream({ video: isVideoEnabled, audio: isAudioEnabled });
       const newStream = await peer.publish({ label, stream, managed: true });
 
-      addStream(newStream, true);
+      if (newStream) addStream(newStream, true);
     });
 
     const unpublishButton = document.getElementById('unpublish');
@@ -252,7 +263,7 @@
 
       const oldStream = await peer.unpublish({ label });
 
-      removeStream(oldStream, true);
+      if (oldStream) removeStream(oldStream, true);
     });
 
     const clearLogsButton = document.getElementById('clear-logs');
@@ -280,9 +291,10 @@
           ctx.fillStyle = 'black';
           ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.fillStyle = 'lime';
-          ctx.font = `${Math.min(canvas.width, canvas.height) * 0.08}px monospace`;
+          ctx.font = `${Math.min(canvas.width, canvas.height) * 0.2}px monospace`;
           ctx.textAlign = 'center';
-          ctx.fillText(`Synthetic Feed: ${new Date().toLocaleTimeString()}`, canvas.width / 2, canvas.height / 2);
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`${new Date().toLocaleTimeString()}`, canvas.width / 2, canvas.height / 2);
           if (syntheticStream?.active) {
             setTimeout(draw, ~~(1000 / fps));
           }

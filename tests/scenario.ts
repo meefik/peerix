@@ -1,6 +1,4 @@
-import { TestRunner } from './runner.js';
-
-const tests = [
+export default [
   {
     title: 'Peer Connections',
     defaults: { timeout: 10000 },
@@ -83,17 +81,23 @@ const tests = [
       { peer: '1', call: 'publish', args: [{ label: 'camera', stream: { video: true, audio: true } }] },
       { peer: '2', call: 'publish', args: [{ label: 'camera', stream: { video: true, audio: true } }] },
 
-      { peer: '2', wait: 'stream:add', where: { remote: { id: '1' }, stream: { active: true }, label: 'camera' } },
       { peer: '1', wait: 'stream:add', where: { remote: { id: '2' }, stream: { active: true }, label: 'camera' } },
+      { peer: '2', wait: 'stream:add', where: { remote: { id: '1' }, stream: { active: true }, label: 'camera' } },
 
-      // { peer: '1', wait: 'track:add', where: { remote: { id: '2' }, track: { kind: 'video' }, stream: { active: true }, label: 'camera' } },
-      // { peer: '2', wait: 'track:add', where: { remote: { id: '1' }, track: { kind: 'video' }, stream: { active: true }, label: 'camera' } },
+      { peer: '1', wait: 'track:add', where: { remote: { id: '2' }, track: { kind: 'video' }, stream: { active: true }, label: 'camera' } },
+      { peer: '2', wait: 'track:add', where: { remote: { id: '1' }, track: { kind: 'video' }, stream: { active: true }, label: 'camera' } },
 
-      // { peer: '1', wait: 'track:add', where: { remote: { id: '2' }, track: { kind: 'audio' }, stream: { active: true }, label: 'camera' } },
-      // { peer: '2', wait: 'track:add', where: { remote: { id: '1' }, track: { kind: 'audio' }, stream: { active: true }, label: 'camera' } },
+      { peer: '1', wait: 'track:add', where: { remote: { id: '2' }, track: { kind: 'audio' }, stream: { active: true }, label: 'camera' } },
+      { peer: '2', wait: 'track:add', where: { remote: { id: '1' }, track: { kind: 'audio' }, stream: { active: true }, label: 'camera' } },
 
-      // { peer: '1', call: 'unpublish', args: [{ label: 'camera' }] },
-      // { peer: '2', call: 'unpublish', args: [{ label: 'camera' }] },
+      { peer: '1', call: 'unpublish', args: [{ label: 'camera' }] },
+      { peer: '2', call: 'unpublish', args: [{ label: 'camera' }] },
+
+      { peer: '1', wait: 'track:remove', where: { remote: { id: '2' }, track: { kind: 'audio' }, label: 'camera' } },
+      // { peer: '2', wait: 'track:remove', where: { remote: { id: '1' }, track: { kind: 'audio' }, stream: { active: true }, label: 'camera' } },
+
+      // { peer: '1', wait: 'track:remove', where: { remote: { id: '2' }, track: { kind: 'video' }, stream: { active: true }, label: 'camera' } },
+      // { peer: '2', wait: 'track:remove', where: { remote: { id: '1' }, track: { kind: 'video' }, stream: { active: true }, label: 'camera' } },
 
       // { peer: '1', wait: 'stream:remove', where: { remote: { id: '2' }, stream: { active: false }, label: 'camera' } },
       // { peer: '2', wait: 'stream:remove', where: { remote: { id: '1' }, stream: { active: false }, label: 'camera' } },
@@ -103,22 +107,3 @@ const tests = [
     ],
   },
 ];
-
-export default function initializeTestEnvironment(options: { renderTest: (params: any) => void; }) {
-  const { renderTest } = options || {};
-
-  for (const [index, test] of tests.entries()) {
-    const id = `T-${(index + 1).toString().padStart(2, '0')}`;
-
-    renderTest({
-      id,
-      title: test.title,
-      runTest: async () => {
-        console.log(`Running test: [${id}] ${test.title}`);
-        // await new Promise((resolve) => setTimeout(resolve, 100)); // Allow UI to update before starting the test
-        const runner = new TestRunner({ debug: 'peerix:*' });
-        await runner.run(test as any);
-      }
-    });
-  }
-}

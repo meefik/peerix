@@ -12,6 +12,12 @@
       margin: 2em;
     }
 
+    footer {
+      margin-top: 3em;
+      font-size: 0.9em;
+      color: #555;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
@@ -49,6 +55,11 @@
     </tbody>
   </table>
 
+  <footer>
+    <hr />
+    <p>&copy; <a href="https://peerix.dev" target="_blank">peerix.dev</a></p>
+  </footer>
+
   <template id="test-row-template">
     <tr>
       <td class="test-number"></td>
@@ -61,9 +72,22 @@
   </template>
 
   <script type="module">
-    import initializeTestEnvironment from './main.js';
+    import { TestRunner } from './runner.js';
+    import scenario from './scenario.js';
 
-    initializeTestEnvironment({ renderTest });
+    for (const [index, test] of scenario.entries()) {
+      const id = `T-${(index + 1).toString().padStart(2, '0')}`;
+
+      renderTest({
+        id,
+        title: test.title,
+        runTest: async () => {
+          console.log(`Running test: [${id}] ${test.title}`);
+          const runner = new TestRunner({ debug: 'peerix:*' });
+          await runner.run(test);
+        }
+      });
+    }
 
     function renderTest({ id, title, status, duration, details, runTest }) {
       const template = document.getElementById('test-row-template');

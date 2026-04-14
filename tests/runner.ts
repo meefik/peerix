@@ -92,9 +92,10 @@ export class TestRunner {
         ctx.fillStyle = 'black';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = 'lime';
-        ctx.font = `${Math.min(canvas.width, canvas.height) * 0.08}px monospace`;
+        ctx.font = `${Math.min(canvas.width, canvas.height) * 0.2}px monospace`;
         ctx.textAlign = 'center';
-        ctx.fillText(`Scenario Feed: ${new Date().toLocaleTimeString()}`, canvas.width / 2, canvas.height / 2);
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${new Date().toLocaleTimeString()}`, canvas.width / 2, canvas.height / 2);
         if (stream?.active) setTimeout(draw, ~~(1000 / fps));
       };
 
