@@ -378,7 +378,7 @@ export class Peer {
    */
   async open(options: string | ChannelOptions) {
     const { label = 'default', ...opts } =
-      typeof options === 'object' ? options : { label: String(options) };
+      typeof options === 'object' ? options : { label: options };
 
     log('peer:open', { id: this.id, label, ...opts });
 
@@ -395,7 +395,7 @@ export class Peer {
    */
   async close(options: string | { label: string; }) {
     const { label = 'default' } =
-      typeof options === 'object' ? options : { label: String(options) };
+      typeof options === 'object' ? options : { label: options };
 
     log('peer:close', { id: this.id, label });
 
@@ -422,7 +422,7 @@ export class Peer {
     if (!this.active) return;
 
     const { label, filter } =
-      typeof options === 'object' ? options : { label: String(options) };
+      typeof options === 'object' ? options : { label: options };
 
     log('peer:send', { id: this.id, label, message });
 
