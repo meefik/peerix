@@ -28,7 +28,8 @@
       width: 160px;
       height: 90px;
       border: 1px solid #ccc;
-      background-color: #333;
+      box-sizing: border-box;
+      background-color: gray;
     }
 
     .streams {
@@ -38,22 +39,24 @@
 
     .streams:empty::before {
       content: 'No active streams';
-      color: #888;
+      color: gray;
       font-size: 0.9em;
     }
 
     .logs {
-      border: 1px solid #ccc;
+      border: 1px dashed gray;
+      box-sizing: border-box;
       height: 200px;
       overflow-y: auto;
       font-family: monospace;
       font-size: 0.8em;
       scroll-behavior: smooth;
+      padding: 0.5em;
     }
 
     .logs:empty::before {
       content: 'No events logged yet';
-      color: #888;
+      color: gray;
     }
   </style>
 </head>
@@ -111,6 +114,8 @@
 
     const driver = new BroadcastChannelDriver('peerix-demo');
     const peer = new Peer({ driver });
+
+    log('Peer ID: ' + peer.id);
 
     // Log peer events
     const logEvent = (event, details) => log(`[${event}] ${details}`);
@@ -178,7 +183,6 @@
       send: () => {
         const message = document.getElementById('message').value;
         const channel = document.getElementById('send-channel').value;
-        console.log('Sending message:', { message, channel });
         if (channel) peer.send(message, { label: channel });
         else peer.send(message);
       },
@@ -207,8 +211,8 @@
       logs.innerHTML = '';
     });
 
-    const logs = document.getElementById('logs');
     function log(msg) {
+      const logs = document.getElementById('logs');
       const el = document.createElement('div');
       el.textContent = msg;
       logs.appendChild(el);
@@ -218,7 +222,10 @@
     function createMedia(stream, videoEnabled) {
       const media = document.createElement(videoEnabled ? 'video' : 'audio');
       media.id = stream.id;
-      Object.assign(media, { controls: true, autoplay: true, playsInline: true, srcObject: stream });
+      media.autoplay = true;
+      media.playsInline = true;
+      media.controls = true;
+      media.srcObject = stream;
       return media;
     }
 

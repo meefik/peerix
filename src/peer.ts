@@ -1220,7 +1220,7 @@ export class Peer {
         let remote = this.connections.get(id);
 
         if (remote?.state === 'disconnected') {
-          remote.dispose({ silent: true });
+          remote.dispose();
           remote = undefined;
         }
 
@@ -1332,7 +1332,7 @@ export class Peer {
       const remote = this.connections.get(id);
       if (!remote) return;
 
-      remote.dispose({ silent: true });
+      remote.dispose();
 
       return;
     }

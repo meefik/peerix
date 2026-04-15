@@ -89,7 +89,7 @@ export interface RemotePeer {
    * @param options Optional settings for disposing the remote peer.
    * @param options.silent If true, suppresses emitting a 'leave' message via the signaling driver.
    */
-  dispose: (options?: { silent?: boolean; }) => void;
+  dispose: () => void;
 }
 
 /**
