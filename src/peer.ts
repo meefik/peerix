@@ -1,14 +1,11 @@
-import type { SignalingDriver, SignalingNamespace } from './types/signaling.js';
-import type { PeerOptions, JoinOptions, RemotePeer, StreamOptions, ChannelOptions, SendOptions, PeerEvents } from './types/peer.js';
-import { MemoryDriver } from './drivers/memory.js';
-import EventEmitter from './utils/emitter.js';
-import Timeout from './utils/timeout.js';
-import { UUIDv4, timeout } from './utils/helpers.js';
+import type { Driver } from './drivers/driver.js';
 import log from './utils/logger.js';
-import { PeerixError, ErrorCode } from './error.js';
-
-// All peers without a driver will share the same in-memory signaling bus
-const defaultDriver = new MemoryDriver();
+import { UUIDv4 } from './utils/helpers.js';
+import { EventEmitter } from './utils/emitter.js';
+import { PeerixError } from './error.js';
+import { Signaler } from './signaler.js';
+import { RemotePeer, RemotePeerConnectionEvent } from './remote.js';
+import { IceCandidateQueue } from './ice.js';
 
 /**
  * Peer class for managing WebRTC peer connections, signaling, media streams, and data channels.
@@ -51,10 +48,6 @@ export class Peer {
    * Unique identifier of the local peer.
    */
   readonly id: string;
-  /**
-   * Signaling transport used to exchange SDP and ICE messages.
-   */
-  readonly driver: SignalingDriver;
 
   /**
    * Active remote peers indexed by remote peer id.
@@ -102,6 +95,10 @@ export class Peer {
   metadata?: any;
 
   /**
+   * Signaling transport used to exchange SDP and ICE messages.
+   */
+  #signaler: Signaler;
+  /**
    * STUN/TURN servers passed to every RTCPeerConnection instance.
    */
   #iceServers: { urls: string | string[]; username?: string; credential?: string; }[];
@@ -121,23 +118,7 @@ export class Peer {
   /**
    * ICE candidates received before remote description is applied.
    */
-  #candidateQueues: Map<string, any[]>;
-  /**
-   * Set of peer ids for which a local offer is being created to handle glare scenarios.
-   */
-  #makingOffer: Set<string>;
-  /**
-   * Set of peer ids for which an answer is being processed to handle glare scenarios.
-   */
-  #pendingAnswer: Set<string>;
-  /**
-   * Media stream labels for incoming streams, indexed by remote peer id.
-   */
-  #streamLabels: Map<string, { [key: string]: string; }>;
-  /**
-   * Internal references to signaling driver event handlers for proper cleanup on leave.
-   */
-  #driverHandlers: Map<string, (...args: any[]) => void>;
+  #candidateQueue: IceCandidateQueue;
   /**
    * Optional callback to accept or reject incoming peer connections.
    */
@@ -157,13 +138,12 @@ export class Peer {
   constructor(options?: PeerOptions) {
     const {
       id = UUIDv4(),
-      driver = defaultDriver,
+      driver,
       iceServers = [],
       iceTransportPolicy = 'all',
       connectionTimeout = 15,
     } = options || {};
 
-    this.driver = driver;
     this.active = false;
     this.id = id;
     this.room = '';
@@ -171,15 +151,12 @@ export class Peer {
     this.streams = new Map();
     this.channels = new Map();
     this.addons = new Set();
+    this.#signaler = new Signaler({ driver, handler: this.#signalHandler.bind(this) });
     this.#iceServers = iceServers;
     this.#iceTransportPolicy = iceTransportPolicy;
     this.#connectionTimeout = connectionTimeout;
-    this.#emitter = new EventEmitter<PeerEvents>(this);
-    this.#candidateQueues = new Map();
-    this.#makingOffer = new Set();
-    this.#pendingAnswer = new Set();
-    this.#streamLabels = new Map();
-    this.#driverHandlers = new Map();
+    this.#emitter = new EventEmitter(this);
+    this.#candidateQueue = new IceCandidateQueue();
   }
 
   /**
@@ -193,7 +170,7 @@ export class Peer {
    *
    * @param options Room name or join options.
    */
-  async join(options?: string | JoinOptions) {
+  async join(options?: string | PeerJoinOptions) {
     if (this.active) return;
     this.active = true;
 
@@ -206,13 +183,12 @@ export class Peer {
 
     log('peer:join', { id: this.id, room: this.room, metadata: this.metadata });
 
-    await this.#registerDriverHandlers([this.room], [this.room, this.id]);
+    await this.#signaler.subscribe([this.room], [this.room, this.id]);
 
-    await this.#emitDriverMessage([this.room], {
-      type: 'invoke',
-      id: this.id,
-      metadata: this.metadata,
-    });
+    await this.#signaler.dispatch(
+      [this.room],
+      ['join', this.id, this.metadata],
+    );
   }
 
   /**
@@ -229,29 +205,26 @@ export class Peer {
 
     log('peer:leave', { id: this.id, room: this.room, metadata: this.metadata });
 
-    await this.#unregisterDriverHandlers([this.room], [this.room, this.id]);
+    await this.#signaler.unsubscribe([this.room], [this.room, this.id]);
 
     for (const remote of this.connections.values()) {
       remote.dispose();
     }
     this.connections.clear();
 
-    this.#candidateQueues.clear();
-    this.#makingOffer.clear();
-    this.#pendingAnswer.clear();
-    this.#streamLabels.clear();
+    this.#candidateQueue.clear();
 
-    await this.#emitDriverMessage([this.room], {
-      type: 'dispose',
-      id: this.id,
-    });
+    await this.#signaler.dispatch(
+      [this.room],
+      ['leave', this.id],
+    );
 
     this.active = false;
   }
 
   /**
-   * Publish new or update an existing media stream to all remote peers under 
-   * a given label.
+   * Publish new or update an existing media stream to all remote peers 
+   * including new ones that join later.
    *
    * If you pass a MediaStream instance directly, it will be published under 
    * a label equal to the stream id. Otherwise, you can specify an explicit 
@@ -290,20 +263,17 @@ export class Peer {
       managed,
     } = this.streams.get(label) || {};
 
-    const addedTracks = [];
-    const removedTracks = [];
-
     for (const track of newStream.getTracks()) {
       if (!stream.getTracks().find(t => t.id === track.id)) {
         newStream.removeTrack(track);
-        if (managed) track.stop();
-        removedTracks.push(track);
+        if (managed && track.readyState !== 'ended') {
+          track.stop();
+        }
       }
     }
     for (const track of stream.getTracks()) {
       if (!newStream.getTracks().find(t => t.id === track.id)) {
         newStream.addTrack(track);
-        addedTracks.push(track);
       }
     }
 
@@ -313,40 +283,9 @@ export class Peer {
 
     this.streams.set(label, newStreamOptions);
 
-    const bitrateOptions = { audio: opts.audioBitrate, video: opts.videoBitrate };
     for (const remote of this.connections.values()) {
-      const { connection } = remote;
-      const senders = connection.getSenders();
-
-      for (const track of addedTracks) {
-        const removedTrack = removedTracks.find(t => t.kind === track.kind);
-        if (removedTrack) {
-          const sender = senders.find(s => s.track?.id === removedTrack.id);
-          if (sender) {
-            await sender.replaceTrack(track);
-            await this.#setTrackBitrate(remote, track, bitrateOptions);
-            continue;
-          }
-        }
-        connection.addTransceiver(track, { direction: 'sendonly', streams: [newStream] });
-        await this.#setTrackBitrate(remote, track, bitrateOptions);
-      }
-
-      for (const track of removedTracks) {
-        const sender = senders.find(s => s.track?.id === track.id);
-        if (sender) {
-          await sender.replaceTrack(null);
-        }
-      }
-
-      for (const transceiver of connection.getTransceivers()) {
-        if (transceiver.direction === 'sendonly' && !transceiver.sender.track) {
-          transceiver.stop();
-        }
-      }
+      await remote.publish(newStreamOptions);
     }
-
-    await this.join();
 
     return newStream;
   }
@@ -377,40 +316,29 @@ export class Peer {
     }
     const { label = 'default' } = options || {};
 
-    if (typeof label !== 'string' || !this.streams.has(label)) {
+    if (typeof label !== 'string') {
       return;
     }
 
     const oldStreamOptions = this.streams.get(label);
     const { stream, managed } = oldStreamOptions || {};
-    const tracks = stream?.getTracks() || [];
 
     log('peer:unpublish', { id: this.id, label, stream });
 
     this.streams.delete(label);
 
+    if (!stream) return;
+
     if (managed) {
-      for (const track of tracks) {
-        track.stop();
+      for (const track of stream.getTracks()) {
+        if (track.readyState !== 'ended') {
+          track.stop();
+        }
       }
     }
 
     for (const remote of this.connections.values()) {
-      const { connection } = remote;
-      const senders = connection.getSenders();
-
-      for (const track of tracks) {
-        const sender = senders.find(s => s.track?.id === track.id);
-        if (sender) {
-          await sender.replaceTrack(null);
-        }
-      }
-
-      for (const transceiver of connection.getTransceivers()) {
-        if (transceiver.direction === 'sendonly' && !transceiver.sender.track) {
-          transceiver.stop();
-        }
-      }
+      await remote.unpublish({ label });
     }
 
     return stream;
@@ -436,7 +364,7 @@ export class Peer {
     const { label = 'default', ...opts } =
       typeof options === 'object' ? options : { label: options };
 
-    if (typeof label !== 'string' || this.channels.has(label)) {
+    if (typeof label !== 'string') {
       return;
     }
 
@@ -444,11 +372,9 @@ export class Peer {
 
     this.channels.set(label, { label, ...opts });
 
-    await this.#emitDriverMessage([this.room], {
-      type: 'invoke',
-      id: this.id,
-      metadata: this.metadata,
-    });
+    for (const remote of this.connections.values()) {
+      remote.open({ label, ...opts });
+    }
   }
 
   /**
@@ -467,7 +393,7 @@ export class Peer {
     const { label = 'default' } =
       typeof options === 'object' ? options : { label: options };
 
-    if (typeof label !== 'string' || !this.channels.has(label)) {
+    if (typeof label !== 'string') {
       return;
     }
 
@@ -476,8 +402,7 @@ export class Peer {
     this.channels.delete(label);
 
     for (const remote of this.connections.values()) {
-      const channel = remote.channels.get(label);
-      channel?.close();
+      remote.close({ label });
     }
   }
 
@@ -496,12 +421,12 @@ export class Peer {
    * ```
    *
    * @param message Message payload to send. This may be a string, a Blob, an ArrayBuffer, a TypedArray or a DataView object.
-   * @param options Optional send options or channel label.
+   * @param options Optional channel label or object containing `label`.
    */
-  async send(message: any, options?: string | SendOptions) {
+  async send(message: any, options?: string | { label?: string; }) {
     if (!this.active) return;
 
-    const { label, filter } =
+    const { label } =
       typeof options === 'object' ? options : { label: options };
 
     if (typeof label !== 'undefined' && typeof label !== 'string') {
@@ -510,31 +435,8 @@ export class Peer {
 
     log('peer:send', { id: this.id, label, message });
 
-    const send = async (remote: RemotePeer, channel: RTCDataChannel) => {
-      if (channel.readyState !== 'open') return;
-
-      if (typeof filter === 'function') {
-        const allowed = await filter({ remote, channel });
-        if (!allowed) return;
-      }
-
-      log('peer:channel:send', { id: this.id, remote, channel });
-
-      channel.send(message);
-    };
-
     for (const remote of this.connections.values()) {
-      if (typeof label === 'string') {
-        const channel = remote.channels.get(label);
-        if (!channel || channel.label !== label) continue;
-        await send(remote, channel);
-      }
-      else {
-        for (const channel of remote.channels.values()) {
-          if (!channel) continue;
-          await send(remote, channel);
-        }
-      }
+      remote.send(message, { label });
     }
   }
 
@@ -604,578 +506,127 @@ export class Peer {
   }
 
   /**
-   * Report an error with an optional error code.
+   * Create a new RemotePeer instance for an incoming connection or return an existing one.
    * 
-   * @param err Error object or message.
-   * @param code Optional error code.
+   * @param options Options for creating the remote peer connection.
+   * @param options.id Remote peer identifier.
+   * @param options.metadata Optional metadata announced by the remote peer in signaling messages.
+   * @param options.replace If true, an existing connection with the same id will be replaced. Otherwise, it will be reused.
+   * @returns The created or existing RemotePeer instance, or void if the connection was rejected.
    */
-  #reportError(err: any, code?: ErrorCode) {
-    const error = new PeerixError(err, code);
-    this.emit('error', { id: this.id, error });
-  }
+  #createRemotePeer(options: { id: string; metadata?: any; replace?: boolean; }): RemotePeer | void {
+    const { id, metadata, replace } = options;
 
-  /**
-   * Parse the ICE username fragment (ufrag) from an SDP string.
-   * 
-   * @param sdp SDP string to parse.
-   * @returns The ICE username fragment if found, otherwise undefined.
-   */
-  #parseUfrag(sdp?: string) {
-    return sdp && /a=ice-ufrag:([^\s]+)/m.exec(sdp)?.[1];
-  }
+    const remote = this.connections.get(id);
+    if (remote && !replace) return remote;
+    if (remote && replace) remote.dispose();
 
-  /**
-   * Queue an ICE candidate for a remote peer if its remote description is not yet set or the username fragment does not match.
-   * 
-   * @param id Remote peer id.
-   * @param candidate ICE candidate to queue.
-   * @param remote Remote peer descriptor, if a connection already exists.
-   */
-  #queueIceCandidate(id: string, candidate: RTCIceCandidateInit, remote?: RemotePeer): boolean {
-    const { sdp } = remote?.connection.remoteDescription || {};
-    const ufrag = this.#parseUfrag(sdp);
+    try {
+      const remote = new RemotePeer({
+        id,
+        metadata,
+        polite: this.id > id,
+        iceServers: this.#iceServers,
+        iceTransportPolicy: this.#iceTransportPolicy,
+        connectionTimeout: this.#connectionTimeout,
+        streams: this.streams,
+        channels: this.channels,
+      });
 
-    if (!remote || ufrag !== candidate.usernameFragment) {
-      const queue = this.#candidateQueues.get(id);
-      if (!queue) this.#candidateQueues.set(id, [candidate]);
-      else queue.push(candidate);
-      return true;
-    }
+      remote.on('error', (e) => {
+        const { error, code } = e;
+        const err = new PeerixError(error, code);
+        this.emit('error', { id: this.id, error: err });
+      });
 
-    return false;
-  }
+      remote.on('connection', (e) => {
+        const { state } = e;
+        this.emit('connection', { id: this.id, remote, state });
 
-  /**
-   * Helper method to add queued ICE candidates for a remote peer once its remote description is set.
-   * 
-   * @param remote Remote peer descriptor.
-   */
-  async #addQueuedIceCandidates(remote: RemotePeer) {
-    const { id, connection } = remote;
-
-    if (this.#candidateQueues.has(id)) {
-      const { sdp } = connection.remoteDescription || {};
-      for (const candidate of this.#candidateQueues.get(id) || []) {
-        const ufrag = this.#parseUfrag(sdp);
-        if (!sdp || ufrag !== candidate.usernameFragment) {
-          continue;
+        if (state === 'closed') {
+          this.connections.delete(id);
+          this.#candidateQueue.clear(id);
         }
-        await this.#addIceCandidate(remote, candidate);
-      }
-      this.#candidateQueues.delete(id);
-    }
-  }
+      });
 
-  /**
-   * Helper method to add an ICE candidate to a remote peer's connection, with error handling.
-   * 
-   * @param remote Remote peer descriptor.
-   * @param candidate ICE candidate to add.
-   */
-  async #addIceCandidate(remote: RemotePeer, candidate: RTCIceCandidateInit) {
-    const { connection } = remote;
+      remote.on('candidate', async (e) => {
+        const { candidate } = e;
+        await this.#signaler.dispatch(
+          [this.room, id],
+          ['candidate', this.id, candidate],
+        );
+      });
 
-    log('peer:addicecandidate', { id: this.id, candidate, remote });
+      remote.on('offer', async (e) => {
+        const { description, labels } = e;
+        await this.#signaler.dispatch(
+          [this.room, id],
+          ['offer', this.id, description, metadata, labels],
+        );
+      });
 
-    try {
-      await connection.addIceCandidate(candidate);
-    } catch (err) {
-      this.#reportError(err, 'PEER_ICECANDIDATE_ERROR');
-    }
-  }
+      remote.on('answer', async (e) => {
+        const { description } = e;
+        await this.#signaler.dispatch(
+          [this.room, id],
+          ['answer', this.id, description],
+        );
+      });
 
-  /**
-   * Set up event listeners on a data channel and register it with the remote peer.
-   * 
-   * @param remote Remote peer descriptor.
-   * @param channel Data channel instance to configure.
-   */
-  #setupDataChannel(remote: RemotePeer, channel: RTCDataChannel) {
-    const { label = '' } = channel;
-    const { channels } = remote;
+      remote.on('channel:new', async (e) => {
+        const { channel, label } = e;
+        this.emit('channel:new', { id: this.id, remote, channel, label });
+      });
 
-    try {
-      if (channels.has(label)) {
-        channels.get(label)?.close();
-      }
-      channels.set(label, channel);
-
-      channel.addEventListener('open', () => {
+      remote.on('channel:open', async (e) => {
+        const { channel, label } = e;
         this.emit('channel:open', { id: this.id, remote, channel, label });
       });
-      channel.addEventListener('close', () => {
-        channels.delete(label);
+
+      remote.on('channel:close', async (e) => {
+        const { channel, label } = e;
         this.emit('channel:close', { id: this.id, remote, channel, label });
       });
-      channel.addEventListener('message', (e) => {
-        this.emit('channel:message', { id: this.id, remote, channel, label, data: e.data });
+
+      remote.on('channel:message', async (e) => {
+        const { channel, label, data } = e;
+        this.emit('channel:message', { id: this.id, remote, channel, label, data });
       });
-      channel.addEventListener('error', (e) => {
-        this.emit('channel:error', { id: this.id, remote, channel, label, error: e.error });
+
+      remote.on('channel:error', async (e) => {
+        const { channel, label, error } = e;
+        const err = new PeerixError(error, 'PEER_DATACHANNEL_ERROR');
+        this.emit('channel:error', { id: this.id, remote, channel, label, error: err });
       });
 
-      this.emit('channel', { id: this.id, remote, channel, label });
-    }
-    catch (err) {
-      this.#reportError(err, 'PEER_DATACHANNEL_ERROR');
-    }
-  }
-
-  /**
-   * Helper method to add a local media stream to a remote peer and emit appropriate events.
-   * 
-   * @param remote Remote peer descriptor.
-   * @param stream Media stream that contains the track.
-   * @param track Media track to add.
-   */
-  #setupMediaStream(remote: RemotePeer, stream: MediaStream, track: MediaStreamTrack) {
-    const { id, streams } = remote;
-
-    try {
-      const labels = this.#streamLabels.get(id) || {};
-      const label = labels[stream.id] || stream.id;
-
-      const addTrack = () => {
-        if (!streams.has(label)) {
-          streams.set(label, stream);
-          this.emit('stream:add', { id: this.id, remote, stream, label });
-        }
-
-        this.emit('track:add', { id: this.id, remote, stream, track, label });
-      };
-
-      const removeTrack = () => {
-        const hasTrack = stream.getTracks().indexOf(track) !== -1;
-        if (hasTrack) {
-          stream.removeTrack(track);
-          this.emit('track:remove', { id: this.id, remote, stream, track, label });
-        }
-
-        if (!stream.active || !stream.getTracks().length) {
-          if (streams.has(label)) {
-            streams.delete(label);
-            this.emit('stream:remove', { id: this.id, remote, stream, label });
-          }
-        }
-      };
-
-      track.addEventListener('ended', removeTrack);
-
-      addTrack();
-    }
-    catch (err) {
-      this.#reportError(err, 'PEER_MEDIASTREAM_ERROR');
-    }
-  }
-
-  /**
-   * Helper method to create RTCDataChannel instances for a remote peer.
-   * 
-   * @param remote Remote peer descriptor.
-   * @param channelOptions Channel options for creating data channels.
-   */
-  #createDataChannel(remote: RemotePeer, channelOptions: ChannelOptions) {
-    const { connection, channels } = remote;
-
-    try {
-      const { label = '', ...opts } = channelOptions || {};
-      if (channels.has(label)) return;
-
-      log('peer:createdatachannel', { id: this.id, remote, label, ...opts });
-
-      const channel = connection.createDataChannel(label, opts);
-      this.#setupDataChannel(remote, channel);
-    }
-    catch (err) {
-      this.#reportError(err, 'PEER_DATACHANNEL_ERROR');
-    }
-  }
-
-  async #setTrackBitrate(remote: RemotePeer, track: MediaStreamTrack, bitrate: { [key: string]: number | undefined; }) {
-    const { connection } = remote;
-    const maxBitrate = (bitrate[track.kind] || 0) | 0;
-
-    if (!maxBitrate) return;
-
-    const senders = connection.getSenders();
-    const sender = senders.find((sender: RTCRtpSender) => {
-      return sender.track && sender.track.id === track.id;
-    });
-
-    if (sender) {
-      log('peer:track:maxbitrate', { id: this.id, bitrate, track: sender.track, remote });
-
-      const params = sender.getParameters() || {};
-      if (!params.encodings) params.encodings = [];
-      for (const enc of params.encodings) {
-        if (enc) enc.maxBitrate = maxBitrate;
-      }
-      await sender.setParameters(params);
-    }
-  }
-
-  /**
-   * Helper method to add a media stream to a remote peer's connection.
-   * 
-   * @param remote Remote peer descriptor.
-   * @param streamOptions Stream options for adding the media stream.
-   */
-  async #addMediaStream(remote: RemotePeer, streamOptions: StreamOptions) {
-    try {
-      const { stream, audioBitrate, videoBitrate } = streamOptions || {};
-      const { connection } = remote;
-
-      const tracks = stream.getTracks();
-      const senders = connection.getSenders();
-
-      for (const track of tracks) {
-        const hasSender = senders.some(s => s.track && s.track.id === track.id);
-        if (hasSender) continue;
-
-        log('peer:addmediastream', { id: this.id, track, stream, remote });
-
-        connection.addTransceiver(track, { direction: 'sendonly', streams: [stream] });
-        await this.#setTrackBitrate(remote, track, { audio: audioBitrate, video: videoBitrate });
-      }
-    }
-    catch (err) {
-      this.#reportError(err, 'PEER_MEDIASTREAM_ERROR');
-    }
-  }
-
-  /**
-   * Create a new peer connection.
-   * 
-   * @param id The ID of the remote peer.
-   * @param metadata Metadata associated with the remote peer.
-   * @returns The created RemotePeer object.
-   */
-  #createPeerConnection(id: string, metadata: any): RemotePeer {
-    log('peer:createpeerconnection', { id: this.id, remote: { id, metadata } });
-
-    const connection = new RTCPeerConnection({
-      iceServers: this.#iceServers,
-      iceTransportPolicy: this.#iceTransportPolicy,
-    });
-    const streams = new Map();
-    const channels = new Map();
-
-    const connectionTimeout = new Timeout(() => {
-      dispose();
-      this.#reportError('Connection timeout', 'PEER_CONNECTION_FAILED');
-    }, this.#connectionTimeout * 1000);
-
-    const dispose = () => {
-      if (!this.connections.has(id)) return;
-      this.connections.delete(id);
-      connectionTimeout.clear();
-
-      channels.forEach(channel => channel?.close());
-      connection?.close();
-      remote.state = 'closed';
-
-      this.#candidateQueues.delete(id);
-      this.#makingOffer.delete(id);
-      this.#pendingAnswer.delete(id);
-      this.#streamLabels.delete(id);
-
-      this.emit('connection', { id: this.id, remote, state: 'closed' });
-    };
-
-    const remote: RemotePeer = {
-      id,
-      metadata,
-      connection,
-      state: 'new',
-      streams,
-      channels,
-      dispose,
-    };
-
-    connection.addEventListener('iceconnectionstatechange', (e) => {
-      const { iceConnectionState } = e.target as RTCPeerConnection;
-
-      if (iceConnectionState === 'new') {
-        const state = 'new';
-        remote.state = state;
-        this.emit('connection', { id: this.id, remote, state });
-      }
-      else if (iceConnectionState === 'checking') {
-        const state = 'connecting';
-        remote.state = state;
-        this.emit('connection', { id: this.id, remote, state });
-      }
-      else if (iceConnectionState === 'connected') {
-        connectionTimeout.clear();
-        const state = 'connected';
-        remote.state = state;
-        this.emit('connection', { id: this.id, remote, state });
-      }
-      else if (iceConnectionState === 'disconnected') {
-        const state = 'disconnected';
-        remote.state = state;
-        this.emit('connection', { id: this.id, remote, state });
-        connectionTimeout.start();
-      }
-      else if (iceConnectionState === 'failed') {
-        const state = 'failed';
-        remote.state = state;
-        this.emit('connection', { id: this.id, remote, state });
-        dispose();
-      }
-      else if (iceConnectionState === 'closed') {
-        remote.state = 'closed';
-        dispose();
-      }
-    });
-
-    connection.addEventListener('icecandidate', async (e) => {
-      const { candidate } = e;
-      if (!candidate) return;
-
-      log('peer:icecandidate', { id: this.id, candidate, remote });
-
-      await this.#emitDriverMessage([this.room, id], {
-        type: 'ice',
-        id: this.id,
-        candidate: typeof candidate.toJSON === 'function'
-          ? candidate.toJSON()
-          : candidate,
+      remote.on('stream:add', async (e) => {
+        const { stream, label } = e;
+        this.emit('stream:add', { id: this.id, remote, stream, label });
       });
-    });
 
-    connection.addEventListener('negotiationneeded', async () => {
-      if (connection.signalingState !== 'stable') return;
+      remote.on('stream:remove', async (e) => {
+        const { stream, label } = e;
+        this.emit('stream:remove', { id: this.id, remote, stream, label });
+      });
 
-      try {
-        const offer = await this.#createOffer(remote);
-        if (offer) {
-          await this.#emitDriverMessage([this.room, id], {
-            type: 'offer',
-            id: this.id,
-            metadata: this.metadata,
-            description: offer,
-            streams: Array.from(this.streams.keys())
-              .reduce((acc, label) => {
-                const { stream } = this.streams.get(label) || {};
-                if (stream) acc[stream.id] = label;
-                return acc;
-              }, {} as { [key: string]: string; }),
-          });
-        }
-      }
-      catch (err) {
-        this.#reportError(err, 'PEER_NEGOTIATION_FAILED');
-      }
-    });
+      remote.on('track:add', async (e) => {
+        const { track, stream, label } = e;
+        this.emit('track:add', { id: this.id, remote, track, stream, label });
+      });
 
-    connection.addEventListener('datachannel', (e) => {
-      const { channel } = e;
-      this.#setupDataChannel(remote, channel);
-    });
+      remote.on('track:remove', async (e) => {
+        const { track, stream, label } = e;
+        this.emit('track:remove', { id: this.id, remote, track, stream, label });
+      });
 
-    connection.addEventListener('track', (e) => {
-      const { track, streams: [stream] } = e;
-      this.#setupMediaStream(remote, stream, track);
-    });
+      this.connections.set(id, remote);
 
-    connectionTimeout.start();
-
-    this.connections.set(id, remote);
-
-    this.emit('connection', { id: this.id, remote, state: 'new' });
-
-    return remote;
-  }
-
-  /**
-   * Create an SDP offer and set it as the local description for a remote peer connection.
-   *
-   * @param remote Remote peer descriptor.
-   * @returns The created RTCSessionDescriptionInit offer.
-   */
-  async #createOffer(remote: RemotePeer) {
-    const { id, connection } = remote;
-
-    log('peer:connection:createoffer', { id: this.id, remote });
-
-    try {
-      this.#makingOffer.add(id);
-      const offer = await connection.createOffer();
-      await connection.setLocalDescription(offer);
-
-      return offer;
-    }
-    finally {
-      this.#makingOffer.delete(id);
-    }
-  }
-
-  /**
-   * Apply a remote SDP description to a peer connection.
-   *
-   * When the description is an answer, tracks pending-answer state so that
-   * glare detection logic in the message handler stays accurate.
-   *
-   * @param remote Remote peer descriptor.
-   * @param description SDP offer or answer received from the remote peer.
-   */
-  async #setRemoteDescription(remote: RemotePeer, description: RTCSessionDescriptionInit) {
-    const { id, connection } = remote;
-
-    log('peer:setremotedescription', { id: this.id, description, remote });
-
-    try {
-      if (description.type === 'answer') {
-        this.#pendingAnswer.add(id);
-      }
-      await connection.setRemoteDescription(description);
-    }
-    finally {
-      this.#pendingAnswer.delete(id);
-    }
-  }
-
-  /**
-   * Create an SDP answer and set it as the local description for a remote peer connection.
-   *
-   * @param remote Remote peer descriptor.
-   * @returns The created RTCSessionDescriptionInit answer.
-   */
-  async #createAnswer(remote: RemotePeer) {
-    const { connection } = remote;
-
-    log('peer:createanswer', { id: this.id, remote });
-
-    const answer = await connection.createAnswer();
-    await connection.setLocalDescription(answer);
-
-    return answer;
-  }
-
-  /**
-   * Subscribe to all specified namespaces on the signaling driver.
-   *
-   * @param namespaces One or more namespace arrays to subscribe to.
-   */
-  async #registerDriverHandlers(...namespaces: string[][]) {
-    log('driver:register', { id: this.id, namespaces });
-
-    const entries: Array<[string, (...args: any[]) => void, boolean]> = [
-      ['message', this.#driverMessageHandler, true],
-      ['active', this.#driverActiveHandler, false],
-      ['inactive', this.#driverInactiveHandler, false],
-      ['error', this.#driverErrorHandler, false],
-    ];
-
-    try {
-      for (const [key, method, useNamespaces] of entries) {
-        if (!this.#driverHandlers.has(key)) {
-          const handler = method.bind(this);
-          const topics = useNamespaces ? namespaces.map(ns => [key, ...ns]) : [[key]];
-          for (const topic of topics) {
-            await this.driver.on(topic as SignalingNamespace, handler);
-          }
-          this.#driverHandlers.set(key, handler);
-        }
-      }
+      return remote;
     }
     catch (err) {
-      this.#reportError(err, 'PEER_SIGNALING_FAILED');
+      const error = new PeerixError(err, 'PEER_CONNECTION_FAILED');
+      this.emit('error', { id: this.id, error });
     }
-  }
-
-  /**
-   * Unsubscribe from all specified namespaces on the signaling driver.
-   *
-   * @param namespaces One or more namespace arrays to unsubscribe from.
-   */
-  async #unregisterDriverHandlers(...namespaces: string[][]) {
-    log('driver:unregister', { id: this.id, namespaces });
-
-    const keys: Array<[string, boolean]> = [
-      ['message', true],
-      ['active', false],
-      ['inactive', false],
-      ['error', false],
-    ];
-
-    try {
-      for (const [key, useNamespaces] of keys) {
-        const handler = this.#driverHandlers.get(key);
-        if (handler) {
-          const topics = useNamespaces ? namespaces.map(ns => [key, ...ns]) : [[key]];
-          for (const topic of topics) {
-            await this.driver.off(topic as SignalingNamespace, handler);
-          }
-          this.#driverHandlers.delete(key);
-        }
-      }
-    }
-    catch (err) {
-      this.#reportError(err, 'PEER_SIGNALING_FAILED');
-    }
-  }
-
-  /**
-   * Emit a message to the given namespace via the configured driver.
-   *
-   * Does nothing when the peer is not active.
-   *
-   * @param namespace Target namespace for the message.
-   * @param message Message payload to send.
-   */
-  async #emitDriverMessage(namespace: string[], message: any) {
-    if (!this.active) return;
-
-    log('driver:emit', { id: this.id, namespace, message });
-
-    try {
-      const driverActive = this.driver.active;
-      if (driverActive || driverActive === undefined) {
-        await this.driver.emit(['message', ...namespace], message);
-      }
-    }
-    catch (err) {
-      this.#reportError(err, 'PEER_SIGNALING_FAILED');
-    }
-  }
-
-  /**
-   * Handle the driver becoming active.
-   */
-  async #driverActiveHandler() {
-    if (!this.active) return;
-
-    log('driver:active', { id: this.id });
-
-    // add random jitter to avoid multiple peers reconnecting at the same time
-    const jitter = 100 + Math.floor(Math.random() * 900);
-    setTimeout(() => {
-      if (this.active) this.join();
-    }, jitter);
-  }
-
-  /**
-   * Handle the driver becoming inactive.
-   */
-  async #driverInactiveHandler() {
-    if (!this.active) return;
-
-    log('driver:inactive', { id: this.id });
-  }
-
-  /**
-   * Handle an error emitted by the driver.
-   *
-   * @param error Error object or message emitted by the driver.
-   */
-  async #driverErrorHandler(error: any) {
-    if (!this.active) return;
-
-    log('driver:error', { id: this.id, error });
-
-    this.#reportError(error, 'PEER_SIGNALING_FAILED');
   }
 
   /**
@@ -1186,79 +637,42 @@ export class Peer {
    *
    * @param message Incoming message from the signaling driver.
    */
-  async #driverMessageHandler(message: any) {
+  async #signalHandler(message: any) {
     if (!this.active || !message) return;
 
-    const { type, id, metadata } = message;
+    const [type, id, ...payload] = message;
     if (!type || !id || this.id === id) return;
 
-    log('driver:message', { id: this.id, message });
+    log('driver:message', { id: this.id, type, remote: id, payload });
 
     // verify the incoming connection and reject if verification fails
     if (this.#verify) {
       try {
+        const [metadata] = payload;
         const verified = await this.#verify({ id, metadata });
         if (!verified) return;
       }
       catch (err) {
-        this.#reportError(err, 'PEER_CONNECTION_FAILED');
+        const error = new PeerixError(err, 'PEER_CONNECTION_FAILED');
+        this.emit('error', { id: this.id, error });
         return;
       }
     }
 
     // handle incoming connection
-    if (type === 'invoke') {
-      const { channels, streams } = message;
-      const isPolite = this.id > id;
+    if (type === 'join') {
+      const [metadata] = payload;
+      const remote = this.#createRemotePeer({ id, metadata, replace: true });
+      if (!remote) return;
 
-      // if polite, exclude channels that were created by another peer to avoid collisions
-      const allowedChannels = new Map(this.channels);
-      if (isPolite) {
-        if (Array.isArray(channels)) {
-          channels.forEach((k: string) => allowedChannels.delete(k));
-        }
-        else {
-          allowedChannels.clear();
-        }
+      // create data channels
+      for (const channelOptions of this.channels.values()) {
+        remote.open(channelOptions);
       }
 
-      // create peer connection, publish streams and create channels
-      if (allowedChannels.size || this.streams.size) {
-        let remote = this.connections.get(id);
-
-        if (remote?.state === 'disconnected') {
-          remote.dispose();
-          remote = undefined;
-        }
-
-        if (!remote) {
-          try {
-            remote = this.#createPeerConnection(id, metadata);
-          }
-          catch (err) {
-            this.#reportError(err, 'PEER_CONNECTION_FAILED');
-            return;
-          }
-        }
-
-        for (const channelOptions of allowedChannels.values()) {
-          this.#createDataChannel(remote, channelOptions);
-        }
-
-        for (const streamOptions of this.streams.values()) {
-          await this.#addMediaStream(remote, streamOptions);
-        }
-      }
-
-      // inform the initiator about existing channels and streams
-      if ((!channels && !streams) || !isPolite) {
-        await this.#emitDriverMessage([this.room, id], {
-          type: 'invoke',
-          id: this.id,
-          metadata: this.metadata,
-          channels: Array.from(allowedChannels.keys()),
-          streams: Array.from(this.streams.keys()),
-        });
+      // add streams
+      for (const streamOptions of this.streams.values()) {
+        remote.publish(streamOptions);
       }
 
       return;
@@ -1266,86 +680,61 @@ export class Peer {
 
     // set remote description for offer and create answer
     if (type === 'offer') {
-      const { description, streams } = message;
+      const [description, metadata, labels] = payload;
+      const remote = this.#createRemotePeer({ id, metadata, replace: false });
+      if (!remote) return;
 
-      let remote = this.connections.get(id);
-      if (!remote) {
-        try {
-          remote = this.#createPeerConnection(id, metadata);
-        }
-        catch (err) {
-          this.#reportError(err, 'PEER_CONNECTION_FAILED');
-          return;
-        }
+      if (labels) {
+        remote.setStreamLabels(labels);
       }
 
-      if (streams) {
-        this.#streamLabels.set(id, streams);
-      }
-
-      const { connection } = remote;
-
-      const readyForOffer = !this.#makingOffer.has(id) &&
-        (connection.signalingState === 'stable' || this.#pendingAnswer.has(id));
-
-      const isPolite = this.id > id;
-      if (!isPolite && !readyForOffer) return;
-
-      // wait to avoid interrupting previous operations 
-      while (this.#makingOffer.has(id) || this.#pendingAnswer.has(id)) {
-        await timeout(0);
-      }
-
-      try {
-        await this.#setRemoteDescription(remote, description);
-        await this.#addQueuedIceCandidates(remote);
-
-        const answer = await this.#createAnswer(remote);
-        if (answer) {
-          await this.#emitDriverMessage([this.room, id], {
-            type: 'answer',
-            id: this.id,
-            metadata: this.metadata,
-            description: answer,
-          });
-        }
-      }
-      catch (err) {
-        this.#reportError(err, 'PEER_NEGOTIATION_FAILED');
-      }
+      remote.applyDescription(description,
+        (description) => {
+          const candidates = [];
+          for (const candidate of this.#candidateQueue.pull(id, description)) {
+            candidates.push(candidate);
+          }
+          return candidates;
+        });
 
       return;
     }
 
     // set remote description for answer
     if (type === 'answer') {
+      const [description] = payload;
       const remote = this.connections.get(id);
       if (!remote) return;
 
-      try {
-        await this.#setRemoteDescription(remote, message.description);
-        await this.#addQueuedIceCandidates(remote);
-      }
-      catch (err) {
-        this.#reportError(err, 'PEER_NEGOTIATION_FAILED');
-      }
+      remote.applyDescription(description,
+        (description) => {
+          const candidates = [];
+          for (const candidate of this.#candidateQueue.pull(id, description)) {
+            candidates.push(candidate);
+          }
+          return candidates;
+        });
+
+      return;
     }
 
     // add ice candidate
-    if (type === 'ice') {
-      const { candidate } = message;
+    if (type === 'candidate') {
+      const [candidate] = payload;
       const remote = this.connections.get(id);
 
-      const queued = this.#queueIceCandidate(id, candidate, remote);
+      const { connection } = remote || {};
+      const description = connection?.remoteDescription || undefined;
+      const queued = this.#candidateQueue.push(id, candidate, description);
       if (!remote || queued) return;
 
-      this.#addIceCandidate(remote, candidate);
+      remote.addIceCandidate(candidate);
 
       return;
     }
 
     // dispose peer connection
-    if (type === 'dispose') {
+    if (type === 'leave') {
       const remote = this.connections.get(id);
       if (!remote) return;
 
@@ -1354,4 +743,331 @@ export class Peer {
       return;
     }
   }
+}
+
+/**
+ * ICE server configuration for a remote peer connection.
+ * 
+ * @group Peers
+ */
+export type IceServer = {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+};
+
+/**
+ * ICE transport policy for a remote peer connection.
+ * 
+ * @group Peers
+ */
+export type IceTransportPolicy = 'all' | 'relay';
+
+/**
+ * Possible peer connection states.
+ * 
+ * @group Peers
+ */
+export type PeerConnectionState = 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
+
+
+/**
+ * Local stream publication options.
+ * 
+ * @group Streams
+ */
+export interface StreamOptions {
+  /**
+   * Stream label.
+   * If omitted, the `default` label will be used.
+   */
+  label?: string;
+  /**
+   * Media stream to publish.
+   */
+  stream: MediaStream;
+  /**
+   * Whether the peer should manage the lifecycle of the stream's tracks.
+   * If true, tracks will be stopped when the stream is unpublished or replaced.
+   */
+  managed?: boolean;
+  /**
+   * Preferred audio bitrate in bits per second.
+   * For example, 16000 for 16 kbps.
+   */
+  audioBitrate?: number;
+  /**
+   * Preferred video bitrate in bits per second.
+   * For example, 64000 for 64 kbps.
+   */
+  videoBitrate?: number;
+}
+
+/**
+ * Options used to create negotiated RTCDataChannel instances.
+ * 
+ * @group Channels
+ */
+export interface ChannelOptions {
+  /**
+   * Channel label.
+   * If omitted, the `default` label will be used.
+   */
+  label?: string;
+  /**
+   * Whether ordered delivery is required.
+   */
+  ordered?: boolean;
+  /**
+   * Maximum packet lifetime in milliseconds.
+   */
+  maxPacketLifeTime?: number;
+  /**
+   * Maximum retransmission attempts.
+   */
+  maxRetransmits?: number;
+  /**
+   * Optional subprotocol name.
+   */
+  protocol?: string;
+}
+
+/**
+ * Configuration options for creating a {@link Peer} instance.
+ * 
+ * @group Peers
+ */
+export interface PeerOptions {
+  /**
+   * Unique peer identifier. A random UUID is generated when omitted.
+   */
+  id?: string;
+  /**
+   * Signaling driver instance for message exchange between peers.
+   * If omitted, a default in-memory driver is used, which is suitable 
+   * for testing purposes only.
+   */
+  driver?: Driver;
+  /**
+   * An array of objects, each describing one server which may be used 
+   * by the ICE agent; these are typically STUN and/or TURN servers. 
+   * If this isn't specified, the connection attempt will be made 
+   * with no STUN or TURN server available, which limits the connection 
+   * to local peers.
+   * 
+   * @example
+   * ```javascript
+   * iceServers: [{
+   *   urls: 'stun:stun.l.google.com:19302'
+   * }]
+   * ```
+   */
+  iceServers?: IceServer[];
+  /**
+   * ICE policy used by created RTCPeerConnection instances. 
+   * If set to 'relay', only relay candidates will be used, 
+   * otherwise all candidates will be considered.
+   */
+  iceTransportPolicy?: IceTransportPolicy;
+  /**
+   * Connection timeout in seconds.
+   * By default, it is set to 15 seconds. Use 0 to disable the timeout.
+   */
+  connectionTimeout?: number;
+}
+
+/**
+ * Options for joining a room by calling {@link Peer.join}.
+ * 
+ * @group Peers
+ */
+export interface PeerJoinOptions {
+  /**
+   * Room name to join.
+   * If omitted, the peer will join a room with the `default` name.
+   */
+  room?: string;
+  /**
+   * Optional metadata to advertise to the remote peer.
+   */
+  metadata?: any;
+  /**
+   * Optional callback to accept or reject incoming peer connections.
+   * 
+   * @param options Options describing the incoming peer connection.
+   * @param options.id Remote peer identifier.
+   * @param options.metadata Remote peer metadata.
+   * @returns A boolean or promise indicating whether the incoming connection should be accepted.
+   */
+  verify?: (options: { id: string; metadata?: any; }) => Promise<boolean> | boolean;
+}
+
+/**
+ * Event emitted on peer connection state changes.
+ * 
+ * @group Peers
+ */
+export interface PeerConnectionEvent extends RemotePeerConnectionEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * New connection state.
+   */
+  state: PeerConnectionState;
+}
+
+/**
+ * Event emitted when an error occurs in any background operations.
+ * 
+ * @group Peers
+ */
+export interface PeerErrorEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Error object containing details about the error.
+   */
+  error: PeerixError;
+}
+
+/**
+ * Emitted when a remote peer publishes or unpublishes a media stream.
+ * 
+ * @group Peers
+ */
+export interface PeerStreamEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Media stream associated with the event.
+   */
+  stream: MediaStream;
+  /**
+   * Label of the media stream.
+   */
+  label: string;
+}
+
+/**
+ * Emitted when a remote peer adds or removes a media track to a published stream.
+ * 
+ * @group Peers
+ */
+export interface PeerTrackEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Media stream associated with the event.
+   */
+  stream: MediaStream;
+  /**
+   * Media track associated with the event.
+   */
+  track: MediaStreamTrack;
+  /**
+   * Label of the media stream.
+   */
+  label: string;
+}
+
+/**
+ * Emitted when a data channel created or received from a remote peer,
+ * when a data channel is opened or closed, when a message is received on a data channel,
+ * or when an error occurs.
+ * 
+ * @group Peers
+ */
+export interface PeerChannelEvent {
+  /**
+   * Local peer identifier.
+   */
+  id: string;
+  /**
+   * Remote peer object containing connection details.
+   */
+  remote: RemotePeer;
+  /**
+   * Opened data channel.
+   */
+  channel: RTCDataChannel;
+  /**
+   * Label of the data channel.
+   */
+  label: string;
+  /**
+   * Received message data for message events.
+   */
+  data?: any;
+  /**
+   * Error object containing details about the error for error events.
+   */
+  error?: Error;
+}
+
+/**
+ * Events emitted by {@link Peer} instances.
+ * 
+ * @group Peers
+ */
+export interface PeerEvents {
+  /** Emitted when a remote peer connection state changes. */
+  'connection': [PeerConnectionEvent];
+  /** Emitted when a new remote peer connection is established. */
+  'connection:new': [PeerConnectionEvent];
+  /** Emitted when a remote peer connection is connecting. */
+  'connection:connecting': [PeerConnectionEvent];
+  /** Emitted when a remote peer connection is successfully connected. */
+  'connection:connected': [PeerConnectionEvent];
+  /** Emitted when a remote peer connection is disconnected. */
+  'connection:disconnected': [PeerConnectionEvent];
+  /** Emitted when a remote peer connection fails. */
+  'connection:failed': [PeerConnectionEvent];
+  /** Emitted when a remote peer connection is closed. */
+  'connection:closed': [PeerConnectionEvent];
+  /** Emitted when an error occurs in any background operations. */
+  'error': [PeerErrorEvent];
+  /** Emitted when stream events occur. */
+  'stream': [PeerStreamEvent];
+  /** Emitted when a remote peer publishes a media stream. */
+  'stream:add': [PeerStreamEvent];
+  /** Emitted when a remote peer unpublishes a media stream. */
+  'stream:remove': [PeerStreamEvent];
+  /** Emitted when track events occur. */
+  'track': [PeerTrackEvent];
+  /** Emitted when a remote peer adds a media track to a published stream. */
+  'track:add': [PeerTrackEvent];
+  /** Emitted when a remote peer removes a media track from a published stream. */
+  'track:remove': [PeerTrackEvent];
+  /** Emitted when channel events occur. */
+  'channel': [PeerChannelEvent];
+  /** Channel created or received from a remote peer. */
+  'channel:new': [PeerChannelEvent];
+  /** Emitted when a data channel is opened. */
+  'channel:open': [PeerChannelEvent];
+  /** Emitted when a data channel is closed. */
+  'channel:close': [PeerChannelEvent];
+  /** Emitted when a message is received on a data channel. */
+  'channel:message': [PeerChannelEvent];
+  /** Emitted when an error occurs with a remote peer connection or channel. */
+  'channel:error': [PeerChannelEvent];
 }

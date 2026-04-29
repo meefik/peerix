@@ -1,4 +1,4 @@
-import type { SignalingDriver } from '../types/signaling.js';
+import { Driver } from './driver.js';
 
 /**
  * NATS-based signaling driver for inter-process communication.
@@ -25,8 +25,8 @@ import type { SignalingDriver } from '../types/signaling.js';
  * await driver.open();
  * ```
  */
-export class NatsDriver implements SignalingDriver {
-  #events: Map<string, Map<(message?: any) => void, any>>;
+export class NatsDriver extends Driver {
+  #handlers: Map<string, Map<(message?: any) => void, any>>;
   #connect: (config?: any) => Promise<any>;
   #nc?: any;
   #prefix: string;
@@ -45,17 +45,15 @@ export class NatsDriver implements SignalingDriver {
     try {
       for await (const s of this.#nc.status()) {
         if (s.type === 'reconnect') {
-          this.active = true;
-          this.emit(['active']);
+          this.emit('active');
         }
         if (s.type === 'disconnect') {
-          this.active = false;
-          this.emit(['inactive']);
+          this.emit('inactive');
         }
       }
     }
     catch (error) {
-      this.emit(['error'], error);
+      this.emit('error', error);
     }
   }
 
@@ -68,11 +66,12 @@ export class NatsDriver implements SignalingDriver {
    * @param options.prefix An optional prefix for NATS subjects.
    */
   constructor(options: { connect: (config?: any) => Promise<any>; secret?: string; prefix?: string; }) {
+    super();
     const { connect, secret, prefix = '' } = options || {};
     this.#connect = connect;
     this.#secret = secret;
     this.#prefix = prefix;
-    this.#events = new Map();
+    this.#handlers = new Map();
     this.active = false;
   }
 
@@ -89,16 +88,13 @@ export class NatsDriver implements SignalingDriver {
     }
     this.#trackConnectionStatus();
 
-    this.active = true;
-    this.emit(['active']);
+    this.emit('active');
   }
 
   /**
    * Closes the connection to the NATS server.
    */
   async close() {
-    const wasActive = this.active;
-
     if (this.#nc) {
       await this.#nc.close();
       this.#nc = undefined;
@@ -107,53 +103,47 @@ export class NatsDriver implements SignalingDriver {
       this.#cryptoKey = undefined;
     }
 
-    this.active = false;
-    if (wasActive) {
-      this.emit(['inactive']);
+    if (this.active) {
+      this.emit('inactive');
     }
   }
 
-  async on(namespace: string[], handler: (message?: any) => void) {
-    const [event, ...subnamespace] = namespace;
-    let sub;
-
-    if (event === 'message') {
-      const subject = await getSubject(subnamespace, this.#prefix, !!this.#cryptoKey);
-      sub = this.#nc.subscribe(subject, {
-        callback: async (err: Error, msg: any) => {
-          try {
-            if (err) throw err;
-            let data = msg.data;
-            if (this.#cryptoKey) {
-              data = await decrypt(data, this.#cryptoKey);
-            }
-            const payload = JSON.parse(new TextDecoder().decode(data));
-            setTimeout(() => handler(payload), 0);
+  async subscribe(namespace: string[], handler: (message?: any) => void) {
+    const subject = await getSubject(namespace, this.#prefix, !!this.#cryptoKey);
+    const sub = this.#nc.subscribe(subject, {
+      callback: async (err: Error, msg: any) => {
+        try {
+          if (err) throw err;
+          let data = msg.data;
+          if (this.#cryptoKey) {
+            data = await decrypt(data, this.#cryptoKey);
           }
-          catch (error) {
-            this.emit(['error'], error);
-          }
-        },
-      });
-    }
+          const payload = JSON.parse(new TextDecoder().decode(data));
+          setTimeout(() => handler(payload), 0);
+        }
+        catch (error) {
+          this.emit('error', error);
+        }
+      },
+    });
 
     const ns = namespace.join(':');
-    let handlers = this.#events.get(ns);
+    let handlers = this.#handlers.get(ns);
     if (!handlers) {
       handlers = new Map();
-      this.#events.set(ns, handlers);
+      this.#handlers.set(ns, handlers);
     }
     handlers.set(handler, sub);
   }
 
-  async off(namespace: string[], handler: (message?: any) => void) {
+  async unsubscribe(namespace: string[], handler: (message?: any) => void) {
     const ns = namespace.join(':');
-    const handlers = this.#events.get(ns);
+    const handlers = this.#handlers.get(ns);
     if (handlers) {
       const sub = handlers.get(handler);
       handlers.delete(handler);
       if (!handlers?.size) {
-        this.#events.delete(ns);
+        this.#handlers.delete(ns);
       }
       if (sub) {
         sub.unsubscribe();
@@ -161,25 +151,13 @@ export class NatsDriver implements SignalingDriver {
     }
   }
 
-  async emit(namespace: string[], message?: any) {
-    const [event, ...subnamespace] = namespace;
-    if (event === 'message') {
-      const subject = await getSubject(subnamespace, this.#prefix, !!this.#cryptoKey);
-      let data = new TextEncoder().encode(JSON.stringify(message));
-      if (this.#cryptoKey) {
-        data = await encrypt(data, this.#cryptoKey);
-      }
-      this.#nc.publish(subject, data);
+  async dispatch(namespace: string[], message?: any) {
+    const subject = await getSubject(namespace, this.#prefix, !!this.#cryptoKey);
+    let data = new TextEncoder().encode(JSON.stringify(message));
+    if (this.#cryptoKey) {
+      data = await encrypt(data, this.#cryptoKey);
     }
-    else {
-      const ns = namespace.join(':');
-      const handlers = this.#events.get(ns);
-      if (handlers) {
-        for (const handler of handlers.keys()) {
-          setTimeout(() => handler(message), 0);
-        }
-      }
-    }
+    this.#nc.publish(subject, data);
   }
 }
 

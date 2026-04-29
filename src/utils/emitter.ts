@@ -6,7 +6,7 @@
  * and emitting events with `emit`. It supports multiple events and handlers, as
  * well as a context for handler execution.
  */
-export default class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<keyof T, Map<(...args: any[]) => void, boolean>> {
+export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<keyof T, Map<(...args: any[]) => void, boolean>> {
   #context: any;
 
   /**

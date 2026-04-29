@@ -1,7 +1,7 @@
 /**
  * A utility class for managing timeouts, allowing for easy starting and clearing of timeouts.
  */
-export default class Timeout {
+export class Timeout {
   #timer?: ReturnType<typeof setTimeout>;
   #callback: () => void;
   #delay: number;

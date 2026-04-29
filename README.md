@@ -199,39 +199,23 @@ Peerix supports multiple signaling drivers for peer discovery and connection man
 - `BroadcastChannelDriver`: Uses the BroadcastChannel API for communication between tabs in the same browser.
 - `NatsDriver`: Uses [NATS](https://nats.io/) messaging system for communication between peers across different browsers and devices over the internet. It supports E2EE to protect the privacy of signaling messages and is recommended for production applications.
 
-You can also implement your own custom signaling driver by adhering to the following TypeScript interface:
+You can also implement your own custom signaling driver by extending the `Driver` class and implementing the required methods:
 
-```typescript
-interface SignalingDriver {
-  /**
-   * Indicates whether the driver is currently active 
-   * and ready to send and receive signaling messages.
-   */
-  active?: boolean;
+```js
+import { Driver } from 'peerix';
 
-  /**
-   * Subscribe to a namespace for signaling messages and driver events.
-   *
-   * @param namespace Namespace segments used for message routing.
-   * @param handler Callback invoked when a signaling message or driver event is received.
-   */
-  on(namespace: string[], handler: (message?: any) => void): Promise<void> | void;
+class MyDriver extends Driver {
+  async subscribe(namespace, handler) {
+    // Subscribe to messages for the given namespace and call handler on message
+  }
 
-  /**
-   * Unsubscribe a previously registered namespace handler.
-   *
-   * @param namespace Namespace segments used for message routing.
-   * @param handler Handler reference originally passed to `on`.
-   */
-  off(namespace: string[], handler: (message?: any) => void): Promise<void> | void;
+  async unsubscribe(namespace, handler) {
+    // Unsubscribe from messages for the given namespace and handler
+  }
 
-  /**
-   * Publish a signaling message or driver event to a namespace.
-   *
-   * @param namespace Target namespace segments.
-   * @param message Optional message to deliver.
-   */
-  emit(namespace: string[], message?: any): Promise<void> | void;
+  async dispatch(namespace, message) {
+    // Dispatch a message to the given namespace
+  }
 }
 ```
 

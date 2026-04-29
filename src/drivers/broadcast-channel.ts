@@ -1,4 +1,4 @@
-import type { SignalingDriver } from '../types/signaling.js';
+import { Driver } from './driver.js';
 
 /**
  * BroadcastChannel-based signaling driver for intra-origin communication.
@@ -12,8 +12,8 @@ import type { SignalingDriver } from '../types/signaling.js';
  * const driver = new BroadcastChannelDriver('peerix');
  * ```
  */
-export class BroadcastChannelDriver implements SignalingDriver {
-  #events: Map<string, Set<(message?: any) => void>>;
+export class BroadcastChannelDriver extends Driver {
+  #handlers: Map<string, Set<(message?: any) => void>>;
   #bc: BroadcastChannel;
 
   /**
@@ -22,52 +22,42 @@ export class BroadcastChannelDriver implements SignalingDriver {
    * @param channelName Optional BroadcastChannel name (defaults to 'peerix').
    */
   constructor(channelName: string) {
-    this.#events = new Map();
+    super();
+    this.#handlers = new Map();
     this.#bc = new BroadcastChannel(channelName || 'peerix');
     this.#bc.onmessage = (e) => {
-      const { ns, msg } = e.data;
-      const handlers = this.#events.get(ns);
+      const [ns, message] = e.data;
+      const handlers = this.#handlers.get(ns);
       if (!ns || !handlers) return;
       for (const handler of handlers) {
-        setTimeout(() => handler(msg), 0);
+        setTimeout(() => handler(message), 0);
       }
     };
   }
 
-  on(namespace: string[], handler: (message?: any) => void) {
+  async subscribe(namespace: string[], handler: (message?: any) => void) {
     const ns = namespace.join(':');
-    let handlers = this.#events.get(ns);
+    let handlers = this.#handlers.get(ns);
     if (!handlers) {
       handlers = new Set();
-      this.#events.set(ns, handlers);
+      this.#handlers.set(ns, handlers);
     }
     handlers.add(handler);
   }
 
-  off(namespace: string[], handler: (message?: any) => void) {
+  async unsubscribe(namespace: string[], handler: (message?: any) => void) {
     const ns = namespace.join(':');
-    const handlers = this.#events.get(ns);
+    const handlers = this.#handlers.get(ns);
     if (handlers) {
       handlers.delete(handler);
       if (!handlers.size) {
-        this.#events.delete(ns);
+        this.#handlers.delete(ns);
       }
     }
   }
 
-  emit(namespace: string[], message?: any) {
+  async dispatch(namespace: string[], message?: any) {
     const ns = namespace.join(':');
-    const [event] = namespace;
-    if (event === 'message') {
-      this.#bc.postMessage({ ns, msg: message });
-    }
-    else {
-      const handlers = this.#events.get(ns);
-      if (handlers) {
-        for (const handler of handlers) {
-          setTimeout(() => handler(message), 0);
-        }
-      }
-    }
+    this.#bc.postMessage([ns, message]);
   }
 }

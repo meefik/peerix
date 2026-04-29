@@ -23,7 +23,7 @@ export default defineConfig(({ command }) => {
             : 'peerix.esm.js';
         },
       },
-      target: 'es2015',
+      target: 'es2016',
       minify: command === 'build',
       sourcemap: true,
     },

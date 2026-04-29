@@ -1,4 +1,4 @@
-import type { SignalingDriver } from '../types/signaling.js';
+import { Driver } from './driver.js';
 
 /**
  * In-memory signaling driver for intra-process communication.
@@ -12,8 +12,8 @@ import type { SignalingDriver } from '../types/signaling.js';
  * const driver = new MemoryDriver();
  * ```
  */
-export class MemoryDriver implements SignalingDriver {
-  #events: Map<string, Set<(message?: any) => void>>;
+export class MemoryDriver extends Driver {
+  #handlers: Map<string, Set<(message?: any) => void>>;
   #delay: number;
 
   /**
@@ -23,34 +23,35 @@ export class MemoryDriver implements SignalingDriver {
    * @param options.delay Delay (in milliseconds) for message delivery to simulate network latency. The delay will be a random value between 75% and 125% of the specified delay.
    */
   constructor(options?: { delay?: number; }) {
-    this.#events = new Map();
+    super();
+    this.#handlers = new Map();
     this.#delay = options?.delay || 0;
   }
 
-  on(namespace: string[], handler: (message?: any) => void) {
+  async subscribe(namespace: string[], handler: (message?: any) => void) {
     const ns = namespace.join(':');
-    let handlers = this.#events.get(ns);
+    let handlers = this.#handlers.get(ns);
     if (!handlers) {
       handlers = new Set();
-      this.#events.set(ns, handlers);
+      this.#handlers.set(ns, handlers);
     }
     handlers.add(handler);
   }
 
-  off(namespace: string[], handler: (message?: any) => void) {
+  async unsubscribe(namespace: string[], handler: (message?: any) => void) {
     const ns = namespace.join(':');
-    const handlers = this.#events.get(ns);
+    const handlers = this.#handlers.get(ns);
     if (handlers) {
       handlers.delete(handler);
       if (!handlers.size) {
-        this.#events.delete(ns);
+        this.#handlers.delete(ns);
       }
     }
   }
 
-  emit(namespace: string[], message?: any) {
+  async dispatch(namespace: string[], message?: any) {
     const ns = namespace.join(':');
-    const handlers = this.#events.get(ns);
+    const handlers = this.#handlers.get(ns);
     if (!handlers) return;
     for (const handler of handlers) {
       const delay = ~~(0.5 * Math.random() * this.#delay + 0.75 * this.#delay);

@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
-    "target": "ES2015",
-    "module": "ES2015",
+    "target": "es2016",
+    "module": "esnext",
     "moduleResolution": "bundler",
     "outDir": "./dist",
     "rootDir": "./src",

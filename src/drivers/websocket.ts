@@ -1,4 +1,4 @@
-import type { SignalingDriver } from '../types/signaling.js';
+import { Driver } from './driver.js';
 
 /**
  * WebSocket-based signaling driver with auto-reconnection and ping/pong support.
@@ -12,7 +12,7 @@ import type { SignalingDriver } from '../types/signaling.js';
  * const driver = new WebSocketDriver({ url: 'wss://localhost:8443/ws' });
  * ```
  */
-export class WebSocketDriver extends Map implements SignalingDriver {
+export class WebSocketDriver extends Driver {
   private _url: string;
   private _protocols?: string | string[];
   private _reconnection: boolean;
@@ -28,6 +28,7 @@ export class WebSocketDriver extends Map implements SignalingDriver {
   private _ws?: WebSocket;
   private _pingTimer?: any;
   private _reconnectTimer?: any;
+  private _handlers: Map<string, Set<(data: any) => void>>;
 
   /**
    * Indicates whether the WebSocket connection is currently open.
@@ -88,6 +89,7 @@ export class WebSocketDriver extends Map implements SignalingDriver {
     this._queueLimit = queueLimit;
     this._queue = [];
     this._attempts = 0;
+    this._handlers = new Map();
   }
 
   /**
@@ -140,15 +142,10 @@ export class WebSocketDriver extends Map implements SignalingDriver {
       }
 
       const [ns, data] = JSON.parse(message);
-      if (!this.has(ns)) return;
+      if (!this._handlers.has(ns)) return;
 
-      for (const handler of this.get(ns)) {
-        try {
-          handler(data);
-        }
-        catch (err) {
-          /* swallow errors */
-        }
+      for (const handler of this._handlers.get(ns) || []) {
+        setTimeout(() => handler(data), 0);
       }
     };
 
@@ -158,8 +155,8 @@ export class WebSocketDriver extends Map implements SignalingDriver {
       this._attempts = 0;
 
       // restore room membership after failures
-      if (this.size) {
-        this._ws.send(JSON.stringify(['>', Array.from(this.keys())]));
+      if (this._handlers.size) {
+        this._ws.send(JSON.stringify(['>', Array.from(this._handlers.keys())]));
       }
 
       // flush queued messages
@@ -194,16 +191,16 @@ export class WebSocketDriver extends Map implements SignalingDriver {
       this._ws.close();
       delete this._ws;
     }
-    this.clear();
+    this._handlers.clear();
   }
 
-  on(namespace: string[], handler: (data: any) => void) {
+  async subscribe(namespace: string[], handler: (data: any) => void) {
     const ns = namespace.join(':');
-    let handlers = this.get(ns);
+    let handlers = this._handlers.get(ns);
     const isNew = !handlers;
-    if (isNew) {
+    if (!handlers) {
       handlers = new Set();
-      this.set(ns, handlers);
+      this._handlers.set(ns, handlers);
     }
     handlers.add(handler);
     if (isNew && this._ws && this.opened) {
@@ -211,14 +208,14 @@ export class WebSocketDriver extends Map implements SignalingDriver {
     }
   }
 
-  off(namespace: string[], handler: (data: any) => void) {
+  async unsubscribe(namespace: string[], handler: (data: any) => void) {
     const ns = namespace.join(':');
-    const handlers = this.get(ns);
+    const handlers = this._handlers.get(ns);
     if (handlers) {
       if (handler) handlers.delete(handler);
       else handlers.clear();
       if (!handlers.size) {
-        this.delete(ns);
+        this._handlers.delete(ns);
         if (this._ws && this.opened) {
           this._ws.send(JSON.stringify(['<', ns]));
         }
@@ -226,7 +223,7 @@ export class WebSocketDriver extends Map implements SignalingDriver {
     }
   }
 
-  emit(namespace: string[], message: any) {
+  async dispatch(namespace: string[], message: any) {
     const ns = namespace.join(':');
     if (this._ws && this.opened) {
       this._ws.send(JSON.stringify([ns, message]));

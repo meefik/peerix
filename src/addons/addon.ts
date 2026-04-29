@@ -1,6 +1,5 @@
-import type { AddonEvents } from '../types/index.js';
-import EventEmitter from '../utils/emitter.js';
-import { Peer } from '../peer.js';
+import type { Peer } from '../peer.js';
+import { EventEmitter } from '../utils/emitter.js';
 
 /**
  * Base class for Peerix addons.
@@ -11,30 +10,13 @@ import { Peer } from '../peer.js';
  * @group Addons
  */
 export class Addon {
-  #emitter: EventEmitter<AddonEvents>;
+  #emitter: EventEmitter<{ [key: string]: any[]; }>;
 
+  /**
+   * Create a new Addon instance.
+   */
   constructor() {
-    this.#emitter = new EventEmitter<AddonEvents>(this);
-  }
-
-  /**
-   * Attach the addon to a Peer instance. This method is called when the addon is
-   * added to a peer using `peer.attach(addon)`.
-   *
-   * @param peer The Peer instance to attach to.
-   */
-  async attach(peer: Peer) {
-    // stub
-  }
-
-  /**
-   * Detach the addon from a Peer instance. This method is called when the addon is
-   * removed from a peer using `peer.detach(addon)`.
-   *
-   * @param peer The Peer instance to detach from.
-   */
-  async detach(peer: Peer) {
-    // stub
+    this.#emitter = new EventEmitter(this);
   }
 
   /**
@@ -43,7 +25,7 @@ export class Addon {
    * @param event Event name or list of event names.
    * @param handler Event handler.
    */
-  on<K extends keyof AddonEvents>(event: K | K[], handler: (...args: AddonEvents[K]) => void) {
+  on(event: string, handler: (...args: any[]) => void) {
     this.#emitter.on(event, handler);
   }
 
@@ -53,7 +35,7 @@ export class Addon {
    * @param event Event name or list of event names.
    * @param handler Event handler.
    */
-  once<K extends keyof AddonEvents>(event: K | K[], handler: (...args: AddonEvents[K]) => void) {
+  once(event: string, handler: (...args: any[]) => void) {
     this.#emitter.once(event, handler);
   }
 
@@ -63,7 +45,7 @@ export class Addon {
    * @param event Event name or list of event names.
    * @param handler Optional event handler to remove. If not provided, all handlers for the event(s) will be removed.
    */
-  off<K extends keyof AddonEvents>(event: K | K[], handler?: (...args: AddonEvents[K]) => void) {
+  off(event: string, handler?: (...args: any[]) => void) {
     this.#emitter.off(event, handler);
   }
 
@@ -73,7 +55,27 @@ export class Addon {
    * @param event Event name or list of event names.
    * @param args Arguments to pass to the event handlers.
    */
-  emit<K extends keyof AddonEvents>(event: K | K[], ...args: AddonEvents[K]) {
+  emit(event: string, ...args: any[]) {
     this.#emitter.emit(event, ...args);
+  }
+
+  /**
+   * Attach the addon to a Peer instance. This method is called when the addon is
+   * added to a peer using `peer.attach(addon)`.
+   *
+   * @param peer The Peer instance to attach to.
+   */
+  async attach(peer: Peer) {
+    // stub method to be implemented by concrete addons
+  }
+
+  /**
+   * Detach the addon from a Peer instance. This method is called when the addon is
+   * removed from a peer using `peer.detach(addon)`.
+   *
+   * @param peer The Peer instance to detach from.
+   */
+  async detach(peer: Peer) {
+    // stub method to be implemented by concrete addons
   }
 }
