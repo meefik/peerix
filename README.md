@@ -50,11 +50,11 @@ const peer = new Peer({ driver });
 
 // listen for peer connection state changes
 peer.on('connection', (e) => {
-  const { remote, state } = e;
+  const { remote } = e;
   console.log(
     'State changed for peer:', remote.id, 
     'with metadata:', remote.metadata,
-    'state:', state
+    'state:', remote.state
   );
 });
 

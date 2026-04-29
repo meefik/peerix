@@ -20,18 +20,13 @@ export type ErrorCode = 'UNKNOWN_ERROR'
  * @group Errors
  */
 export class PeerixError extends Error {
-  /**
-   * The name of the error, typically 'Error' or a specific error type.
-   */
-  name: string;
-  /**
-   * The error message providing details about the error.
-   */
-  message: string;
-  /**
-   * An error code for categorizing the error.
-   */
-  code: ErrorCode;
+  /** The name of the error, typically 'Error' or a specific error type. */
+  readonly name: string;
+  /** The error message providing details about the error. */
+  readonly message: string;
+  /** An error code for categorizing the error. */
+  readonly code: ErrorCode;
+
   /**
    * Constructs a new PeerixError instance.
    * 

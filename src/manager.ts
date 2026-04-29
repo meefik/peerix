@@ -1,4 +1,4 @@
-import type { ErrorCode } from './error.js';
+import { PeerixError } from './error.js';
 import { EventEmitter } from './utils/emitter.js';
 import { Timeout } from './utils/timeout.js';
 
@@ -6,21 +6,21 @@ import { Timeout } from './utils/timeout.js';
  * Manages a WebRTC connection, handling timeouts, pings, and message passing.
  * Internally creates a negotiated data channel (id 0) used for keep-alive pings
  * and arbitrary event delivery between peers.
- *
- * @example
- * ```javascript
- * const manager = new ConnectionManager({ connection, connectionTimeout: 15 });
- * manager.on('open', () => console.log('connected'));
- * manager.on('close', () => console.log('disconnected'));
- * manager.open();
- * ```
  */
 export class ConnectionManager {
-  #emitter: EventEmitter<{ [key: string]: any; }>;
+  #emitter: EventEmitter<ConnectionManagerEvents>;
   #connection: RTCPeerConnection;
   #connectionTimeout: number;
   #timeout?: Timeout;
   #channel?: RTCDataChannel;
+  #connectionStateHandler: () => void;
+
+  /**
+   * Indicates whether the internal data channel is open and ready for sending messages.
+   */
+  get active() {
+    return this.#channel?.readyState === 'open';
+  }
 
   /**
    * Creates a new `ConnectionManager` instance.
@@ -32,6 +32,7 @@ export class ConnectionManager {
     this.#emitter = new EventEmitter(this);
     this.#connection = connection;
     this.#connectionTimeout = connectionTimeout;
+    this.#connectionStateHandler = this.#handleConnectionStateChange.bind(this);
   }
 
   /**
@@ -42,19 +43,11 @@ export class ConnectionManager {
    */
   open() {
     this.#timeout = new Timeout(() => {
-      const error = new Error('Connection timeout');
-      this.emit('error', { error, code: 'PEER_CONNECTION_FAILED' });
+      const error = new PeerixError('Connection timeout', 'PEER_CONNECTION_FAILED');
+      this.emit('error', { error });
     }, this.#connectionTimeout * 1000);
 
-    this.#connection.addEventListener('iceconnectionstatechange', () => {
-      const { iceConnectionState } = this.#connection;
-      if (iceConnectionState === 'connected') {
-        this.#timeout?.clear();
-      }
-      if (iceConnectionState === 'disconnected') {
-        this.#timeout?.start();
-      }
-    });
+    this.#connection.addEventListener('iceconnectionstatechange', this.#connectionStateHandler);
 
     const channel = this.#connection.createDataChannel('', { negotiated: true, id: 0 });
     this.#channel = channel;
@@ -77,7 +70,7 @@ export class ConnectionManager {
     });
 
     channel.addEventListener('message', (e) => {
-      const [event, payload] = JSON.parse(e.data);
+      const [event, ...payload] = JSON.parse(e.data);
       if (event === 'ping') {
         const now = Date.now();
         if (now - t > pingInterval * 2) this.#timeout?.start();
@@ -85,7 +78,7 @@ export class ConnectionManager {
         t = now;
       }
       else {
-        this.emit(event, payload);
+        this.emit(event, ...payload);
       }
     });
 
@@ -99,11 +92,9 @@ export class ConnectionManager {
    * @param event The event name to send.
    * @param payload Optional data to attach to the event.
    */
-  send(event: string, payload?: any) {
+  send<K extends keyof ConnectionManagerEvents>(event: K, ...payload: ConnectionManagerEvents[K]) {
     if (this.#channel?.readyState === 'open') {
-      this.#channel.send(JSON.stringify(
-        typeof payload === 'undefined' ? [event] : [event, payload]
-      ));
+      this.#channel.send(JSON.stringify([event, ...payload]));
     }
   }
 
@@ -113,6 +104,7 @@ export class ConnectionManager {
   close() {
     this.#timeout?.clear();
     this.#channel?.close();
+    this.#connection.removeEventListener('iceconnectionstatechange', this.#connectionStateHandler);
   }
 
   /**
@@ -144,19 +136,28 @@ export class ConnectionManager {
   emit<K extends keyof ConnectionManagerEvents>(event: K | K[], ...args: ConnectionManagerEvents[K]) {
     this.#emitter.emit(event, ...args);
   }
+
+  /**
+   * Handles changes in the ICE connection state.
+   */
+  #handleConnectionStateChange() {
+    const { iceConnectionState } = this.#connection;
+    if (iceConnectionState === 'connected') {
+      this.#timeout?.clear();
+    }
+    if (iceConnectionState === 'disconnected') {
+      this.#timeout?.start();
+    }
+  }
 }
 
 /**
  * Configuration options for {@link ConnectionManager}.
  */
 export interface ConnectionManagerOptions {
-  /**
-   * The underlying WebRTC peer connection to manage.
-   */
+  /** The underlying WebRTC peer connection to manage. */
   connection: RTCPeerConnection;
-  /**
-   * Timeout in seconds before a stalled connection is considered failed.
-   */
+  /** Timeout in seconds before a stalled connection is considered failed. */
   connectionTimeout: number;
 }
 
@@ -164,20 +165,12 @@ export interface ConnectionManagerOptions {
  * Events emitted by {@link ConnectionManager}.
  */
 export interface ConnectionManagerEvents {
-  /**
-   * Fired when the internal data channel opens successfully.
-   */
+  /** Fired when the internal data channel opens successfully. */
   'open': [];
-  /**
-   * Fired when the internal data channel closes.
-   */
+  /** Fired when the internal data channel closes. */
   'close': [];
-  /**
-   * Fired when a connection error or timeout occurs.
-   */
-  'error': [{ error: any; code: ErrorCode; }];
-  /**
-   * Any additional event sent over the data channel.
-   */
+  /** Fired when a connection error or timeout occurs. */
+  'error': [{ error: PeerixError; }];
+  /** Any additional event sent over the data channel. */
   [event: string]: any[];
 }

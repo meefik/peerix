@@ -2,10 +2,7 @@
  * ICE candidate queue to handle candidates received before remote description is applied.
  */
 export class IceCandidateQueue {
-  /**
-   * ICE candidates received before remote description is applied.
-   */
-  #queues: Map<string, RTCIceCandidate[]> = new Map();
+  #queues: Map<string, RTCIceCandidateInit[]> = new Map();
 
   /**
    * Parse the ICE username fragment (ufrag) from an SDP string.
@@ -25,7 +22,7 @@ export class IceCandidateQueue {
    * @param description Peer connection remote description.
    * @returns True if the candidate was queued, false if it can be added directly to the peer connection.
    */
-  push(id: string, candidate: RTCIceCandidate, description?: RTCSessionDescription): boolean {
+  push(id: string, candidate: RTCIceCandidateInit, description?: RTCSessionDescriptionInit): boolean {
     const { sdp } = description || {};
     const ufrag = this.#parseUfrag(sdp);
 
@@ -46,7 +43,7 @@ export class IceCandidateQueue {
    * @param description Peer connection remote description.
    * @returns An array of candidates that were added to the peer connection. If no candidates were queued or added, an empty array is returned.
    */
-  pull(id: string, description?: RTCSessionDescription): RTCIceCandidate[] {
+  pull(id: string, description?: RTCSessionDescriptionInit): RTCIceCandidateInit[] {
     const candidates = [];
     if (this.#queues.has(id)) {
       const { sdp } = description || {};

@@ -1,5 +1,6 @@
-import type { IceServer, PeerConnectionState, IceTransportPolicy, ChannelOptions, StreamOptions } from './peer.js';
-import { ErrorCode } from './error.js';
+import type { IceServer, IceTransportPolicy, ChannelOptions, StreamOptions } from './peer.js';
+import log from './utils/logger.js';
+import { PeerixError } from './error.js';
 import { timeout } from './utils/helpers.js';
 import { EventEmitter } from './utils/emitter.js';
 import { ConnectionManager } from './manager.js';
@@ -11,35 +12,23 @@ import { ConnectionManager } from './manager.js';
  * @group Remote Peers
  */
 export class RemotePeer {
-  /**
-   * Remote peer identifier.
-   */
-  id: string;
-  /**
-   * Metadata advertised by the remote peer.
-   */
-  metadata?: any;
-  /**
-   * Native WebRTC peer connection to the remote peer.
-   */
-  connection: RTCPeerConnection;
-  /**
-   * Peer connection state, updated on connection state changes.
-   */
-  state: PeerConnectionState;
-  /**
-   * Remote media streams keyed by stream label.
-   */
-  streams: Map<string, MediaStream>;
-  /**
-   * Negotiated data channels keyed by channel label.
-   */
-  channels: Map<string, RTCDataChannel>;
+  /** Remote peer identifier. */
+  readonly id: string;
+  /** Metadata advertised by the remote peer. */
+  readonly metadata?: any;
+  /** Room name the peer is associated with. */
+  readonly room: string;
+  /** Native WebRTC peer connection to the remote peer. */
+  readonly connection: RTCPeerConnection;
+  /** Remote media streams keyed by stream label. */
+  readonly streams: Map<string, MediaStream>;
+  /** Negotiated data channels keyed by channel label. */
+  readonly channels: Map<string, RTCDataChannel>;
 
-  /**
-   * Private properties for managing connection state and events.
-   */
-  #emitter: EventEmitter<{ [key: string]: any[]; }>;
+  /** Peer connection state, updated on connection state changes. */
+  state: 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
+
+  #emitter: EventEmitter<RemotePeerEvents>;
   #polite: boolean;
   #streamLabels: Map<string, string>;
   #makingOffer: boolean;
@@ -51,12 +40,14 @@ export class RemotePeer {
   /**
    * Create a RemotePeer instance.
    * 
+   * @ignore
    * @param options Options for creating the remote peer connection.
    */
   constructor(options: RemotePeerOptions) {
     const {
       id,
       metadata,
+      room,
       polite,
       iceServers = [],
       iceTransportPolicy = 'all',
@@ -70,6 +61,7 @@ export class RemotePeer {
     this.state = 'new';
     this.id = id;
     this.metadata = metadata;
+    this.room = room;
     this.streams = new Map();
     this.channels = new Map();
 
@@ -85,29 +77,29 @@ export class RemotePeer {
       const { iceConnectionState } = connection;
 
       if (iceConnectionState === 'new') {
-        const state = 'new';
-        this.state = state;
-        this.emit(['connection', 'connection:new'], { state });
+        const event = 'new';
+        this.state = event;
+        this.emit(['connection', `connection:${event}`], { id: this.id, event });
       }
       else if (iceConnectionState === 'checking') {
-        const state = 'connecting';
-        this.state = state;
-        this.emit(['connection', 'connection:connecting'], { state });
+        const event = 'connecting';
+        this.state = event;
+        this.emit(['connection', `connection:${event}`], { id: this.id, event });
       }
       else if (iceConnectionState === 'connected') {
-        const state = 'connected';
-        this.state = state;
-        this.emit(['connection', 'connection:connected'], { state });
+        const event = 'connected';
+        this.state = event;
+        this.emit(['connection', `connection:${event}`], { id: this.id, event });
       }
       else if (iceConnectionState === 'disconnected') {
-        const state = 'disconnected';
-        this.state = state;
-        this.emit(['connection', 'connection:disconnected'], { state });
+        const event = 'disconnected';
+        this.state = event;
+        this.emit(['connection', `connection:${event}`], { id: this.id, event });
       }
       else if (iceConnectionState === 'failed') {
-        const state = 'failed';
-        this.state = state;
-        this.emit(['connection', 'connection:failed'], { state });
+        const event = 'failed';
+        this.state = event;
+        this.emit(['connection', `connection:${event}`], { id: this.id, event });
         this.dispose();
       }
       else if (iceConnectionState === 'closed') {
@@ -119,11 +111,14 @@ export class RemotePeer {
       const { candidate } = e;
       if (!candidate) return;
 
-      this.emit('candidate', {
+      const data = {
+        id: this.id,
         candidate: typeof candidate.toJSON === 'function'
           ? candidate.toJSON()
           : candidate,
-      });
+      };
+      if (this.#manager.active) this.#manager.send('candidate', data);
+      else this.emit('candidate', data);
     });
 
     connection.addEventListener('negotiationneeded', () => {
@@ -155,13 +150,37 @@ export class RemotePeer {
       }
     });
 
-    manager.on('error', ({ error, code }) => {
-      this.emit('error', { error, code });
+    manager.on('error', (e) => {
+      const { error } = e;
+      this.emit('error', { id: this.id, error });
+    });
+
+    manager.on('channel', (e) => {
+      const { label, options } = e;
+      this.#createChannel({ label, ...options });
+    });
+
+    manager.on('offer', async (e) => {
+      const { description, labels } = e;
+      if (labels) {
+        this.setStreamLabels(labels);
+      }
+      await this.applyDescription(description);
+    });
+
+    manager.on('answer', async (e) => {
+      const { description } = e;
+      await this.applyDescription(description);
+    });
+
+    manager.on('candidate', async (e) => {
+      const { candidate } = e;
+      await this.addIceCandidate(candidate);
     });
 
     manager.open();
 
-    this.emit(['connection', 'connection:new'], { state: 'new' });
+    this.emit(['connection', 'connection:new'], { id: this.id, event: 'new' });
   }
 
   /**
@@ -207,7 +226,7 @@ export class RemotePeer {
     this.#pendingAnswer = false;
 
     this.state = 'closed';
-    this.emit(['connection', 'connection:closed'], { state: 'closed' });
+    this.emit(['connection', 'connection:closed'], { id: this.id, event: 'closed' });
   }
 
   /**
@@ -412,14 +431,14 @@ export class RemotePeer {
    * @param getCandidates Function that returns the ICE candidates corresponding to the given session description.
    * @returns Promise that resolves when the description is applied and ICE candidates are added.
    */
-  async applyDescription(description: RTCSessionDescription, getCandidates: (description: RTCSessionDescription) => RTCIceCandidate[]) {
+  async applyDescription(description: RTCSessionDescriptionInit, getCandidates?: (description: RTCSessionDescriptionInit) => RTCIceCandidateInit[]) {
     const isOffer = description.type === 'offer';
 
     if (isOffer && this.#hasCollision()) return;
 
     await this.#setRemoteDescription(description);
 
-    const candidates = getCandidates(description);
+    const candidates = getCandidates ? getCandidates(description) : [];
     for (const candidate of candidates) {
       await this.addIceCandidate(candidate);
     }
@@ -436,14 +455,15 @@ export class RemotePeer {
    * @param candidate ICE candidate to add.
    * @returns Promise that resolves when the candidate is added.
    */
-  async addIceCandidate(candidate: RTCIceCandidate) {
+  async addIceCandidate(candidate: RTCIceCandidateInit) {
     const { connection } = this;
 
     try {
       await connection.addIceCandidate(candidate);
     }
-    catch (error) {
-      this.emit('error', { error, code: 'PEER_ICECANDIDATE_ERROR' });
+    catch (err) {
+      const error = new PeerixError(err, 'PEER_ICECANDIDATE_ERROR');
+      this.emit('error', { id: this.id, error });
     }
   }
 
@@ -455,8 +475,6 @@ export class RemotePeer {
   #createChannel(channelOptions: ChannelOptions) {
     const { label = 'default', ...opts } = channelOptions || {};
     if (this.channels.has(label)) return;
-
-    // log('peer:createdatachannel', { id: this.#peer.id, remote: this, label, ...opts });
 
     const channel = this.connection.createDataChannel(label, opts);
     this.#setupDataChannel(channel);
@@ -477,8 +495,6 @@ export class RemotePeer {
     for (const track of tracks) {
       const hasSender = senders.some(s => s.track && s.track.id === track.id);
       if (hasSender) continue;
-
-      // log('peer:addmediastream', { id: this.id, track, stream, remote });
 
       connection.addTransceiver(track, { direction: 'sendonly', streams: [stream] });
       await this.#setTrackBitrate(track, { audio: audioBitrate, video: videoBitrate });
@@ -580,7 +596,9 @@ export class RemotePeer {
           return acc;
         }, {} as { [key: string]: string; });
 
-      this.emit('offer', { description: offer, labels });
+      const data = { id: this.id, description: offer, labels };
+      if (this.#manager.active) this.#manager.send('offer', data);
+      else this.emit('offer', data);
     }
     finally {
       this.#makingOffer = false;
@@ -600,7 +618,10 @@ export class RemotePeer {
       const answer = await connection.createAnswer();
       await connection.setLocalDescription(answer);
 
-      this.emit('answer', { description: answer });
+      const data = { id: this.id, description: answer };
+
+      if (this.#manager.active) this.#manager.send('answer', data);
+      else this.emit('answer', data);
     }
     finally {
       this.#pendingAnswer = false;
@@ -612,7 +633,7 @@ export class RemotePeer {
    * 
    * @param description The remote session description to be set.
    */
-  async #setRemoteDescription(description: RTCSessionDescription) {
+  async #setRemoteDescription(description: RTCSessionDescriptionInit) {
     const { connection } = this;
 
     // wait to avoid interrupting previous operations
@@ -638,20 +659,20 @@ export class RemotePeer {
     channels.set(label, channel);
 
     channel.addEventListener('open', () => {
-      this.emit(['channel', 'channel:open'], { channel, label });
+      this.emit(['channel', 'channel:open'], { id: this.id, event: 'open', channel, label });
     });
     channel.addEventListener('close', () => {
       channels.delete(label);
-      this.emit(['channel', 'channel:close'], { channel, label });
+      this.emit(['channel', 'channel:close'], { id: this.id, event: 'close', channel, label });
     });
     channel.addEventListener('message', (e) => {
-      this.emit(['channel', 'channel:message'], { channel, label, data: e.data });
+      this.emit(['channel', 'channel:message'], { id: this.id, event: 'message', channel, label, data: e.data });
     });
     channel.addEventListener('error', (e) => {
-      this.emit(['channel', 'channel:error'], { channel, label, error: e.error });
+      this.emit(['channel', 'channel:error'], { id: this.id, event: 'error', channel, label, error: e.error });
     });
 
-    this.emit(['channel', 'channel:new'], { channel, label });
+    this.emit(['channel', 'channel:new'], { id: this.id, event: 'new', channel, label });
   }
 
   /**
@@ -668,23 +689,23 @@ export class RemotePeer {
     const addTrack = () => {
       if (!streams.has(label)) {
         streams.set(label, stream);
-        this.emit(['stream', 'stream:add'], { stream, label });
+        this.emit(['stream', 'stream:add'], { id: this.id, event: 'add', stream, label });
       }
 
-      this.emit(['track', 'track:add'], { track, stream, label });
+      this.emit(['track', 'track:add'], { id: this.id, event: 'add', track, stream, label });
     };
 
     const removeTrack = () => {
       const hasTrack = stream.getTracks().includes(track);
       if (hasTrack) {
         stream.removeTrack(track);
-        this.emit(['track', 'track:remove'], { track, stream, label });
+        this.emit(['track', 'track:remove'], { id: this.id, event: 'remove', track, stream, label });
       }
 
       if (!stream.active || !stream.getTracks().length) {
         if (streams.has(label)) {
           streams.delete(label);
-          this.emit(['stream', 'stream:remove'], { stream, label });
+          this.emit(['stream', 'stream:remove'], { id: this.id, event: 'remove', stream, label });
         }
       }
     };
@@ -724,6 +745,7 @@ export class RemotePeer {
 /**
  * Options for creating a {@link RemotePeer} instance.
  * 
+ * @ignore
  * @group Remote Peers
  */
 export interface RemotePeerOptions {
@@ -731,6 +753,8 @@ export interface RemotePeerOptions {
   id: string;
   /** Optional metadata associated with the peer. */
   metadata?: any;
+  /** Room name the peer is associated with. */
+  room: string;
   /** Indicates if this peer should be polite during negotiation. */
   polite: boolean;
   /** Optional ICE servers for NAT traversal. */
@@ -751,6 +775,8 @@ export interface RemotePeerOptions {
  * @ignore
  */
 export interface RemotePeerCandidateEvent {
+  /** Unique identifier for the remote peer. */
+  id: string;
   /** ICE candidate information. */
   candidate: RTCIceCandidateInit;
 }
@@ -761,6 +787,8 @@ export interface RemotePeerCandidateEvent {
  * @ignore
  */
 export interface RemotePeerOfferEvent {
+  /** Unique identifier for the remote peer. */
+  id: string;
   /** Session description for the offer. */
   description: RTCSessionDescriptionInit;
   /** Stream labels associated with the offer. */
@@ -773,6 +801,8 @@ export interface RemotePeerOfferEvent {
  * @ignore
  */
 export interface RemotePeerAnswerEvent {
+  /** Unique identifier for the remote peer. */
+  id: string;
   /** Session description for the answer. */
   description: RTCSessionDescriptionInit;
 }
@@ -783,8 +813,10 @@ export interface RemotePeerAnswerEvent {
  * @group Remote Peers
  */
 export interface RemotePeerConnectionEvent {
-  /** New connection state. */
-  state: PeerConnectionState;
+  /** Unique identifier for the remote peer. */
+  id: string;
+  /** Type of connection event. */
+  event: 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
 }
 
 /**
@@ -793,6 +825,10 @@ export interface RemotePeerConnectionEvent {
  * @group Remote Peers
  */
 export interface RemotePeerChannelEvent {
+  /** Unique identifier for the remote peer. */
+  id: string;
+  /** Type of channel event. */
+  event: 'new' | 'open' | 'close' | 'message' | 'error';
   /** Data channel associated with the event. */
   channel: RTCDataChannel;
   /** Label of the data channel. */
@@ -809,6 +845,10 @@ export interface RemotePeerChannelEvent {
  * @group Remote Peers
  */
 export interface RemotePeerStreamEvent {
+  /** Unique identifier for the remote peer. */
+  id: string;
+  /** Type of stream event. */
+  event: 'add' | 'remove';
   /** Media stream associated with the event. */
   stream: MediaStream;
   /** Label of the media stream. */
@@ -821,6 +861,10 @@ export interface RemotePeerStreamEvent {
  * @group Remote Peers
  */
 export interface RemotePeerTrackEvent {
+  /** Unique identifier for the remote peer. */
+  id: string;
+  /** Type of track event. */
+  event: 'add' | 'remove';
   /** Media track associated with the event. */
   track: MediaStreamTrack;
   /** Media stream associated with the event. */
@@ -835,10 +879,10 @@ export interface RemotePeerTrackEvent {
  * @group Remote Peers
  */
 export interface RemotePeerErrorEvent {
+  /** Unique identifier for the remote peer. */
+  id: string;
   /** Error associated with the event. */
-  error: any;
-  /** Error code associated with the event. */
-  code: ErrorCode;
+  error: PeerixError;
 }
 
 /**

@@ -8,13 +8,7 @@ const defaultDriver = new MemoryDriver();
  * Signaler class for managing signaling between peers.
  */
 export class Signaler {
-  /**
-   * Driver used for signaling.
-   */
   #driver: Driver;
-  /**
-   * Handler function that will be called when a signaling message is received.
-   */
   #handler: (message?: any) => void;
 
   /**
