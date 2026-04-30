@@ -105,7 +105,7 @@ export class Peer {
         }
         catch (err) {
           const error = new PeerixError(err, 'PEER_NEGOTIATION_FAILED');
-          this.emit('error', { id: this.id, error });
+          this.emit('error', { id: this.id, name: 'error', error });
         }
       }
     });
@@ -494,7 +494,7 @@ export class Peer {
       const { description, labels } = e;
       await this.#signaler.dispatch(
         [this.room, id],
-        ['offer', this.id, description, metadata, labels],
+        ['offer', this.id, description, this.metadata, labels],
       );
     });
 
@@ -514,34 +514,29 @@ export class Peer {
       );
     });
 
-    remote.on('error', (e) => {
-      const { error } = e;
-      this.emit('error', { id: this.id, error });
-    });
-
-    remote.on('connection', (e) => {
-      const { event } = e;
-      this.emit(['connection', `connection:${event}`], { id: this.id, event, remote });
-    });
-
     remote.on('connection:closed', (e) => {
       this.connections.delete(id);
       this.#candidateQueue.clear(id);
     });
 
-    remote.on('channel', async (e) => {
-      const { event, channel, label, data, error } = e;
-      this.emit(['channel', `channel:${event}`], { id: this.id, event, remote, channel, label, data, error });
+    remote.on('connection', (e) => {
+      this.emit(['connection', e.name], { ...e, id: this.id, remote });
     });
 
-    remote.on('stream', async (e) => {
-      const { event, stream, label } = e;
-      this.emit(['stream', `stream:${event}`], { id: this.id, event, remote, stream, label });
+    remote.on('channel', (e) => {
+      this.emit(['channel', e.name], { ...e, id: this.id, remote });
     });
 
-    remote.on('track', async (e) => {
-      const { event, track, stream, label } = e;
-      this.emit(['track', `track:${event}`], { id: this.id, event, remote, track, stream, label });
+    remote.on('stream', (e) => {
+      this.emit(['stream', e.name], { ...e, id: this.id, remote });
+    });
+
+    remote.on('track', (e) => {
+      this.emit(['track', e.name], { ...e, id: this.id, remote });
+    });
+
+    remote.on('error', (e) => {
+      this.emit('error', { ...e, id: this.id });
     });
 
     this.connections.set(id, remote);
@@ -678,6 +673,13 @@ export type IceServer = {
  * @group Peers
  */
 export type IceTransportPolicy = 'all' | 'relay';
+
+/**
+ * Peer connection state.
+ * 
+ * @group Peers
+ */
+export type PeerConnectionState = 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
 
 /**
  * Local stream publication options.
@@ -818,22 +820,36 @@ export interface PeerJoinOptions {
 export interface PeerConnectionEvent {
   /** Local peer identifier. */
   id: string;
+  /** Name of the event. */
+  name: 'connection:new' | 'connection:connecting' | 'connection:connected' | 'connection:disconnected' | 'connection:failed' | 'connection:closed';
   /** Remote peer object containing connection details. */
   remote: RemotePeer;
-  /** Type of connection event. */
-  event: 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
+  /** New connection state. */
+  state: PeerConnectionState;
 }
 
 /**
- * Event emitted when an error occurs in any background operations.
+ * Emitted when a data channel is created or received from a remote peer,
+ * when a data channel is opened or closed, when a message is received on a data channel,
+ * or when an error occurs.
  * 
  * @group Peers
  */
-export interface PeerErrorEvent {
+export interface PeerChannelEvent {
   /** Local peer identifier. */
   id: string;
-  /** Error object containing details about the error. */
-  error: PeerixError;
+  /** Name of the event. */
+  name: 'channel:new' | 'channel:open' | 'channel:close' | 'channel:message' | 'channel:error';
+  /** Remote peer object containing connection details. */
+  remote: RemotePeer;
+  /** Data channel associated with the event. */
+  channel: RTCDataChannel;
+  /** Label of the data channel. */
+  label: string;
+  /** Received message data for message events. */
+  data?: Error;
+  /** Error object containing details about the error for error events. */
+  error?: Error;
 }
 
 /**
@@ -844,8 +860,8 @@ export interface PeerErrorEvent {
 export interface PeerStreamEvent {
   /** Local peer identifier. */
   id: string;
-  /** Type of stream event. */
-  event: 'add' | 'remove';
+  /** Name of the event. */
+  name: 'stream:add' | 'stream:remove';
   /** Remote peer object containing connection details. */
   remote: RemotePeer;
   /** Media stream associated with the event. */
@@ -862,10 +878,10 @@ export interface PeerStreamEvent {
 export interface PeerTrackEvent {
   /** Local peer identifier. */
   id: string;
+  /** Name of the event. */
+  name: 'track:add' | 'track:remove';
   /** Remote peer object containing connection details. */
   remote: RemotePeer;
-  /** Type of track event. */
-  event: 'add' | 'remove';
   /** Media stream associated with the event. */
   stream: MediaStream;
   /** Media track associated with the event. */
@@ -875,27 +891,17 @@ export interface PeerTrackEvent {
 }
 
 /**
- * Emitted when a data channel is created or received from a remote peer,
- * when a data channel is opened or closed, when a message is received on a data channel,
- * or when an error occurs.
+ * Event emitted when an error occurs in any background operations.
  * 
  * @group Peers
  */
-export interface PeerChannelEvent {
+export interface PeerErrorEvent {
   /** Local peer identifier. */
   id: string;
-  /** Remote peer object containing connection details. */
-  remote: RemotePeer;
-  /** Type of channel event. */
-  event: 'new' | 'open' | 'close' | 'message' | 'error';
-  /** Data channel associated with the event. */
-  channel: RTCDataChannel;
-  /** Label of the data channel. */
-  label: string;
-  /** Received message data for message events. */
-  data?: any;
-  /** Error object containing details about the error for error events. */
-  error?: Error;
+  /** Name of the event. */
+  name: 'error';
+  /** Error object containing details about the error. */
+  error: PeerixError;
 }
 
 /**

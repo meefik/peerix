@@ -52,6 +52,9 @@
       font-size: 0.8em;
       scroll-behavior: smooth;
       padding: 0.5em;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5em;
     }
 
     .logs:empty::before {
@@ -118,48 +121,51 @@
     log('Peer ID: ' + peer.id);
 
     // Log peer events
-    const logEvent = (event, details) => log(`[${event}] ${details}`);
     peer.on('connection', (e) => {
-      const { remote, state } = e;
-      logEvent('connection', `peer: ${remote.id}, metadata: ${remote.metadata} , state: ${state}`);
+      const { name, remote } = e;
+      const details = [];
+      if (remote) details.push(`remote: ${remote.id}`);
+      log(`[${name}] ${details.join(', ')}`);
     });
+
+    peer.on('channel', (e) => {
+      const { name, remote, channel, data, error } = e;
+      const details = [];
+      if (remote) details.push(`remote: ${remote.id}`);
+      if (channel) details.push(`channel: ${channel.label}`);
+      if (data) details.push(`data: ${data}`);
+      if (error) details.push(`error: ${error}`);
+      log(`[${name}] ${details.join(', ')}`);
+    });
+
+    peer.on('stream', (e) => {
+      const { name, remote, stream, label } = e;
+      const details = [];
+      if (remote) details.push(`remote: ${remote.id}`);
+      if (stream) details.push(`stream: ${label} (${stream.active ? 'active' : 'inactive'})`);
+      log(`[${name}] ${details.join(', ')}`);
+    });
+
+    peer.on('track', (e) => {
+      const { name, remote, stream, track, label } = e;
+      const details = [];
+      if (remote) details.push(`remote: ${remote.id}`);
+      if (stream) details.push(`stream: ${label} (${stream.active ? 'active' : 'inactive'})`);
+      if (track) details.push(`track: ${track.kind} (${track.readyState})`);
+      log(`[${name}] ${details.join(', ')}`);
+    });
+
     peer.on('error', (e) => {
-      const { id, error } = e;
-      logEvent('error', `peer: ${id}, error: ${error}`);
+      const { name, error } = e;
+      log(`[${name}] ${error}`);
     });
-    peer.on('channel:open', (e) => {
-      const { remote, label } = e;
-      logEvent('channel:open', `peer: ${remote.id}, channel: ${label}`);
-    });
-    peer.on('channel:close', (e) => {
-      const { remote, label } = e;
-      logEvent('channel:close', `peer: ${remote.id}, channel: ${label}`);
-    });
-    peer.on('channel:message', (e) => {
-      const { remote, label, data } = e;
-      logEvent('channel:message', `peer: ${remote.id}, channel: ${label}, data: ${data}`);
-    });
-    peer.on('channel:error', (e) => {
-      const { remote, label, error } = e;
-      logEvent('channel:error', `peer: ${remote?.id}, channel: ${label}, error: ${error}`);
-    });
-    peer.on('stream:add', (e) => {
-      const { remote, stream, label } = e;
-      logEvent('stream:add', `peer: ${remote.id}, stream: ${label} ${stream.id}, tracks: ${stream.getTracks().length}, active: ${stream.active}`);
-    });
-    peer.on('stream:remove', (e) => {
-      const { remote, stream, label } = e;
-      logEvent('stream:remove', `peer: ${remote.id}, stream: ${label} ${stream.id}, tracks: ${stream.getTracks().length}, active: ${stream.active}`);
-    });
+
     peer.on('track:add', (e) => {
-      const { remote, track, label, stream } = e;
-      logEvent('track:add', `peer: ${remote.id}, track: ${track.kind} ${track.id}, stream: ${label} ${stream.id}, active: ${stream.active}`);
-      toggleMediaElement(stream);
+      toggleMediaElement(e.stream);
     });
+
     peer.on('track:remove', (e) => {
-      const { remote, track, stream, label } = e;
-      logEvent('track:remove', `peer: ${remote.id}, track: ${track.kind} ${track.id}, stream: ${label} ${stream.id}, active: ${stream.active}`);
-      toggleMediaElement(stream);
+      toggleMediaElement(e.stream);
     });
 
     // Action handlers

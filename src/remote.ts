@@ -1,4 +1,4 @@
-import type { IceServer, IceTransportPolicy, ChannelOptions, StreamOptions } from './peer.js';
+import type { IceServer, IceTransportPolicy, PeerConnectionState, ChannelOptions, StreamOptions, Peer } from './peer.js';
 import log from './utils/logger.js';
 import { PeerixError } from './error.js';
 import { timeout } from './utils/helpers.js';
@@ -26,7 +26,7 @@ export class RemotePeer {
   readonly channels: Map<string, RTCDataChannel>;
 
   /** Peer connection state, updated on connection state changes. */
-  state: 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
+  state: PeerConnectionState;
 
   #emitter: EventEmitter<RemotePeerEvents>;
   #polite: boolean;
@@ -77,29 +77,19 @@ export class RemotePeer {
       const { iceConnectionState } = connection;
 
       if (iceConnectionState === 'new') {
-        const event = 'new';
-        this.state = event;
-        this.emit(['connection', `connection:${event}`], { id: this.id, event });
+        this.#setConnectionState('new');
       }
       else if (iceConnectionState === 'checking') {
-        const event = 'connecting';
-        this.state = event;
-        this.emit(['connection', `connection:${event}`], { id: this.id, event });
+        this.#setConnectionState('connecting');
       }
       else if (iceConnectionState === 'connected') {
-        const event = 'connected';
-        this.state = event;
-        this.emit(['connection', `connection:${event}`], { id: this.id, event });
+        this.#setConnectionState('connected');
       }
       else if (iceConnectionState === 'disconnected') {
-        const event = 'disconnected';
-        this.state = event;
-        this.emit(['connection', `connection:${event}`], { id: this.id, event });
+        this.#setConnectionState('disconnected');
       }
       else if (iceConnectionState === 'failed') {
-        const event = 'failed';
-        this.state = event;
-        this.emit(['connection', `connection:${event}`], { id: this.id, event });
+        this.#setConnectionState('failed');
         this.dispose();
       }
       else if (iceConnectionState === 'closed') {
@@ -113,6 +103,7 @@ export class RemotePeer {
 
       const data = {
         id: this.id,
+        name: 'candidate',
         candidate: typeof candidate.toJSON === 'function'
           ? candidate.toJSON()
           : candidate,
@@ -150,9 +141,13 @@ export class RemotePeer {
       }
     });
 
+    manager.on('close', () => {
+      this.dispose();
+    });
+
     manager.on('error', (e) => {
       const { error } = e;
-      this.emit('error', { id: this.id, error });
+      this.emit('error', { id: this.id, name: 'error', error });
     });
 
     manager.on('channel', (e) => {
@@ -180,7 +175,7 @@ export class RemotePeer {
 
     manager.open();
 
-    this.emit(['connection', 'connection:new'], { id: this.id, event: 'new' });
+    this.#setConnectionState('new');
   }
 
   /**
@@ -225,8 +220,7 @@ export class RemotePeer {
     this.#makingOffer = false;
     this.#pendingAnswer = false;
 
-    this.state = 'closed';
-    this.emit(['connection', 'connection:closed'], { id: this.id, event: 'closed' });
+    this.#setConnectionState('closed');
   }
 
   /**
@@ -354,12 +348,7 @@ export class RemotePeer {
 
     this.#channels.set(label, { label, ...channelOptions });
 
-    if (this.#polite) {
-      this.#manager.send('channel', { label, options: channelOptions });
-    }
-    else {
-      this.#createChannel({ label, ...channelOptions });
-    }
+    this.#createChannel({ label, ...channelOptions });
   }
 
   /**
@@ -463,8 +452,22 @@ export class RemotePeer {
     }
     catch (err) {
       const error = new PeerixError(err, 'PEER_ICECANDIDATE_ERROR');
-      this.emit('error', { id: this.id, error });
+      this.emit('error', { id: this.id, name: 'error', error });
     }
+  }
+
+  /**
+   * Helper method to update the connection state.
+   * 
+   * @param state New connection state to set and emit.
+   */
+  #setConnectionState(state: PeerConnectionState) {
+    if (this.state === state) return;
+    this.state = state;
+    this.emit(
+      ['connection', `connection:${state}`],
+      { id: this.id, name: `connection:${state}`, state }
+    );
   }
 
   /**
@@ -476,8 +479,13 @@ export class RemotePeer {
     const { label = 'default', ...opts } = channelOptions || {};
     if (this.channels.has(label)) return;
 
-    const channel = this.connection.createDataChannel(label, opts);
-    this.#setupDataChannel(channel);
+    if (this.#polite) {
+      this.#manager.send('channel', { label, options: channelOptions });
+    }
+    else {
+      const channel = this.connection.createDataChannel(label, opts);
+      this.#setupDataChannel(channel);
+    }
   }
 
   /**
@@ -596,7 +604,7 @@ export class RemotePeer {
           return acc;
         }, {} as { [key: string]: string; });
 
-      const data = { id: this.id, description: offer, labels };
+      const data = { id: this.id, name: 'offer', description: offer, labels };
       if (this.#manager.active) this.#manager.send('offer', data);
       else this.emit('offer', data);
     }
@@ -618,7 +626,7 @@ export class RemotePeer {
       const answer = await connection.createAnswer();
       await connection.setLocalDescription(answer);
 
-      const data = { id: this.id, description: answer };
+      const data = { id: this.id, name: 'answer', description: answer };
 
       if (this.#manager.active) this.#manager.send('answer', data);
       else this.emit('answer', data);
@@ -659,20 +667,20 @@ export class RemotePeer {
     channels.set(label, channel);
 
     channel.addEventListener('open', () => {
-      this.emit(['channel', 'channel:open'], { id: this.id, event: 'open', channel, label });
+      this.emit(['channel', 'channel:open'], { id: this.id, name: 'channel:open', channel, label });
     });
     channel.addEventListener('close', () => {
       channels.delete(label);
-      this.emit(['channel', 'channel:close'], { id: this.id, event: 'close', channel, label });
+      this.emit(['channel', 'channel:close'], { id: this.id, name: 'channel:close', channel, label });
     });
     channel.addEventListener('message', (e) => {
-      this.emit(['channel', 'channel:message'], { id: this.id, event: 'message', channel, label, data: e.data });
+      this.emit(['channel', 'channel:message'], { id: this.id, name: 'channel:message', channel, label, data: e.data });
     });
     channel.addEventListener('error', (e) => {
-      this.emit(['channel', 'channel:error'], { id: this.id, event: 'error', channel, label, error: e.error });
+      this.emit(['channel', 'channel:error'], { id: this.id, name: 'channel:error', channel, label, error: e.error });
     });
 
-    this.emit(['channel', 'channel:new'], { id: this.id, event: 'new', channel, label });
+    this.emit(['channel', 'channel:new'], { id: this.id, name: 'channel:new', channel, label });
   }
 
   /**
@@ -689,23 +697,23 @@ export class RemotePeer {
     const addTrack = () => {
       if (!streams.has(label)) {
         streams.set(label, stream);
-        this.emit(['stream', 'stream:add'], { id: this.id, event: 'add', stream, label });
+        this.emit(['stream', 'stream:add'], { id: this.id, name: 'stream:add', stream, label });
       }
 
-      this.emit(['track', 'track:add'], { id: this.id, event: 'add', track, stream, label });
+      this.emit(['track', 'track:add'], { id: this.id, name: 'track:add', track, stream, label });
     };
 
     const removeTrack = () => {
       const hasTrack = stream.getTracks().includes(track);
       if (hasTrack) {
         stream.removeTrack(track);
-        this.emit(['track', 'track:remove'], { id: this.id, event: 'remove', track, stream, label });
+        this.emit(['track', 'track:remove'], { id: this.id, name: 'track:remove', track, stream, label });
       }
 
       if (!stream.active || !stream.getTracks().length) {
         if (streams.has(label)) {
           streams.delete(label);
-          this.emit(['stream', 'stream:remove'], { id: this.id, event: 'remove', stream, label });
+          this.emit(['stream', 'stream:remove'], { id: this.id, name: 'stream:remove', stream, label });
         }
       }
     };
@@ -777,6 +785,8 @@ export interface RemotePeerOptions {
 export interface RemotePeerCandidateEvent {
   /** Unique identifier for the remote peer. */
   id: string;
+  /** Name of the event. */
+  name: string;
   /** ICE candidate information. */
   candidate: RTCIceCandidateInit;
 }
@@ -789,6 +799,8 @@ export interface RemotePeerCandidateEvent {
 export interface RemotePeerOfferEvent {
   /** Unique identifier for the remote peer. */
   id: string;
+  /** Name of the event. */
+  name: string;
   /** Session description for the offer. */
   description: RTCSessionDescriptionInit;
   /** Stream labels associated with the offer. */
@@ -803,6 +815,8 @@ export interface RemotePeerOfferEvent {
 export interface RemotePeerAnswerEvent {
   /** Unique identifier for the remote peer. */
   id: string;
+  /** Name of the event. */
+  name: string;
   /** Session description for the answer. */
   description: RTCSessionDescriptionInit;
 }
@@ -815,8 +829,10 @@ export interface RemotePeerAnswerEvent {
 export interface RemotePeerConnectionEvent {
   /** Unique identifier for the remote peer. */
   id: string;
-  /** Type of connection event. */
-  event: 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
+  /** Name of the event. */
+  name: 'connection:new' | 'connection:connecting' | 'connection:connected' | 'connection:disconnected' | 'connection:failed' | 'connection:closed';
+  /** New connection state. */
+  state: PeerConnectionState;
 }
 
 /**
@@ -827,8 +843,8 @@ export interface RemotePeerConnectionEvent {
 export interface RemotePeerChannelEvent {
   /** Unique identifier for the remote peer. */
   id: string;
-  /** Type of channel event. */
-  event: 'new' | 'open' | 'close' | 'message' | 'error';
+  /** Name of the event. */
+  name: 'channel:new' | 'channel:open' | 'channel:close' | 'channel:message' | 'channel:error';
   /** Data channel associated with the event. */
   channel: RTCDataChannel;
   /** Label of the data channel. */
@@ -836,7 +852,7 @@ export interface RemotePeerChannelEvent {
   /** Data associated with the message event. */
   data?: any;
   /** Error associated with the error event. */
-  error?: any;
+  error?: Error;
 }
 
 /**
@@ -847,8 +863,8 @@ export interface RemotePeerChannelEvent {
 export interface RemotePeerStreamEvent {
   /** Unique identifier for the remote peer. */
   id: string;
-  /** Type of stream event. */
-  event: 'add' | 'remove';
+  /** Name of the event. */
+  name: 'stream:add' | 'stream:remove';
   /** Media stream associated with the event. */
   stream: MediaStream;
   /** Label of the media stream. */
@@ -863,8 +879,8 @@ export interface RemotePeerStreamEvent {
 export interface RemotePeerTrackEvent {
   /** Unique identifier for the remote peer. */
   id: string;
-  /** Type of track event. */
-  event: 'add' | 'remove';
+  /** Name of the event. */
+  name: 'track:add' | 'track:remove';
   /** Media track associated with the event. */
   track: MediaStreamTrack;
   /** Media stream associated with the event. */
@@ -881,6 +897,8 @@ export interface RemotePeerTrackEvent {
 export interface RemotePeerErrorEvent {
   /** Unique identifier for the remote peer. */
   id: string;
+  /** Name of the event. */
+  name: 'error';
   /** Error associated with the event. */
   error: PeerixError;
 }
