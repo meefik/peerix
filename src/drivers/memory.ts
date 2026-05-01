@@ -13,7 +13,7 @@ import { Driver } from './driver.js';
  * ```
  */
 export class MemoryDriver extends Driver {
-  #handlers: Map<string, Set<(message?: any) => void>>;
+  #handlers: Map<string, Set<(message: Uint8Array) => void>>;
   #delay: number;
 
   /**
@@ -28,7 +28,7 @@ export class MemoryDriver extends Driver {
     this.#delay = options?.delay || 0;
   }
 
-  async subscribe(namespace: string[], handler: (message?: any) => void) {
+  async subscribe(namespace: string[], handler: (message: Uint8Array) => void) {
     const ns = namespace.join(':');
     let handlers = this.#handlers.get(ns);
     if (!handlers) {
@@ -38,7 +38,7 @@ export class MemoryDriver extends Driver {
     handlers.add(handler);
   }
 
-  async unsubscribe(namespace: string[], handler: (message?: any) => void) {
+  async unsubscribe(namespace: string[], handler: (message: Uint8Array) => void) {
     const ns = namespace.join(':');
     const handlers = this.#handlers.get(ns);
     if (handlers) {
@@ -49,7 +49,7 @@ export class MemoryDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], message?: any) {
+  async dispatch(namespace: string[], message: Uint8Array) {
     const ns = namespace.join(':');
     const handlers = this.#handlers.get(ns);
     if (!handlers) return;

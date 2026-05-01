@@ -13,7 +13,7 @@ import { Driver } from './driver.js';
  * ```
  */
 export class BroadcastChannelDriver extends Driver {
-  #handlers: Map<string, Set<(message?: any) => void>>;
+  #handlers: Map<string, Set<(message: Uint8Array) => void>>;
   #bc: BroadcastChannel;
 
   /**
@@ -35,7 +35,7 @@ export class BroadcastChannelDriver extends Driver {
     };
   }
 
-  async subscribe(namespace: string[], handler: (message?: any) => void) {
+  async subscribe(namespace: string[], handler: (message: Uint8Array) => void) {
     const ns = namespace.join(':');
     let handlers = this.#handlers.get(ns);
     if (!handlers) {
@@ -45,7 +45,7 @@ export class BroadcastChannelDriver extends Driver {
     handlers.add(handler);
   }
 
-  async unsubscribe(namespace: string[], handler: (message?: any) => void) {
+  async unsubscribe(namespace: string[], handler: (message: Uint8Array) => void) {
     const ns = namespace.join(':');
     const handlers = this.#handlers.get(ns);
     if (handlers) {
@@ -56,7 +56,7 @@ export class BroadcastChannelDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], message?: any) {
+  async dispatch(namespace: string[], message: Uint8Array) {
     const ns = namespace.join(':');
     this.#bc.postMessage([ns, message]);
   }

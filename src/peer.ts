@@ -7,6 +7,13 @@ import { PeerixError } from './error.js';
 import { UUIDv4 } from './utils/helpers.js';
 import { EventEmitter } from './utils/emitter.js';
 
+// Signaling message types
+const SIGNAL_JOIN = 1;
+const SIGNAL_OFFER = 2;
+const SIGNAL_ANSWER = 3;
+const SIGNAL_CANDIDATE = 4;
+const SIGNAL_LEAVE = 5;
+
 /**
  * Peer class for managing WebRTC peer connections, signaling, media streams, and data channels.
  * 
@@ -88,6 +95,10 @@ export class Peer {
       iceServers = [],
       iceTransportPolicy = 'all',
       connectionTimeout = 15,
+      compress,
+      hash,
+      encrypt,
+      encryptionKey,
     } = options || {};
 
     this.active = false;
@@ -99,9 +110,13 @@ export class Peer {
     this.addons = new Set();
     this.#signaler = new Signaler({
       driver,
-      handler: async (mesage) => {
+      compress,
+      hash,
+      encrypt,
+      encryptionKey,
+      handler: async (message) => {
         try {
-          await this.#signalHandler(mesage);
+          await this.#signalHandler(message);
         }
         catch (err) {
           const error = new PeerixError(err, 'PEER_SIGNALING_ERROR');
@@ -144,7 +159,7 @@ export class Peer {
 
     await this.#signaler.dispatch(
       [this.room],
-      ['join', this.id, this.metadata],
+      [SIGNAL_JOIN, this.id, this.metadata],
     );
   }
 
@@ -173,7 +188,7 @@ export class Peer {
 
     await this.#signaler.dispatch(
       [this.room],
-      ['leave', this.id],
+      [SIGNAL_LEAVE, this.id],
     );
 
     this.active = false;
@@ -486,11 +501,11 @@ export class Peer {
     });
 
     remote.on('offer', async (e) => {
-      const { description, labels } = e;
+      const { description } = e;
       try {
         await this.#signaler.dispatch(
           [this.room, id],
-          ['offer', this.id, description, this.metadata, labels],
+          [SIGNAL_OFFER, this.id, description, this.metadata],
         );
       }
       catch (err) {
@@ -504,7 +519,7 @@ export class Peer {
       try {
         await this.#signaler.dispatch(
           [this.room, id],
-          ['answer', this.id, description],
+          [SIGNAL_ANSWER, this.id, description],
         );
       }
       catch (err) {
@@ -518,7 +533,7 @@ export class Peer {
       try {
         await this.#signaler.dispatch(
           [this.room, id],
-          ['candidate', this.id, candidate],
+          [SIGNAL_CANDIDATE, this.id, candidate],
         );
       }
       catch (err) {
@@ -574,7 +589,7 @@ export class Peer {
     log('peer:signal', { id: this.id, type, remote: id, payload });
 
     // handle incoming connection
-    if (type === 'join') {
+    if (type === SIGNAL_JOIN) {
       const [metadata] = payload;
       const remote = await this.#createRemotePeer({ id, metadata, replace: true });
       if (!remote) return;
@@ -583,7 +598,7 @@ export class Peer {
     }
 
     // set remote description for offer and create answer
-    if (type === 'offer') {
+    if (type === SIGNAL_OFFER) {
       const [description, metadata] = payload;
       const remote = await this.#createRemotePeer({ id, metadata, replace: false });
       if (!remote) return;
@@ -601,7 +616,7 @@ export class Peer {
     }
 
     // set remote description for answer
-    if (type === 'answer') {
+    if (type === SIGNAL_ANSWER) {
       const [description] = payload;
       const remote = this.connections.get(id);
       if (!remote) return;
@@ -619,7 +634,7 @@ export class Peer {
     }
 
     // add ice candidate
-    if (type === 'candidate') {
+    if (type === SIGNAL_CANDIDATE) {
       const [candidate] = payload;
       const remote = this.connections.get(id);
 
@@ -634,7 +649,7 @@ export class Peer {
     }
 
     // dispose peer connection
-    if (type === 'leave') {
+    if (type === SIGNAL_LEAVE) {
       const remote = this.connections.get(id);
       if (!remote) return;
 
@@ -776,6 +791,25 @@ export interface PeerOptions {
    * By default, it is set to 15 seconds. Use 0 to disable the timeout.
    */
   connectionTimeout?: number;
+  /**
+   * Compress signaling messages to reduce bandwidth usage by about 30%.
+   * Enabled by default.
+   */
+  compress?: boolean;
+  /**
+   * Hash namespaces in signaling messages for privacy.
+   * Disabled by default.
+   */
+  hash?: boolean;
+  /**
+   * Encrypt signaling messages with AES-GCM.
+   * Disabled by default.
+   */
+  encrypt?: boolean;
+  /**
+   * Encryption key used when `encrypt` is enabled.
+   */
+  encryptionKey?: string;
 }
 
 /**
@@ -839,7 +873,7 @@ export interface PeerChannelEvent {
   /** Label of the data channel. */
   label: string;
   /** Received message data for message events. */
-  data?: Error;
+  data?: any;
   /** Error object containing details about the error for error events. */
   error?: Error;
 }

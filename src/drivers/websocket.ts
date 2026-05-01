@@ -194,7 +194,7 @@ export class WebSocketDriver extends Driver {
     this._handlers.clear();
   }
 
-  async subscribe(namespace: string[], handler: (data: any) => void) {
+  async subscribe(namespace: string[], handler: (message: Uint8Array) => void) {
     const ns = namespace.join(':');
     let handlers = this._handlers.get(ns);
     const isNew = !handlers;
@@ -208,7 +208,7 @@ export class WebSocketDriver extends Driver {
     }
   }
 
-  async unsubscribe(namespace: string[], handler: (data: any) => void) {
+  async unsubscribe(namespace: string[], handler: (message: Uint8Array) => void) {
     const ns = namespace.join(':');
     const handlers = this._handlers.get(ns);
     if (handlers) {
@@ -223,7 +223,7 @@ export class WebSocketDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], message: any) {
+  async dispatch(namespace: string[], message: Uint8Array) {
     const ns = namespace.join(':');
     if (this._ws && this.opened) {
       this._ws.send(JSON.stringify([ns, message]));

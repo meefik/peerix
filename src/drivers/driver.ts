@@ -81,7 +81,7 @@ export class Driver {
    * @param namespace The namespace to subscribe to.
    * @param handler The handler function to call when a message is received.
    */
-  async subscribe(namespace: string[], handler: (message?: any) => void) {
+  async subscribe(namespace: string[], handler: (message: Uint8Array) => void) {
     // stub method to be implemented by concrete drivers
   }
 
@@ -91,7 +91,7 @@ export class Driver {
    * @param namespace The namespace to unsubscribe from.
    * @param handler The handler function to remove.
    */
-  async unsubscribe(namespace: string[], handler: (message?: any) => void) {
+  async unsubscribe(namespace: string[], handler: (message: Uint8Array) => void) {
     // stub method to be implemented by concrete drivers
   }
 
@@ -101,7 +101,7 @@ export class Driver {
    * @param namespace The namespace to dispatch the message to.
    * @param message The message to dispatch.
    */
-  async dispatch(namespace: string[], message?: any) {
+  async dispatch(namespace: string[], message: Uint8Array) {
     // stub method to be implemented by concrete drivers
   }
 }
