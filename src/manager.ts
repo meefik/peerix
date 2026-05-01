@@ -1,4 +1,4 @@
-import { PeerixError } from './error.js';
+import type { ChannelOptions } from './peer.js';
 import { EventEmitter } from './utils/emitter.js';
 import { Timeout } from './utils/timeout.js';
 
@@ -11,9 +11,10 @@ export class ConnectionManager {
   #emitter: EventEmitter<ConnectionManagerEvents>;
   #connection: RTCPeerConnection;
   #connectionTimeout: number;
-  #timeout?: Timeout;
+  #timeout: Timeout;
   #channel?: RTCDataChannel;
   #connectionStateHandler: () => void;
+  #pingTimer?: ReturnType<typeof setInterval>;
 
   /**
    * Indicates whether the internal data channel is open and ready for sending messages.
@@ -29,43 +30,48 @@ export class ConnectionManager {
    */
   constructor(options: ConnectionManagerOptions) {
     const { connection, connectionTimeout } = options;
+
     this.#emitter = new EventEmitter(this);
     this.#connection = connection;
-    this.#connectionTimeout = connectionTimeout;
-    this.#connectionStateHandler = this.#handleConnectionStateChange.bind(this);
+    this.#connectionTimeout = connectionTimeout || 0;
+
+    this.#timeout = new Timeout(() => {
+      this.emit('timeout');
+    }, this.#connectionTimeout * 1000);
+
+    this.#connectionStateHandler = () => {
+      const { iceConnectionState } = this.#connection;
+      if (iceConnectionState === 'connected') {
+        this.#timeout.clear();
+      }
+      if (iceConnectionState === 'disconnected') {
+        this.#timeout.start();
+      }
+    };
   }
 
   /**
    * Initialises the internal data channel, starts the connection timeout,
    * and begins emitting keep-alive pings once the channel is open.
-   * Emits `"open"` when the channel opens and `"close"` when it closes.
-   * Emits `"error"` with code `"PEER_CONNECTION_FAILED"` on timeout.
    */
   open() {
-    this.#timeout = new Timeout(() => {
-      const error = new PeerixError('Connection timeout', 'PEER_CONNECTION_FAILED');
-      this.emit('error', { error });
-    }, this.#connectionTimeout * 1000);
-
     this.#connection.addEventListener('iceconnectionstatechange', this.#connectionStateHandler);
 
     const channel = this.#connection.createDataChannel('', { negotiated: true, id: 0 });
     this.#channel = channel;
 
     const pingInterval = Math.max(1000, Math.ceil(this.#connectionTimeout * 1000 / 2));
-    let pingTimer: ReturnType<typeof setInterval>;
     let t = Date.now();
 
     channel.addEventListener('open', () => {
-      clearInterval(pingTimer);
-      pingTimer = setInterval(() => this.send('ping'), pingInterval);
-      this.#timeout?.start();
+      clearInterval(this.#pingTimer);
+      this.#pingTimer = setInterval(() => this.send('ping'), pingInterval);
+      this.#timeout.start();
       this.emit('open');
     });
 
     channel.addEventListener('close', () => {
-      clearInterval(pingTimer);
-      this.#timeout?.clear();
+      this.close();
       this.emit('close');
     });
 
@@ -73,8 +79,8 @@ export class ConnectionManager {
       const [event, ...payload] = JSON.parse(e.data);
       if (event === 'ping') {
         const now = Date.now();
-        if (now - t > pingInterval * 2) this.#timeout?.start();
-        else this.#timeout?.clear();
+        if (now - t > pingInterval * 2) this.#timeout.start();
+        else this.#timeout.clear();
         t = now;
       }
       else {
@@ -86,6 +92,22 @@ export class ConnectionManager {
   }
 
   /**
+   * Cancels the connection timeout and closes the internal data channel.
+   */
+  close() {
+    this.#timeout.clear();
+    this.#connection.removeEventListener('iceconnectionstatechange', this.#connectionStateHandler);
+    if (this.#pingTimer) {
+      clearInterval(this.#pingTimer);
+      this.#pingTimer = undefined;
+    }
+    if (this.#channel) {
+      this.#channel.close();
+      this.#channel = undefined;
+    }
+  }
+
+  /**
    * Sends a JSON-encoded event through the internal data channel.
    * The message is silently dropped when the channel is not open.
    *
@@ -93,18 +115,7 @@ export class ConnectionManager {
    * @param payload Optional data to attach to the event.
    */
   send<K extends keyof ConnectionManagerEvents>(event: K, ...payload: ConnectionManagerEvents[K]) {
-    if (this.#channel?.readyState === 'open') {
-      this.#channel.send(JSON.stringify([event, ...payload]));
-    }
-  }
-
-  /**
-   * Cancels the connection timeout and closes the internal data channel.
-   */
-  close() {
-    this.#timeout?.clear();
-    this.#channel?.close();
-    this.#connection.removeEventListener('iceconnectionstatechange', this.#connectionStateHandler);
+    this.#channel?.send(JSON.stringify([event, ...payload]));
   }
 
   /**
@@ -136,19 +147,6 @@ export class ConnectionManager {
   emit<K extends keyof ConnectionManagerEvents>(event: K | K[], ...args: ConnectionManagerEvents[K]) {
     this.#emitter.emit(event, ...args);
   }
-
-  /**
-   * Handles changes in the ICE connection state.
-   */
-  #handleConnectionStateChange() {
-    const { iceConnectionState } = this.#connection;
-    if (iceConnectionState === 'connected') {
-      this.#timeout?.clear();
-    }
-    if (iceConnectionState === 'disconnected') {
-      this.#timeout?.start();
-    }
-  }
 }
 
 /**
@@ -165,12 +163,20 @@ export interface ConnectionManagerOptions {
  * Events emitted by {@link ConnectionManager}.
  */
 export interface ConnectionManagerEvents {
-  /** Fired when the internal data channel opens successfully. */
+  /** Internal data channel opens successfully. */
   'open': [];
-  /** Fired when the internal data channel closes. */
+  /** Internal data channel closes. */
   'close': [];
-  /** Fired when a connection error or timeout occurs. */
-  'error': [{ error: PeerixError; }];
-  /** Any additional event sent over the data channel. */
-  [event: string]: any[];
+  /** Connection error or timeout occurs. */
+  'timeout': [];
+  /** Ping is received. */
+  'ping': [];
+  /** Offer is created and sent. */
+  'offer': [RTCSessionDescriptionInit, { [key: string]: string; }];
+  /** Answer is created and sent. */
+  'answer': [RTCSessionDescriptionInit];
+  /** ICE candidate is received. */
+  'candidate': [RTCIceCandidateInit];
+  /** New data channel is requested. */
+  'channel': [ChannelOptions];
 }

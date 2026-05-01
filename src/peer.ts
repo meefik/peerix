@@ -1,6 +1,6 @@
 import type { Driver } from './drivers/driver.js';
-import { RemotePeer } from './remote.js';
 import log from './utils/logger.js';
+import { RemotePeer } from './remote.js';
 import { Signaler } from './signaler.js';
 import { IceCandidateQueue } from './ice.js';
 import { PeerixError } from './error.js';
@@ -104,7 +104,7 @@ export class Peer {
           await this.#signalHandler(mesage);
         }
         catch (err) {
-          const error = new PeerixError(err, 'PEER_NEGOTIATION_FAILED');
+          const error = new PeerixError(err, 'PEER_SIGNALING_ERROR');
           this.emit('error', { id: this.id, name: 'error', error });
         }
       }
@@ -197,6 +197,7 @@ export class Peer {
    * ```javascript
    * // get a media stream from the user's camera and microphone
    * const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+   * 
    * // publish a media stream with an explicit label
    * peer.publish({ label: 'camera', stream, managed: true });
    * ```
@@ -208,10 +209,10 @@ export class Peer {
     if (options instanceof MediaStream) {
       options = { label: options.id, stream: options };
     }
-    const { label = 'default', stream, ...opts } = options || {};
+    const { label: rawLabel = 'default', stream, ...opts } = options || {};
+    const label = String(rawLabel);
 
-    if (typeof label !== 'string' ||
-      stream instanceof MediaStream === false || !stream.getTracks().length) {
+    if (stream instanceof MediaStream === false || !stream.getTracks().length) {
       return;
     }
 
@@ -271,11 +272,8 @@ export class Peer {
     if (options instanceof MediaStream) {
       options = { label: options.id };
     }
-    const { label = 'default' } = options || {};
-
-    if (typeof label !== 'string') {
-      return;
-    }
+    const { label: rawLabel = 'default' } = options || {};
+    const label = String(rawLabel);
 
     const oldStreamOptions = this.streams.get(label);
     const { stream, managed } = oldStreamOptions || {};
@@ -318,19 +316,16 @@ export class Peer {
    * @param options Channel options or channel label.
    */
   async open(options: string | ChannelOptions) {
-    const { label = 'default', ...opts } =
+    const { label: rawLabel = 'default', ...channelOptions } =
       typeof options === 'object' ? options : { label: options };
+    const label = String(rawLabel);
 
-    if (typeof label !== 'string') {
-      return;
-    }
+    log('peer:open', { id: this.id, label, ...channelOptions });
 
-    log('peer:open', { id: this.id, label, ...opts });
-
-    this.channels.set(label, { label, ...opts });
+    this.channels.set(label, { label, ...channelOptions });
 
     for (const remote of this.connections.values()) {
-      remote.open({ label, ...opts });
+      await remote.open({ label, ...channelOptions });
     }
   }
 
@@ -347,19 +342,16 @@ export class Peer {
    * @param options Channel label or object containing `label`.
    */
   async close(options: string | { label: string; }) {
-    const { label = 'default' } =
+    const { label: rawLabel = 'default' } =
       typeof options === 'object' ? options : { label: options };
-
-    if (typeof label !== 'string') {
-      return;
-    }
+    const label = String(rawLabel);
 
     log('peer:close', { id: this.id, label });
 
     this.channels.delete(label);
 
     for (const remote of this.connections.values()) {
-      remote.close({ label });
+      await remote.close({ label });
     }
   }
 
@@ -380,15 +372,12 @@ export class Peer {
    * @param message Message payload to send. This may be a string, a Blob, an ArrayBuffer, a TypedArray or a DataView object.
    * @param options Optional channel label or object containing `label`.
    */
-  async send(message: any, options?: string | { label?: string; }) {
+  send(message: any, options?: string | { label?: string; }) {
     if (!this.active) return;
 
-    const { label } =
+    const { label: rawLabel } =
       typeof options === 'object' ? options : { label: options };
-
-    if (typeof label !== 'undefined' && typeof label !== 'string') {
-      return;
-    }
+    const label = typeof rawLabel === 'undefined' ? undefined : String(rawLabel);
 
     log('peer:send', { id: this.id, label, message });
 
@@ -471,8 +460,14 @@ export class Peer {
    * @param options.replace If true, an existing connection with the same id will be replaced. Otherwise, it will be reused.
    * @returns The created or existing RemotePeer instance, or void if the connection was rejected.
    */
-  #createRemotePeer(options: { id: string; metadata?: any; replace?: boolean; }): RemotePeer | void {
+  async #createRemotePeer(options: { id: string; metadata?: any; replace?: boolean; }) {
     const { id, metadata, replace } = options;
+
+    // verify the incoming request and reject if verification fails
+    if (typeof this.#verify === 'function') {
+      const verified = await this.#verify({ id, metadata });
+      if (!verified) return;
+    }
 
     let remote = this.connections.get(id);
     if (remote && !replace) return remote;
@@ -492,26 +487,44 @@ export class Peer {
 
     remote.on('offer', async (e) => {
       const { description, labels } = e;
-      await this.#signaler.dispatch(
-        [this.room, id],
-        ['offer', this.id, description, this.metadata, labels],
-      );
+      try {
+        await this.#signaler.dispatch(
+          [this.room, id],
+          ['offer', this.id, description, this.metadata, labels],
+        );
+      }
+      catch (err) {
+        const error = new PeerixError(err, 'PEER_SIGNALING_ERROR');
+        this.emit('error', { id: this.id, name: 'error', error });
+      }
     });
 
     remote.on('answer', async (e) => {
       const { description } = e;
-      await this.#signaler.dispatch(
-        [this.room, id],
-        ['answer', this.id, description],
-      );
+      try {
+        await this.#signaler.dispatch(
+          [this.room, id],
+          ['answer', this.id, description],
+        );
+      }
+      catch (err) {
+        const error = new PeerixError(err, 'PEER_SIGNALING_ERROR');
+        this.emit('error', { id: this.id, name: 'error', error });
+      }
     });
 
     remote.on('candidate', async (e) => {
       const { candidate } = e;
-      await this.#signaler.dispatch(
-        [this.room, id],
-        ['candidate', this.id, candidate],
-      );
+      try {
+        await this.#signaler.dispatch(
+          [this.room, id],
+          ['candidate', this.id, candidate],
+        );
+      }
+      catch (err) {
+        const error = new PeerixError(err, 'PEER_SIGNALING_ERROR');
+        this.emit('error', { id: this.id, name: 'error', error });
+      }
     });
 
     remote.on('connection:closed', (e) => {
@@ -560,41 +573,20 @@ export class Peer {
 
     log('peer:signal', { id: this.id, type, remote: id, payload });
 
-    // verify the incoming connection and reject if verification fails
-    if (this.#verify) {
-      const [metadata] = payload;
-      const verified = await this.#verify({ id, metadata });
-      if (!verified) return;
-    }
-
     // handle incoming connection
     if (type === 'join') {
       const [metadata] = payload;
-      const remote = this.#createRemotePeer({ id, metadata, replace: true });
+      const remote = await this.#createRemotePeer({ id, metadata, replace: true });
       if (!remote) return;
-
-      // create data channels
-      for (const channelOptions of this.channels.values()) {
-        await remote.open(channelOptions);
-      }
-
-      // add streams
-      for (const streamOptions of this.streams.values()) {
-        await remote.publish(streamOptions);
-      }
 
       return;
     }
 
     // set remote description for offer and create answer
     if (type === 'offer') {
-      const [description, metadata, labels] = payload;
-      const remote = this.#createRemotePeer({ id, metadata, replace: false });
+      const [description, metadata] = payload;
+      const remote = await this.#createRemotePeer({ id, metadata, replace: false });
       if (!remote) return;
-
-      if (labels) {
-        remote.setStreamLabels(labels);
-      }
 
       await remote.applyDescription(description,
         (description) => {

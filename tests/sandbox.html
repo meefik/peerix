@@ -122,9 +122,11 @@
 
     // Log peer events
     peer.on('connection', (e) => {
-      const { name, remote } = e;
+      const { name, remote, state } = e;
       const details = [];
       if (remote) details.push(`remote: ${remote.id}`);
+      if (state) details.push(`state: ${state}`);
+      if (remote?.metadata) details.push(`metadata: ${remote.metadata}`);
       log(`[${name}] ${details.join(', ')}`);
     });
 

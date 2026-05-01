@@ -1,4 +1,4 @@
-import type { IceServer, IceTransportPolicy, PeerConnectionState, ChannelOptions, StreamOptions, Peer } from './peer.js';
+import { IceServer, IceTransportPolicy, PeerConnectionState, ChannelOptions, StreamOptions } from './peer.js';
 import log from './utils/logger.js';
 import { PeerixError } from './error.js';
 import { timeout } from './utils/helpers.js';
@@ -100,31 +100,52 @@ export class RemotePeer {
     connection.addEventListener('icecandidate', async (e) => {
       const { candidate } = e;
       if (!candidate) return;
-
-      const data = {
-        id: this.id,
-        name: 'candidate',
-        candidate: typeof candidate.toJSON === 'function'
-          ? candidate.toJSON()
-          : candidate,
-      };
-      if (this.#manager.active) this.#manager.send('candidate', data);
-      else this.emit('candidate', data);
+      try {
+        const candidateInit = typeof candidate.toJSON === 'function'
+          ? candidate.toJSON() : candidate;
+        if (this.#manager.active) this.#manager.send('candidate', candidateInit);
+        else this.emit('candidate', {
+          id: this.id,
+          name: 'candidate',
+          candidate: candidateInit,
+        });
+      }
+      catch (err) {
+        const error = new PeerixError(err, 'PEER_ICECANDIDATE_ERROR');
+        this.emit('error', { id: this.id, name: 'error', error });
+      }
     });
 
     connection.addEventListener('negotiationneeded', () => {
       if (connection.signalingState !== 'stable') return;
-      this.#createOffer();
+      try {
+        this.#createOffer();
+      } catch (err) {
+        const error = new PeerixError(err, 'PEER_NEGOTIATION_ERROR');
+        this.emit('error', { id: this.id, name: 'error', error });
+      }
     });
 
     connection.addEventListener('datachannel', (e) => {
       const { channel } = e;
-      this.#setupDataChannel(channel);
+      try {
+        this.#setupDataChannel(channel);
+      }
+      catch (err) {
+        const error = new PeerixError(err, 'PEER_DATACHANNEL_ERROR');
+        this.emit('error', { id: this.id, name: 'error', error });
+      }
     });
 
     connection.addEventListener('track', (e) => {
       const { track, streams: [stream] } = e;
-      this.#setupMediaTrack(track, stream);
+      try {
+        this.#setupMediaTrack(track, stream);
+      }
+      catch (err) {
+        const error = new PeerixError(err, 'PEER_MEDIASTREAM_ERROR');
+        this.emit('error', { id: this.id, name: 'error', error });
+      }
     });
 
     const manager = new ConnectionManager({ connection, connectionTimeout });
@@ -133,11 +154,21 @@ export class RemotePeer {
     manager.on('open', () => {
       // create channels
       for (const channelOptions of this.#channels.values()) {
-        this.#createChannel(channelOptions);
+        try {
+          this.#createChannel(channelOptions);
+        } catch (err) {
+          const error = new PeerixError(err, 'PEER_DATACHANNEL_ERROR');
+          this.emit('error', { id: this.id, name: 'error', error });
+        }
       }
       // add streams
       for (const streamOptions of this.#streams.values()) {
-        this.#addStream(streamOptions);
+        try {
+          this.#addStream(streamOptions);
+        } catch (err) {
+          const error = new PeerixError(err, 'PEER_MEDIASTREAM_ERROR');
+          this.emit('error', { id: this.id, name: 'error', error });
+        }
       }
     });
 
@@ -145,31 +176,42 @@ export class RemotePeer {
       this.dispose();
     });
 
-    manager.on('error', (e) => {
-      const { error } = e;
-      this.emit('error', { id: this.id, name: 'error', error });
+    manager.on('timeout', () => {
+      this.#setConnectionState('failed');
+      this.dispose();
     });
 
-    manager.on('channel', (e) => {
-      const { label, options } = e;
-      this.#createChannel({ label, ...options });
-    });
-
-    manager.on('offer', async (e) => {
-      const { description, labels } = e;
-      if (labels) {
-        this.setStreamLabels(labels);
+    manager.on('channel', (channelOptions) => {
+      try {
+        this.#createChannel(channelOptions);
+      } catch (err) {
+        const error = new PeerixError(err, 'PEER_DATACHANNEL_ERROR');
+        this.emit('error', { id: this.id, name: 'error', error });
       }
-      await this.applyDescription(description);
     });
 
-    manager.on('answer', async (e) => {
-      const { description } = e;
-      await this.applyDescription(description);
+    manager.on('offer', async (description, labels) => {
+      try {
+        if (labels) {
+          this.#setStreamLabels(labels);
+        }
+        await this.applyDescription(description);
+      } catch (err) {
+        const error = new PeerixError(err, 'PEER_NEGOTIATION_ERROR');
+        this.emit('error', { id: this.id, name: 'error', error });
+      }
     });
 
-    manager.on('candidate', async (e) => {
-      const { candidate } = e;
+    manager.on('answer', async (description) => {
+      try {
+        await this.applyDescription(description);
+      } catch (err) {
+        const error = new PeerixError(err, 'PEER_NEGOTIATION_ERROR');
+        this.emit('error', { id: this.id, name: 'error', error });
+      }
+    });
+
+    manager.on('candidate', async (candidate) => {
       await this.addIceCandidate(candidate);
     });
 
@@ -212,6 +254,8 @@ export class RemotePeer {
    * Cleanup routine that closes and frees all connection resources.
    */
   dispose() {
+    log('remote:dispose', { id: this.id, room: this.room, metadata: this.metadata });
+
     this.#manager.close();
     this.channels.forEach(channel => channel?.close());
     this.connection?.close();
@@ -243,10 +287,10 @@ export class RemotePeer {
     if (options instanceof MediaStream) {
       options = { label: options.id, stream: options };
     }
-    const { label = 'default', stream, ...opts } = options || {};
+    const { label: rawLabel = 'default', stream, ...opts } = options || {};
+    const label = String(rawLabel);
 
-    if (typeof label !== 'string' ||
-      stream instanceof MediaStream === false || !stream.getTracks().length) {
+    if (stream instanceof MediaStream === false || !stream.getTracks().length) {
       return;
     }
 
@@ -276,6 +320,8 @@ export class RemotePeer {
 
     const newStreamOptions = { label, stream: newStream, ...opts };
 
+    log('remote:publish', { id: this.id, ...newStreamOptions });
+
     this.#streams.set(label, newStreamOptions);
 
     const bitrate = { audio: opts.audioBitrate, video: opts.videoBitrate };
@@ -301,14 +347,13 @@ export class RemotePeer {
     if (options instanceof MediaStream) {
       options = { label: options.id };
     }
-    const { label = 'default' } = options || {};
-
-    if (typeof label !== 'string') {
-      return;
-    }
+    const { label: rawLabel = 'default' } = options || {};
+    const label = String(rawLabel);
 
     const oldStreamOptions = this.#streams.get(label);
     const { stream, managed } = oldStreamOptions || {};
+
+    log('remote:unpublish', { id: this.id, label, stream });
 
     this.#streams.delete(label);
 
@@ -339,12 +384,11 @@ export class RemotePeer {
    * @param options Channel options or channel label.
    */
   async open(options: string | ChannelOptions) {
-    const { label = 'default', ...channelOptions } =
+    const { label: rawLabel = 'default', ...channelOptions } =
       typeof options === 'object' ? options : { label: options };
+    const label = String(rawLabel);
 
-    if (typeof label !== 'string') {
-      return;
-    }
+    log('remote:open', { id: this.id, label, ...channelOptions });
 
     this.#channels.set(label, { label, ...channelOptions });
 
@@ -357,12 +401,13 @@ export class RemotePeer {
    * @param options Channel label or object containing `label`.
    */
   async close(options: string | { label: string; }) {
-    const { label = 'default' } =
+    const { label: rawLabel = 'default' } =
       typeof options === 'object' ? options : { label: options };
+    const label = String(rawLabel);
 
-    if (typeof label !== 'string') {
-      return;
-    }
+    log('remote:close', { id: this.id, label });
+
+    this.#channels.delete(label);
 
     const channel = this.channels.get(label);
     channel?.close();
@@ -378,12 +423,11 @@ export class RemotePeer {
    * @param options Optional channel label or object containing `label`.
    */
   send(message: any, options?: string | { label?: string; }) {
-    const { label } =
+    const { label: rawLabel } =
       typeof options === 'object' ? options : { label: options };
+    const label = typeof rawLabel === 'undefined' ? undefined : String(rawLabel);
 
-    if (typeof label !== 'undefined' && typeof label !== 'string') {
-      return;
-    }
+    log('remote:send', { id: this.id, label, message });
 
     if (typeof label === 'string') {
       const channel = this.channels.get(label);
@@ -397,18 +441,6 @@ export class RemotePeer {
           channel.send(message);
         }
       }
-    }
-  }
-
-  /**
-   * Set custom labels for remote media streams based on their stream ids.
-   * 
-   * @ignore
-   * @param labels Object mapping stream ids to custom labels.
-   */
-  setStreamLabels(labels: { [key: string]: string; }) {
-    for (const streamId in labels) {
-      this.#streamLabels.set(streamId, labels[streamId]);
     }
   }
 
@@ -471,19 +503,31 @@ export class RemotePeer {
   }
 
   /**
+   * Set custom labels for remote media streams based on their stream ids.
+   * 
+   * @param labels Object mapping stream ids to custom labels.
+   */
+  #setStreamLabels(labels: { [key: string]: string; }) {
+    this.#streamLabels.clear();
+    for (const streamId in labels) {
+      this.#streamLabels.set(streamId, labels[streamId]);
+    }
+  }
+
+  /**
    * Helper method to create a data channel.
    * 
-   * @param channelOptions Channel options for creating data channels.
+   * @param options Channel options for creating data channels.
    */
-  #createChannel(channelOptions: ChannelOptions) {
-    const { label = 'default', ...opts } = channelOptions || {};
+  #createChannel(options: ChannelOptions) {
+    const { label = 'default', ...channelOptions } = options || {};
     if (this.channels.has(label)) return;
 
     if (this.#polite) {
-      this.#manager.send('channel', { label, options: channelOptions });
+      this.#manager.send('channel', { label, ...channelOptions });
     }
     else {
-      const channel = this.connection.createDataChannel(label, opts);
+      const channel = this.connection.createDataChannel(label, channelOptions);
       this.#setupDataChannel(channel);
     }
   }
@@ -597,16 +641,16 @@ export class RemotePeer {
       const offer = await connection.createOffer();
       await connection.setLocalDescription(offer);
 
-      const labels = Array.from(this.#streams.keys())
-        .reduce((acc, label) => {
-          const { stream } = this.#streams.get(label) || {};
-          if (stream) acc[stream.id] = label;
-          return acc;
-        }, {} as { [key: string]: string; });
-
-      const data = { id: this.id, name: 'offer', description: offer, labels };
-      if (this.#manager.active) this.#manager.send('offer', data);
-      else this.emit('offer', data);
+      if (this.#manager.active) {
+        const labels = Array.from(this.#streams.keys())
+          .reduce((acc, label) => {
+            const { stream } = this.#streams.get(label) || {};
+            if (stream) acc[stream.id] = label;
+            return acc;
+          }, {} as { [key: string]: string; });
+        this.#manager.send('offer', offer, labels);
+      }
+      else this.emit('offer', { id: this.id, name: 'offer', description: offer });
     }
     finally {
       this.#makingOffer = false;
@@ -626,10 +670,8 @@ export class RemotePeer {
       const answer = await connection.createAnswer();
       await connection.setLocalDescription(answer);
 
-      const data = { id: this.id, name: 'answer', description: answer };
-
-      if (this.#manager.active) this.#manager.send('answer', data);
-      else this.emit('answer', data);
+      if (this.#manager.active) this.#manager.send('answer', answer);
+      else this.emit('answer', { id: this.id, name: 'answer', description: answer });
     }
     finally {
       this.#pendingAnswer = false;
@@ -778,20 +820,6 @@ export interface RemotePeerOptions {
 }
 
 /**
- * Candidate event data.
- * 
- * @ignore
- */
-export interface RemotePeerCandidateEvent {
-  /** Unique identifier for the remote peer. */
-  id: string;
-  /** Name of the event. */
-  name: string;
-  /** ICE candidate information. */
-  candidate: RTCIceCandidateInit;
-}
-
-/**
  * Offer event data.
  * 
  * @ignore
@@ -804,7 +832,7 @@ export interface RemotePeerOfferEvent {
   /** Session description for the offer. */
   description: RTCSessionDescriptionInit;
   /** Stream labels associated with the offer. */
-  labels: { [key: string]: string; };
+  labels?: { [key: string]: string; };
 }
 
 /**
@@ -819,6 +847,20 @@ export interface RemotePeerAnswerEvent {
   name: string;
   /** Session description for the answer. */
   description: RTCSessionDescriptionInit;
+}
+
+/**
+ * Candidate event data.
+ * 
+ * @ignore
+ */
+export interface RemotePeerCandidateEvent {
+  /** Unique identifier for the remote peer. */
+  id: string;
+  /** Name of the event. */
+  name: string;
+  /** ICE candidate information. */
+  candidate: RTCIceCandidateInit;
 }
 
 /**
@@ -909,12 +951,12 @@ export interface RemotePeerErrorEvent {
  * @group Remote Peers
  */
 export interface RemotePeerEvents {
-  /** ICE candidate event. @ignore */
-  'candidate': [RemotePeerCandidateEvent];
   /** SDP offer received. @ignore */
   'offer': [RemotePeerOfferEvent];
   /** SDP answer received. @ignore */
   'answer': [RemotePeerAnswerEvent];
+  /** ICE candidate event. @ignore */
+  'candidate': [RemotePeerCandidateEvent];
   /** General connection event. */
   'connection': [RemotePeerConnectionEvent];
   /** New connection established. */
