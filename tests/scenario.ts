@@ -10,8 +10,6 @@ export default [
       { peer: '1', call: 'join', args: [{ room: 'test', metadata: { name: 'peer1' } }] },
       { peer: '2', call: 'join', args: [{ room: 'test', metadata: { name: 'peer2' } }] },
 
-      { peer: '1', call: 'open', args: [{}] },
-
       { peer: '1', wait: 'connection', where: { state: 'new', remote: { id: '2' } } },
       { peer: '2', wait: 'connection', where: { state: 'new', remote: { id: '1' } } },
 

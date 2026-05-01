@@ -569,6 +569,11 @@ export class Peer {
 
     this.connections.set(id, remote);
 
+    this.emit(
+      ['connection', 'connection:new'],
+      { id: this.id, name: 'connection:new', remote, state: 'new' }
+    );
+
     return remote;
   }
 

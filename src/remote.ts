@@ -216,8 +216,6 @@ export class RemotePeer {
     });
 
     manager.open();
-
-    this.#setConnectionState('new');
   }
 
   /**
