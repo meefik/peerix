@@ -280,14 +280,15 @@ export class Peer {
    * peer.unpublish({ label: 'camera' });
    * ```
    *
-   * @param options Object containing a stream label or MediaStream instance.
+   * @param options A stream label, MediaStream instance, or an object containing a label.
    * @returns The unpublished MediaStream instance, or undefined.
    */
-  async unpublish(options: MediaStream | { label?: string; }): Promise<MediaStream | void> {
+  async unpublish(options: MediaStream | string | { label?: string; }): Promise<MediaStream | void> {
     if (options instanceof MediaStream) {
       options = { label: options.id };
     }
-    const { label: rawLabel = 'default' } = options || {};
+    const { label: rawLabel = 'default' } =
+      typeof options === 'object' ? options : { label: options };
     const label = String(rawLabel);
 
     const oldStreamOptions = this.streams.get(label);

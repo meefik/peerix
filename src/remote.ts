@@ -338,14 +338,15 @@ export class RemotePeer {
    * If the stream was published with the `managed` option, its tracks will be 
    * stopped automatically.
    * 
-   * @param options Object containing a stream label or MediaStream instance.
+   * @param options A stream label, MediaStream instance, or an object containing a label.
    * @returns The unpublished MediaStream instance, or undefined.
    */
-  async unpublish(options: MediaStream | { label?: string; }): Promise<MediaStream | void> {
+  async unpublish(options: MediaStream | string | { label?: string; }): Promise<MediaStream | void> {
     if (options instanceof MediaStream) {
       options = { label: options.id };
     }
-    const { label: rawLabel = 'default' } = options || {};
+    const { label: rawLabel = 'default' } =
+      typeof options === 'object' ? options : { label: options };
     const label = String(rawLabel);
 
     const oldStreamOptions = this.#streams.get(label);
@@ -451,9 +452,9 @@ export class RemotePeer {
    * @returns Promise that resolves when the description is applied and ICE candidates are added.
    */
   async applyDescription(description: RTCSessionDescriptionInit, getCandidates?: (description: RTCSessionDescriptionInit) => RTCIceCandidateInit[]) {
-    const isOffer = description.type === 'offer';
+    const hasOffer = description.type === 'offer';
 
-    if (isOffer && this.#hasCollision()) return;
+    if (hasOffer && this.#hasCollision()) return;
 
     await this.#setRemoteDescription(description);
 
@@ -462,7 +463,7 @@ export class RemotePeer {
       await this.addIceCandidate(candidate);
     }
 
-    if (isOffer) {
+    if (hasOffer) {
       await this.#createAnswer();
     }
   }
@@ -577,17 +578,10 @@ export class RemotePeer {
       await this.#setTrackBitrate(track, bitrate);
     }
 
-    for (const track of removedTracks) {
-      const sender = senders.find(s => s.track?.id === track.id);
-      if (sender) {
-        await sender.replaceTrack(null);
-      }
-    }
-
     for (const transceiver of connection.getTransceivers()) {
-      if (transceiver.direction === 'sendonly' && !transceiver.sender.track) {
-        transceiver.stop();
-      }
+      if (transceiver.direction !== 'sendonly') continue;
+      const readyToStop = removedTracks.some(t => (!transceiver.sender.track || t.id === transceiver.sender.track.id));
+      if (readyToStop) transceiver.stop();
     }
   }
 
@@ -598,20 +592,12 @@ export class RemotePeer {
    */
   async #removeStream(stream: MediaStream) {
     const { connection } = this;
-    const senders = connection.getSenders();
-    const tracks = stream?.getTracks() || [];
-
-    for (const track of tracks) {
-      const sender = senders.find(s => s.track?.id === track.id);
-      if (sender) {
-        await sender.replaceTrack(null);
-      }
-    }
+    const existingTracks = stream?.getTracks() || [];
 
     for (const transceiver of connection.getTransceivers()) {
-      if (transceiver.direction === 'sendonly' && !transceiver.sender.track) {
-        transceiver.stop();
-      }
+      if (transceiver.direction !== 'sendonly') continue;
+      const readyToStop = existingTracks.some(t => (!transceiver.sender.track || t.id === transceiver.sender.track.id));
+      if (readyToStop) transceiver.stop();
     }
   }
 
@@ -744,11 +730,8 @@ export class RemotePeer {
     };
 
     const removeTrack = () => {
-      const hasTrack = stream.getTracks().includes(track);
-      if (hasTrack) {
-        stream.removeTrack(track);
-        this.emit(['track', 'track:remove'], { id: this.id, name: 'track:remove', track, stream, label });
-      }
+      stream.removeTrack(track);
+      this.emit(['track', 'track:remove'], { id: this.id, name: 'track:remove', track, stream, label });
 
       if (!stream.active || !stream.getTracks().length) {
         if (streams.has(label)) {
