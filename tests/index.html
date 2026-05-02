@@ -75,16 +75,14 @@
     import { TestRunner } from './runner.js';
     import scenario from './scenario.js';
 
-    for (const [index, test] of scenario.entries()) {
-      const id = `T-${(index + 1).toString().padStart(2, '0')}`;
-
+    for (const testCase of scenario) {
       renderTest({
-        id,
-        title: test.title,
+        id: testCase.id,
+        title: testCase.title,
         runTest: async () => {
-          console.log(`Running test: [${id}] ${test.title}`);
+          console.log(`Running test: [${testCase.id}] ${testCase.title}`);
           const runner = new TestRunner({ debug: 'peerix:*' });
-          await runner.run(test);
+          await runner.run(testCase);
         }
       });
     }
@@ -135,6 +133,9 @@
         body.appendChild(clone);
       }
     }
+
+    // for Playwright tests
+    window.TestRunner = TestRunner;
   </script>
 </body>
 

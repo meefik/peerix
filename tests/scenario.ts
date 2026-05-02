@@ -1,5 +1,6 @@
 export default [
   {
+    id: 'T-001',
     title: 'Peer Connections',
     defaults: { timeout: 10000 },
     peers: [
@@ -27,6 +28,7 @@ export default [
     ],
   },
   {
+    id: 'T-002',
     title: 'Data Channels',
     defaults: { timeout: 10000 },
     peers: [
@@ -66,6 +68,7 @@ export default [
     ],
   },
   {
+    id: 'T-003',
     title: 'Media Streams',
     defaults: { timeout: 10000 },
     peers: [
@@ -77,21 +80,23 @@ export default [
       { peer: '2', call: 'join', args: [{ room: 'test', metadata: { name: 'peer2' } }] },
 
       { peer: '1', call: 'publish', args: [{ label: 'camera', stream: { video: true, audio: true } }] },
+      { peer: '2', call: 'publish', args: [{ label: 'camera', stream: { video: true, audio: true } }] },
+
       { peer: '2', wait: 'stream:add', where: { remote: { id: '1' }, stream: { active: true }, label: 'camera' } },
       { peer: '2', wait: 'track:add', where: { remote: { id: '1' }, track: { kind: 'video' }, stream: { active: true }, label: 'camera' } },
       { peer: '2', wait: 'track:add', where: { remote: { id: '1' }, track: { kind: 'audio' }, stream: { active: true }, label: 'camera' } },
 
-      { peer: '2', call: 'publish', args: [{ label: 'camera', stream: { video: true, audio: true } }] },
       { peer: '1', wait: 'stream:add', where: { remote: { id: '2' }, stream: { active: true }, label: 'camera' } },
       { peer: '1', wait: 'track:add', where: { remote: { id: '2' }, track: { kind: 'video' }, stream: { active: true }, label: 'camera' } },
       { peer: '1', wait: 'track:add', where: { remote: { id: '2' }, track: { kind: 'audio' }, stream: { active: true }, label: 'camera' } },
 
       { peer: '1', call: 'unpublish', args: [{ label: 'camera' }] },
+      { peer: '2', call: 'unpublish', args: [{ label: 'camera' }] },
+
       { peer: '2', wait: 'track:remove', where: { remote: { id: '1' }, track: { kind: 'audio' }, stream: { active: false }, label: 'camera' } },
       { peer: '2', wait: 'track:remove', where: { remote: { id: '1' }, track: { kind: 'video' }, stream: { active: false }, label: 'camera' } },
       { peer: '2', wait: 'stream:remove', where: { remote: { id: '1' }, stream: { active: false }, label: 'camera' } },
 
-      { peer: '2', call: 'unpublish', args: [{ label: 'camera' }] },
       { peer: '1', wait: 'track:remove', where: { remote: { id: '2' }, track: { kind: 'audio' }, stream: { active: false }, label: 'camera' } },
       { peer: '1', wait: 'track:remove', where: { remote: { id: '2' }, track: { kind: 'video' }, stream: { active: false }, label: 'camera' } },
       { peer: '1', wait: 'stream:remove', where: { remote: { id: '2' }, stream: { active: false }, label: 'camera' } },

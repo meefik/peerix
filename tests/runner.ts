@@ -1,5 +1,5 @@
-import { Peer } from '../src/index.js';
 import type { PeerEvents } from '../src/index.js';
+import { Peer } from '../src/index.js';
 
 type PeerEventName = keyof PeerEvents;
 
