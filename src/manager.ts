@@ -169,7 +169,7 @@ export interface ConnectionManagerEvents {
   'close': [];
   /** Connection error or timeout occurs. */
   'timeout': [];
-  /** Ping is received. */
+  /** Received ping — handled internally to reset the connection timeout; not emitted to external listeners. */
   'ping': [];
   /** Offer is created and sent. */
   'offer': [RTCSessionDescriptionInit, { [key: string]: string; }];

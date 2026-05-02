@@ -1,7 +1,5 @@
 /**
  * Error codes for categorizing Peer-related errors.
- * All codes ending in 'FAILED' indicate critical errors.
- * All codes ending in 'ERROR' indicate non-critical errors.
  * 
  * @group Errors
  */

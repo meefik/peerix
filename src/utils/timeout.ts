@@ -15,7 +15,6 @@ export class Timeout {
   constructor(callback: () => void, delay: number) {
     this.#callback = callback;
     this.#delay = delay;
-    this.start();
   }
 
   /**

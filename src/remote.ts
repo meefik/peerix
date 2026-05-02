@@ -66,7 +66,7 @@ export class RemotePeer {
     this.channels = new Map();
 
     this.#polite = polite;
-    this.#emitter = new EventEmitter();
+    this.#emitter = new EventEmitter(this);
     this.#streamLabels = new Map();
     this.#makingOffer = false;
     this.#pendingAnswer = false;

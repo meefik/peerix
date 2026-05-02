@@ -37,11 +37,11 @@ export class IceCandidateQueue {
   }
 
   /**
-   * Helper method to add queued ICE candidates for a remote peer once its remote description is set.
+   * Retrieves and removes queued ICE candidates for a remote peer that match the username fragment of the given remote description.
    * 
    * @param id Remote peer id.
    * @param description Peer connection remote description.
-   * @returns An array of candidates that were added to the peer connection. If no candidates were queued or added, an empty array is returned.
+   * @returns An array of ICE candidates whose username fragment matches the remote description. Returns an empty array if no candidates match.
    */
   pull(id: string, description?: RTCSessionDescriptionInit): RTCIceCandidateInit[] {
     const candidates = [];
