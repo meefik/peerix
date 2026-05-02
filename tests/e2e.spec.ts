@@ -16,9 +16,15 @@ for (const testCase of scenario) {
     }
 
     await page.evaluate(async ({ debug, testCase }) => {
-      const TestRunner = (window as any).TestRunner;
-      const runner = new TestRunner({ debug });
-      await runner.run(testCase as any);
+      const handler = async () => {
+        const TestRunner = (window as any).TestRunner;
+        const runner = new TestRunner({ debug });
+        await runner.run(testCase as any);
+      };
+      document.addEventListener('click', handler, { once: true, capture: true });
     }, { debug: DEBUG, testCase });
+
+    // User gesture is required in some browsers
+    await page.click('body');
   });
 }
