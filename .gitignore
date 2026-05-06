@@ -1,0 +1,14 @@
+logs
+*.log
+.lock-wscript
+.DS_Store
+node_modules
+/dist/
+/docs/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
