@@ -246,17 +246,16 @@ If you do not want to create your own signaling server, you can use the NATS dri
 
 ```js
 import { NatsDriver } from 'peerix';
-import { connect } from 'https://esm.sh/nats.ws';
+import { wsconnect } from '@nats-io/nats-core';
 
 // connect to a NATS server (e.g. the public demo server) 
-const nc = await connect({ servers: ['wss://demo.nats.io:8443'] });
- 
-// create a new driver instance and start it
+const nc = await wsconnect({ servers: ['wss://demo.nats.io:8443'], noEcho: true });
+
+// create a new driver instance
 const driver = new NatsDriver({ nc, prefix: 'peerix' });
-driver.start();
 ```
 
-You should install the `nats.ws` package to use the NATS Driver, as it provides a WebSocket client for connecting to NATS servers from the browser.
+You should install the `@nats-io/nats-core` package to use the NATS Driver, as it provides a WebSocket client for connecting to NATS servers from the browser.
 
 Peerix uses several techniques to reduce the number of signaling messages required to establish and maintain peer connections. Each peer connection begins with a negotiated data channel for signaling after the initial connection is established, eliminating the need for a signaling server during the lifetime of the peer connection. Additionally, Peerix uses compression to minimize the size of signaling messages, further reducing the overhead and load on the signaling server.
 

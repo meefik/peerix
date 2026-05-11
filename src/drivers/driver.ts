@@ -121,7 +121,7 @@ export interface DriverEvents {
   /** Emitted when the driver becomes inactive. */
   'inactive': [];
   /** Emitted when an error occurs within the driver. */
-  'error': [Error];
+  'error': [any];
   /** Allows for additional custom events. */
   [event: string]: any[];
 }
