@@ -4,11 +4,11 @@
  * @group Errors
  */
 export type ErrorCode = 'UNKNOWN_ERROR'
-  | 'PEER_SIGNALING_ERROR'
-  | 'PEER_NEGOTIATION_ERROR'
-  | 'PEER_ICECANDIDATE_ERROR'
-  | 'PEER_MEDIASTREAM_ERROR'
-  | 'PEER_DATACHANNEL_ERROR';
+  | 'SIGNALING_ERROR'
+  | 'NEGOTIATION_ERROR'
+  | 'ICECANDIDATE_ERROR'
+  | 'MEDIASTREAM_ERROR'
+  | 'DATACHANNEL_ERROR';
 
 /**
  * Custom error class for Peerix-related errors.

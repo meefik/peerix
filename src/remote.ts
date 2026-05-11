@@ -128,7 +128,7 @@ export class RemotePeer {
         }
       }
       catch (err) {
-        const error = new PeerixError(err, 'PEER_ICECANDIDATE_ERROR');
+        const error = new PeerixError(err, 'ICECANDIDATE_ERROR');
         this.emit('error', { id: this.id, name: 'error', error });
 
         log('remote:error', { id: this.id, error });
@@ -140,7 +140,7 @@ export class RemotePeer {
       try {
         this.#createOffer();
       } catch (err) {
-        const error = new PeerixError(err, 'PEER_NEGOTIATION_ERROR');
+        const error = new PeerixError(err, 'NEGOTIATION_ERROR');
         this.emit('error', { id: this.id, name: 'error', error });
 
         log('remote:error', { id: this.id, error });
@@ -153,7 +153,7 @@ export class RemotePeer {
         this.#setupDataChannel(channel);
       }
       catch (err) {
-        const error = new PeerixError(err, 'PEER_DATACHANNEL_ERROR');
+        const error = new PeerixError(err, 'DATACHANNEL_ERROR');
         this.emit('error', { id: this.id, name: 'error', error });
 
         log('remote:error', { id: this.id, error });
@@ -166,7 +166,7 @@ export class RemotePeer {
         this.#setupMediaTrack(track, stream);
       }
       catch (err) {
-        const error = new PeerixError(err, 'PEER_MEDIASTREAM_ERROR');
+        const error = new PeerixError(err, 'MEDIASTREAM_ERROR');
         this.emit('error', { id: this.id, name: 'error', error });
 
         log('remote:error', { id: this.id, error });
@@ -182,7 +182,7 @@ export class RemotePeer {
         try {
           this.#createChannel(channelOptions);
         } catch (err) {
-          const error = new PeerixError(err, 'PEER_DATACHANNEL_ERROR');
+          const error = new PeerixError(err, 'DATACHANNEL_ERROR');
           this.emit('error', { id: this.id, name: 'error', error });
 
           log('remote:error', { id: this.id, error });
@@ -193,7 +193,7 @@ export class RemotePeer {
         try {
           this.#addStream(streamOptions);
         } catch (err) {
-          const error = new PeerixError(err, 'PEER_MEDIASTREAM_ERROR');
+          const error = new PeerixError(err, 'MEDIASTREAM_ERROR');
           this.emit('error', { id: this.id, name: 'error', error });
 
           log('remote:error', { id: this.id, error });
@@ -209,7 +209,7 @@ export class RemotePeer {
       try {
         this.#createChannel(channelOptions);
       } catch (err) {
-        const error = new PeerixError(err, 'PEER_DATACHANNEL_ERROR');
+        const error = new PeerixError(err, 'DATACHANNEL_ERROR');
         this.emit('error', { id: this.id, name: 'error', error });
 
         log('remote:error', { id: this.id, error });
@@ -223,7 +223,7 @@ export class RemotePeer {
         }
         await this.applyDescription(description);
       } catch (err) {
-        const error = new PeerixError(err, 'PEER_NEGOTIATION_ERROR');
+        const error = new PeerixError(err, 'NEGOTIATION_ERROR');
         this.emit('error', { id: this.id, name: 'error', error });
 
         log('remote:error', { id: this.id, error });
@@ -234,7 +234,7 @@ export class RemotePeer {
       try {
         await this.applyDescription(description);
       } catch (err) {
-        const error = new PeerixError(err, 'PEER_NEGOTIATION_ERROR');
+        const error = new PeerixError(err, 'NEGOTIATION_ERROR');
         this.emit('error', { id: this.id, name: 'error', error });
 
         log('remote:error', { id: this.id, error });
@@ -522,7 +522,7 @@ export class RemotePeer {
       await connection.addIceCandidate(candidate);
     }
     catch (err) {
-      const error = new PeerixError(err, 'PEER_ICECANDIDATE_ERROR');
+      const error = new PeerixError(err, 'ICECANDIDATE_ERROR');
       this.emit('error', { id: this.id, name: 'error', error });
 
       log('remote:error', { id: this.id, error });

@@ -124,7 +124,7 @@ export class Peer {
       },
       onInactive: () => { },
       onError: (err) => {
-        const error = new PeerixError(err, 'PEER_SIGNALING_ERROR');
+        const error = new PeerixError(err, 'SIGNALING_ERROR');
         this.emit('error', { id: this.id, name: 'error', error });
 
         log('signal:error', { id: this.id, error });
@@ -588,7 +588,7 @@ export class Peer {
       await this.#signaler.dispatch(namespace, message);
     }
     catch (err) {
-      const error = new PeerixError(err, 'PEER_SIGNALING_ERROR');
+      const error = new PeerixError(err, 'SIGNALING_ERROR');
       this.emit('error', { id: this.id, name: 'error', error });
 
       log('signal:error', { id: this.id, namespace, error });
@@ -684,7 +684,7 @@ export class Peer {
 
     }
     catch (err) {
-      const error = new PeerixError(err, 'PEER_NEGOTIATION_ERROR');
+      const error = new PeerixError(err, 'NEGOTIATION_ERROR');
       this.emit('error', { id: this.id, name: 'error', error });
 
       log('peer:error', { id: this.id, error });
