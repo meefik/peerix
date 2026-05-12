@@ -1,4 +1,5 @@
 import { Driver } from './driver.js';
+import { EventEmitter } from '../utils/emitter.js';
 
 /**
  * NATS-based signaling driver for distributed communication across multiple 
@@ -24,9 +25,10 @@ import { Driver } from './driver.js';
  * ```
  */
 export class NatsDriver extends Driver {
-  #handlers: Map<string, Map<(payload: number[]) => void, { unsubscribe: () => void; }>>;
-  #nc: { subscribe: Function; publish: Function; status: Function; } | null;
+  #emitter: EventEmitter<{ [namespace: string]: [number[]]; }>;
+  #subscriptions: Map<string, { unsubscribe: () => void; }>;
   #prefix: string;
+  #nc: { subscribe: Function; publish: Function; status: Function; } | null;
   #statusIterator: AsyncIterator<any> | null;
 
   /**
@@ -46,53 +48,44 @@ export class NatsDriver extends Driver {
     }
 
     this.#nc = nc;
-    this.#prefix = prefix;
-    this.#handlers = new Map();
+    this.#prefix = String(prefix);
+    this.#emitter = new EventEmitter();
+    this.#subscriptions = new Map();
     this.#statusIterator = null;
     this.#trackConnectionStatus();
   }
 
   async subscribe(namespace: string[], handler: (payload: number[]) => void) {
-    const ns = namespace.join(':');
-    let handlers = this.#handlers.get(ns);
-    if (!handlers) {
-      handlers = new Map();
-      this.#handlers.set(ns, handlers);
+    const ns = this.#getNS(namespace);
+    this.#emitter.on(ns, handler);
+
+    if (!this.#subscriptions.has(ns)) {
+      const sub = this.#nc?.subscribe(ns, {
+        callback: (error: Error, msg: any) => {
+          if (error) return this.emit('error', error);
+          this.#emitter.emit(ns, msg.data);
+        },
+      });
+      if (sub) {
+        this.#subscriptions.set(ns, sub);
+      }
     }
-
-    if (handlers.has(handler)) {
-      return;
-    }
-
-    const subject = this.#getSubject(namespace);
-    const sub = this.#nc?.subscribe(subject, {
-      callback: (error: Error, msg: any) => {
-        if (error) return this.emit('error', error);
-        setTimeout(() => handler(msg.data), 0);
-      },
-    });
-
-    handlers.set(handler, sub);
   }
 
   async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
-    const ns = namespace.join(':');
-    const handlers = this.#handlers.get(ns);
-    if (handlers) {
-      const sub = handlers.get(handler);
-      handlers.delete(handler);
-      if (!handlers?.size) {
-        this.#handlers.delete(ns);
-      }
-      if (sub) {
-        sub.unsubscribe();
-      }
+    const ns = this.#getNS(namespace);
+    this.#emitter.off(ns, handler);
+
+    const sub = this.#subscriptions.get(ns);
+    if (sub) {
+      sub.unsubscribe();
+      this.#subscriptions.delete(ns);
     }
   }
 
   async dispatch(namespace: string[], payload: number[]) {
-    const subject = this.#getSubject(namespace);
-    this.#nc?.publish(subject, payload);
+    const ns = this.#getNS(namespace);
+    this.#nc?.publish(ns, new Uint8Array(payload));
   }
 
   /**
@@ -103,19 +96,20 @@ export class NatsDriver extends Driver {
       this.active = false;
       this.#statusIterator?.return?.();
       this.#statusIterator = null;
-      this.#handlers.forEach((subs) => subs.forEach((sub) => sub.unsubscribe()));
-      this.#handlers.clear();
+      this.#emitter.clear();
+      this.#subscriptions.forEach(sub => sub.unsubscribe());
+      this.#subscriptions.clear();
       this.#nc = null;
     }
   }
 
   /**
-   * Constructs the NATS subject for a given namespace.
+   * Constructs a namespace string from an array of namespace segments.
    * 
-   * @param namespace The namespace array to construct the subject from.
-   * @returns The constructed NATS subject string.
+   * @param namespace Array of namespace segments.
+   * @returns Constructed namespace string.
    */
-  #getSubject(namespace: string[]) {
+  #getNS(namespace: string[]) {
     return [this.#prefix, ...namespace].filter(Boolean).join('.');
   }
 

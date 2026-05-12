@@ -1,4 +1,5 @@
 import { Driver } from './driver.js';
+import { EventEmitter } from '../utils/emitter.js';
 
 /**
  * BroadcastChannel-based signaling driver for intra-origin communication.
@@ -13,7 +14,7 @@ import { Driver } from './driver.js';
  * ```
  */
 export class BroadcastChannelDriver extends Driver {
-  #handlers: Map<string, Set<(payload: number[]) => void>>;
+  #emitter: EventEmitter<{ [namespace: string]: [number[]]; }>;
   #bc: BroadcastChannel;
 
   /**
@@ -23,41 +24,37 @@ export class BroadcastChannelDriver extends Driver {
    */
   constructor(channelName: string) {
     super();
-    this.#handlers = new Map();
+    this.#emitter = new EventEmitter();
     this.#bc = new BroadcastChannel(channelName || 'peerix');
     this.#bc.onmessage = (e) => {
       const [ns, payload] = e.data;
-      const handlers = this.#handlers.get(ns);
-      if (!ns || !handlers) return;
-      for (const handler of handlers) {
-        setTimeout(() => handler(payload), 0);
-      }
+      if (!ns) return;
+      this.#emitter.emit(ns, payload);
     };
   }
 
   async subscribe(namespace: string[], handler: (payload: number[]) => void) {
-    const ns = namespace.join(':');
-    let handlers = this.#handlers.get(ns);
-    if (!handlers) {
-      handlers = new Set();
-      this.#handlers.set(ns, handlers);
-    }
-    handlers.add(handler);
+    const ns = this.#getNS(namespace);
+    this.#emitter.on(ns, handler);
   }
 
   async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
-    const ns = namespace.join(':');
-    const handlers = this.#handlers.get(ns);
-    if (handlers) {
-      handlers.delete(handler);
-      if (!handlers.size) {
-        this.#handlers.delete(ns);
-      }
-    }
+    const ns = this.#getNS(namespace);
+    this.#emitter.off(ns, handler);
   }
 
   async dispatch(namespace: string[], payload: number[]) {
-    const ns = namespace.join(':');
+    const ns = this.#getNS(namespace);
     this.#bc.postMessage([ns, payload]);
+  }
+
+  /**
+   * Constructs a namespace string from an array of namespace segments.
+   * 
+   * @param namespace Array of namespace segments.
+   * @returns Constructed namespace string.
+   */
+  #getNS(namespace: string[]) {
+    return namespace.join(':');
   }
 }

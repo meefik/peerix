@@ -1,8 +1,12 @@
 import { Driver } from './driver.js';
+import { EventEmitter } from '../utils/emitter.js';
 
 /**
  * Supabase-based signaling driver for distributed communication across multiple
  * browsers and devices.
+ * 
+ * This driver uses [Supabase Realtime](https://supabase.com/docs/guides/realtime) 
+ * to relay signaling messages between clients through your Supabase server.
  *
  * > This driver requires the `@supabase/supabase-js` module in the browser.
  * 
@@ -20,7 +24,7 @@ import { Driver } from './driver.js';
  * ```
  */
 export class SupabaseDriver extends Driver {
-  #handlers: Map<string, Set<(payload: number[]) => void>>;
+  #emitter: EventEmitter<{ [namespace: string]: [number[]]; }>;
   #prefix: string;
   #supabase: { channel: Function, removeChannel: Function; } | null;
   #channel: { state: string; on: Function, send: Function, subscribe: Function, unsubscribe: Function; } | null;
@@ -42,19 +46,13 @@ export class SupabaseDriver extends Driver {
     }
 
     this.#supabase = supabase;
-    this.#prefix = prefix;
-    this.#handlers = new Map();
+    this.#prefix = String(prefix);
+    this.#emitter = new EventEmitter();
 
     this.#onBroadcast = (message) => {
-      const [namespace, payload] = message.payload || [];
-      if (!namespace) return;
-
-      const handlers = this.#handlers.get(namespace);
-      if (!handlers?.size) return;
-
-      for (const handler of handlers) {
-        setTimeout(() => handler(payload), 0);
-      }
+      const [ns, payload] = message.payload || [];
+      if (!ns) return;
+      this.#emitter.emit(ns, payload);
     };
 
     this.#channel = supabase.channel(this.#prefix)
@@ -62,34 +60,23 @@ export class SupabaseDriver extends Driver {
   }
 
   async subscribe(namespace: string[], handler: (payload: number[]) => void) {
-    const ns = namespace.join(':');
-    let handlers = this.#handlers.get(ns);
-    if (!handlers) {
-      handlers = new Set();
-      this.#handlers.set(ns, handlers);
-    }
-    handlers.add(handler);
+    const ns = this.#getNS(namespace);
+    this.#emitter.on(ns, handler);
 
     await this.#subscribeToChannel();
   }
 
   async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
-    const ns = namespace.join(':');
-    const handlers = this.#handlers.get(ns);
-    if (handlers) {
-      handlers.delete(handler);
-      if (!handlers.size) {
-        this.#handlers.delete(ns);
-      }
-    }
+    const ns = this.#getNS(namespace);
+    this.#emitter.off(ns, handler);
 
-    if (!this.#handlers.size) {
+    if (!this.#emitter.size) {
       await this.#unsubscribeFromChannel();
     }
   }
 
   async dispatch(namespace: string[], payload: number[]) {
-    const ns = namespace.join(':');
+    const ns = this.#getNS(namespace);
 
     await this.#channel?.send({
       type: 'broadcast',
@@ -104,6 +91,7 @@ export class SupabaseDriver extends Driver {
   destroy() {
     if (this.#supabase) {
       this.active = false;
+      this.#emitter.clear();
 
       if (this.#channel) {
         this.#unsubscribeFromChannel().catch(() => { });
@@ -111,9 +99,18 @@ export class SupabaseDriver extends Driver {
         this.#channel = null;
       }
 
-      this.#handlers.clear();
       this.#supabase = null;
     }
+  }
+
+  /**
+   * Constructs a namespace string from an array of namespace segments.
+   * 
+   * @param namespace Array of namespace segments.
+   * @returns Constructed namespace string.
+   */
+  #getNS(namespace: string[]) {
+    return namespace.join(':');
   }
 
   /**

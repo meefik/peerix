@@ -1,4 +1,5 @@
 import { Driver } from './driver.js';
+import { EventEmitter } from '../utils/emitter.js';
 
 /**
  * In-memory signaling driver for intra-process communication.
@@ -13,8 +14,7 @@ import { Driver } from './driver.js';
  * ```
  */
 export class MemoryDriver extends Driver {
-  #handlers: Map<string, Set<(payload: number[]) => void>>;
-  #delay: number;
+  #emitter: EventEmitter<{ [namespace: string]: [number[]]; }>;
 
   /**
    * Creates a new instance of the driver.
@@ -24,38 +24,33 @@ export class MemoryDriver extends Driver {
    */
   constructor(options?: { delay?: number; }) {
     super();
-    this.#handlers = new Map();
-    this.#delay = options?.delay || 0;
+    const { delay = 0 } = options || {};
+    const randomizedDelay = delay > 0 ? Math.floor(delay * (0.75 + 0.5 * Math.random())) : 0;
+    this.#emitter = new EventEmitter(null, { delay: randomizedDelay });
   }
 
   async subscribe(namespace: string[], handler: (payload: number[]) => void) {
-    const ns = namespace.join(':');
-    let handlers = this.#handlers.get(ns);
-    if (!handlers) {
-      handlers = new Set();
-      this.#handlers.set(ns, handlers);
-    }
-    handlers.add(handler);
+    const ns = this.#getNS(namespace);
+    this.#emitter.on(ns, handler);
   }
 
   async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
-    const ns = namespace.join(':');
-    const handlers = this.#handlers.get(ns);
-    if (handlers) {
-      handlers.delete(handler);
-      if (!handlers.size) {
-        this.#handlers.delete(ns);
-      }
-    }
+    const ns = this.#getNS(namespace);
+    this.#emitter.off(ns, handler);
   }
 
   async dispatch(namespace: string[], payload: number[]) {
-    const ns = namespace.join(':');
-    const handlers = this.#handlers.get(ns);
-    if (!handlers) return;
-    for (const handler of handlers) {
-      const delay = ~~(0.5 * Math.random() * this.#delay + 0.75 * this.#delay);
-      setTimeout(() => handler(payload), delay);
-    }
+    const ns = this.#getNS(namespace);
+    this.#emitter.emit(ns, payload);
+  }
+
+  /**
+   * Constructs a namespace string from an array of namespace segments.
+   * 
+   * @param namespace Array of namespace segments.
+   * @returns Constructed namespace string.
+   */
+  #getNS(namespace: string[]) {
+    return namespace.join(':');
   }
 }

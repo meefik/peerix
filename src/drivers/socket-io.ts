@@ -1,8 +1,12 @@
 import { Driver } from './driver.js';
+import { EventEmitter } from '../utils/emitter.js';
 
 /**
  * Socket.IO-based signaling driver for distributed communication across multiple
  * browsers and devices.
+ * 
+ * This driver uses [Socket.IO](https://socket.io/) to relay signaling messages 
+ * between clients through your own WebSocket server.
  *
  * Expected Socket.IO events:
  * - Client -> Server: `prefix:subscribe`, `prefix:unsubscribe`, `prefix:dispatch`
@@ -49,7 +53,7 @@ import { Driver } from './driver.js';
  * ```
  */
 export class SocketIoDriver extends Driver {
-  #handlers: Map<string, Set<(payload: number[]) => void>>;
+  #emitter: EventEmitter<{ [namespace: string]: [number[]]; }>;
   #socket: { on: Function; off: Function; emit: Function; connected: boolean; } | null;
   #prefix: string;
   #onConnect: () => void;
@@ -74,14 +78,14 @@ export class SocketIoDriver extends Driver {
     }
 
     this.#socket = socket;
-    this.#prefix = prefix;
-    this.#handlers = new Map();
+    this.#prefix = String(prefix);
+    this.#emitter = new EventEmitter();
 
     this.#onConnect = () => {
       this.active = true;
       // re-subscribe to all namespaces to restore message flow after reconnecting
-      const event = this.#getNamespace('subscribe');
-      for (const namespace of this.#handlers.keys()) {
+      const event = this.#getNS('subscribe');
+      for (const namespace of this.#emitter.keys()) {
         this.#socket?.emit(event, namespace, () => { });
       }
     };
@@ -95,60 +99,46 @@ export class SocketIoDriver extends Driver {
     };
 
     this.#onMessage = (namespace, payload) => {
-      const handlers = this.#handlers.get(namespace);
-      if (!handlers?.size) return;
-
-      for (const handler of handlers) {
-        setTimeout(() => handler(payload), 0);
-      }
+      this.#emitter.emit(namespace, payload);
     };
 
     this.#socket.on('connect', this.#onConnect);
     this.#socket.on('disconnect', this.#onDisconnect);
     this.#socket.on('connect_error', this.#onError);
     this.#socket.on('error', this.#onError);
-    this.#socket.on(this.#getNamespace('message'), this.#onMessage);
+    this.#socket.on(this.#getNS('message'), this.#onMessage);
 
     this.active = !!this.#socket.connected;
   }
 
   async subscribe(namespace: string[], handler: (payload: number[]) => void) {
-    const ns = this.#getNamespace(...namespace);
-    let handlers = this.#handlers.get(ns);
-    const isFirstSubscription = !handlers;
-    if (!handlers) {
-      handlers = new Set();
-      this.#handlers.set(ns, handlers);
-    }
-    handlers.add(handler);
+    const ns = this.#getNS(...namespace);
+    const isFirstSubscription = !this.#emitter.has(ns);
+    this.#emitter.on(ns, handler);
 
     if (isFirstSubscription) {
       await new Promise(resolve => {
         if (!this.#socket) return resolve(null);
-        this.#socket.emit(this.#getNamespace('subscribe'), ns, () => resolve(null));
+        this.#socket.emit(this.#getNS('subscribe'), ns, () => resolve(null));
       });
     }
   }
 
   async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
-    const ns = this.#getNamespace(...namespace);
-    const handlers = this.#handlers.get(ns);
-    if (handlers) {
-      handlers.delete(handler);
-      if (!handlers.size) {
-        this.#handlers.delete(ns);
+    const ns = this.#getNS(...namespace);
+    this.#emitter.off(ns, handler);
 
-        await new Promise(resolve => {
-          if (!this.#socket) return resolve(null);
-          this.#socket.emit(this.#getNamespace('unsubscribe'), ns, () => resolve(null));
-        });
-      }
+    if (!this.#emitter.has(ns)) {
+      await new Promise(resolve => {
+        if (!this.#socket) return resolve(null);
+        this.#socket.emit(this.#getNS('unsubscribe'), ns, () => resolve(null));
+      });
     }
   }
 
   async dispatch(namespace: string[], payload: number[]) {
-    const ns = this.#getNamespace(...namespace);
-    this.#socket?.emit(this.#getNamespace('dispatch'), ns, payload);
+    const ns = this.#getNS(...namespace);
+    this.#socket?.emit(this.#getNS('dispatch'), ns, payload);
   }
 
   /**
@@ -157,23 +147,23 @@ export class SocketIoDriver extends Driver {
   destroy() {
     if (this.#socket) {
       this.active = false;
+      this.#emitter.clear();
       this.#socket.off('connect', this.#onConnect);
       this.#socket.off('disconnect', this.#onDisconnect);
       this.#socket.off('connect_error', this.#onError);
       this.#socket.off('error', this.#onError);
-      this.#socket.off(this.#getNamespace('message'), this.#onMessage);
-      this.#handlers.clear();
+      this.#socket.off(this.#getNS('message'), this.#onMessage);
       this.#socket = null;
     }
   }
 
   /**
-   * Builds a full event name by combining the prefix with the provided namespace segments.
+   * Constructs a namespace string from an array of namespace segments.
    * 
-   * @param namespaces Segments to combine with the prefix for the event name.
-   * @returns The combined event name string.
+   * @param namespaces Array of namespace segments.
+   * @returns Constructed namespace string.
    */
-  #getNamespace(...namespaces: string[]) {
+  #getNS(...namespaces: string[]) {
     return [this.#prefix, ...namespaces].filter(Boolean).join(':');
   }
 }

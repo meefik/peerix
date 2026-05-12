@@ -8,17 +8,20 @@
  */
 export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<keyof T, Map<(...args: any[]) => void, boolean>> {
   #context: any;
+  #delay: number;
 
   /**
    * Creates a new EventEmitter instance.
    *
    * @param context Optional context for handler execution.
+   * @param options Optional configuration for the emitter.
+   * @param options.delay Delay (in milliseconds) for event handler execution.
    */
-  constructor(context?: any) {
+  constructor(context?: any, options?: { delay?: number; }) {
     super();
-    if (context) {
-      this.#context = context;
-    }
+    this.#context = context;
+    const { delay = 0 } = options || {};
+    this.#delay = delay;
   }
 
   /**
@@ -93,13 +96,14 @@ export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<keyof
     if (event) {
       const events = Array.isArray(event) ? event : [event];
       const context = this.#context || this;
+      const delay = this.#delay;
       for (const ev of events) {
         if (this.has(ev)) {
           for (const [handler, once] of this.get(ev) || []) {
             if (once) {
               this.off(ev, handler);
             }
-            setTimeout(() => handler.apply(context, args), 0);
+            setTimeout(() => handler.apply(context, args), delay);
           }
         }
       }
