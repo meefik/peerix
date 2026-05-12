@@ -215,10 +215,12 @@ You can subscribe to either group or specific events using the `:event` suffix.
 
 Peerix supports multiple signaling drivers for peer discovery and negotiation purposes. You can choose the driver that best fits your application's needs:
 - `MemoryDriver`: A simple in-memory driver for testing and development. It allows several peer instances to discover each other within one browser page.
-- `BroadcastChannelDriver`: Uses the BroadcastChannel API for communication between tabs in the same browser.
-- `NatsDriver`: Uses [NATS](https://nats.io/) messaging system for communication between peers across different browsers and devices over the internet. It supports E2EE to protect the privacy of signaling messages and is recommended for production applications.
+- `BroadcastChannelDriver`: Uses [BroadcastChannel API](https://developer.mozilla.org/docs/Web/API/BroadcastChannel) for communication between tabs in the same browser.
+- `NatsDriver`: Uses [NATS](https://nats.io/) messaging system for communication between peers across different browsers and devices over the internet.
+- `SocketIoDriver`: Uses [Socket.IO](https://socket.io/) client for communication between peers through a Socket.IO server.
+- `SupabaseDriver`: Uses [Supabase](https://supabase.com/) database and real-time features for communication between peers.
 
-If no driver is provided when creating a `Peer`, Peerix will use an in-memory `MemoryDriver` by default — useful for single-page development and quick tests. For multi-tab testing use `BroadcastChannelDriver`, and for distributed signaling use `NatsDriver` or your own custom driver in production scenarios.
+If no driver is provided when creating a `Peer`, Peerix will use an in-memory `MemoryDriver` by default — useful for single-page development and quick tests. For multi-tab testing use `BroadcastChannelDriver`, and for distributed signaling use `NatsDriver`, `SocketIoDriver`, `SupabaseDriver`, or your own custom driver in production scenarios.
 
 You can also implement your own custom signaling driver by extending the `Driver` class and implementing the required methods:
 
