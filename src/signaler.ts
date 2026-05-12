@@ -1,5 +1,4 @@
 import type { Driver } from './drivers/driver.js';
-import log from './utils/logger.js';
 import { MemoryDriver } from './drivers/memory.js';
 
 // All peers without a driver will share the same in-memory signaling bus
@@ -28,7 +27,7 @@ export class Signaler {
     const {
       driver = defaultDriver,
       compression = true,
-      hashing = false,
+      hashing = true,
       encryptionKey = '',
       onActive,
       onInactive,

@@ -836,13 +836,16 @@ export interface PeerOptions {
    */
   connectionTimeout?: number;
   /**
-   * Compress signaling messages to reduce bandwidth usage by about 30%.
+   * Enable compression for signaling messages to reduce bandwidth usage 
+   * by about 30%.
    * Enabled by default.
    */
   signalingCompression?: boolean;
   /**
-   * Hash namespaces in signaling messages for privacy.
-   * Disabled by default.
+   * Enable hashing of namespaces in signaling messages for privacy. 
+   * This also helps to avoid unsupported characters in room names 
+   * and peer identifiers.
+   * Enabled by default.
    */
   signalingHashing?: boolean;
   /**
