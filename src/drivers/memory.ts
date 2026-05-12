@@ -13,7 +13,7 @@ import { Driver } from './driver.js';
  * ```
  */
 export class MemoryDriver extends Driver {
-  #handlers: Map<string, Set<(message: Uint8Array) => void>>;
+  #handlers: Map<string, Set<(payload: number[]) => void>>;
   #delay: number;
 
   /**
@@ -28,7 +28,7 @@ export class MemoryDriver extends Driver {
     this.#delay = options?.delay || 0;
   }
 
-  async subscribe(namespace: string[], handler: (message: Uint8Array) => void) {
+  async subscribe(namespace: string[], handler: (payload: number[]) => void) {
     const ns = namespace.join(':');
     let handlers = this.#handlers.get(ns);
     if (!handlers) {
@@ -38,7 +38,7 @@ export class MemoryDriver extends Driver {
     handlers.add(handler);
   }
 
-  async unsubscribe(namespace: string[], handler: (message: Uint8Array) => void) {
+  async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
     const ns = namespace.join(':');
     const handlers = this.#handlers.get(ns);
     if (handlers) {
@@ -49,13 +49,13 @@ export class MemoryDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], message: Uint8Array) {
+  async dispatch(namespace: string[], payload: number[]) {
     const ns = namespace.join(':');
     const handlers = this.#handlers.get(ns);
     if (!handlers) return;
     for (const handler of handlers) {
       const delay = ~~(0.5 * Math.random() * this.#delay + 0.75 * this.#delay);
-      setTimeout(() => handler(message), delay);
+      setTimeout(() => handler(payload), delay);
     }
   }
 }

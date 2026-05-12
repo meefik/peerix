@@ -11,6 +11,7 @@ import { Driver } from './driver.js';
  * > NATS connections directly in the browser.
  * 
  * @group Drivers
+ * 
  * @example
  * ```javascript
  * import { wsconnect } from '@nats-io/nats-core';
@@ -23,7 +24,7 @@ import { Driver } from './driver.js';
  * ```
  */
 export class NatsDriver extends Driver {
-  #handlers: Map<string, Map<(message: Uint8Array) => void, { unsubscribe: () => void; }>>;
+  #handlers: Map<string, Map<(payload: number[]) => void, { unsubscribe: () => void; }>>;
   #nc: { subscribe: Function; publish: Function; status: Function; } | null;
   #prefix: string;
   #statusIterator: AsyncIterator<any> | null;
@@ -33,11 +34,11 @@ export class NatsDriver extends Driver {
    *
    * @param options Configuration options for the driver.
    * @param options.nc A NATS connection instance.
-   * @param options.prefix An optional prefix for NATS subjects.
+   * @param options.prefix An optional prefix for NATS subjects (default: 'peerix').
    */
   constructor(options: { nc: { subscribe: Function; publish: Function; status: Function; }; prefix?: string; }) {
     super();
-    const { nc, prefix = '' } = options || {};
+    const { nc, prefix = 'peerix' } = options || {};
 
     if (!nc || typeof nc.subscribe !== 'function'
       || typeof nc.publish !== 'function' || typeof nc.status !== 'function') {
@@ -51,7 +52,7 @@ export class NatsDriver extends Driver {
     this.#trackConnectionStatus();
   }
 
-  async subscribe(namespace: string[], handler: (message: Uint8Array) => void) {
+  async subscribe(namespace: string[], handler: (payload: number[]) => void) {
     const ns = namespace.join(':');
     let handlers = this.#handlers.get(ns);
     if (!handlers) {
@@ -74,7 +75,7 @@ export class NatsDriver extends Driver {
     handlers.set(handler, sub);
   }
 
-  async unsubscribe(namespace: string[], handler: (message: Uint8Array) => void) {
+  async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
     const ns = namespace.join(':');
     const handlers = this.#handlers.get(ns);
     if (handlers) {
@@ -89,9 +90,9 @@ export class NatsDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], message: Uint8Array) {
+  async dispatch(namespace: string[], payload: number[]) {
     const subject = this.#getSubject(namespace);
-    this.#nc?.publish(subject, message);
+    this.#nc?.publish(subject, payload);
   }
 
   /**

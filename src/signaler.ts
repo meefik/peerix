@@ -39,15 +39,16 @@ export class Signaler {
     this.#compression = compression;
     this.#hashing = hashing;
     this.#encryptionKey = encryptionKey;
-    this.#signalHandler = async (message: Uint8Array) => {
+    this.#signalHandler = async (payload: number[]) => {
       try {
+        let buffer = new Uint8Array(payload);
         if (this.#encryptionKey) {
-          message = await this.#decryptMessage(message);
+          buffer = await this.#decryptMessage(buffer);
         }
         if (this.#compression) {
-          message = await this.#decompressMessage(message);
+          buffer = await this.#decompressMessage(buffer);
         }
-        message = JSON.parse(new TextDecoder().decode(message));
+        const message = JSON.parse(new TextDecoder().decode(buffer));
         return onSignal(message);
       }
       catch (err) {
@@ -107,16 +108,16 @@ export class Signaler {
     if (this.#hashing) {
       namespace = await this.#sha256(namespace);
     }
-    message = new TextEncoder().encode(JSON.stringify(message));
 
+    let buffer = new TextEncoder().encode(JSON.stringify(message));
     if (this.#compression) {
-      message = await this.#compressMessage(message);
+      buffer = await this.#compressMessage(buffer);
     }
     if (this.#encryptionKey) {
-      message = await this.#encryptMessage(message);
+      buffer = await this.#encryptMessage(buffer);
     }
 
-    await this.#driver.dispatch(namespace, message);
+    await this.#driver.dispatch(namespace, Array.from(buffer));
   }
 
   /**

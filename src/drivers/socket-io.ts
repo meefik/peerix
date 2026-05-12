@@ -42,19 +42,19 @@ import { Driver } from './driver.js';
  *     callback();
  *   });
  *
- *   socket.on('peerix:dispatch', (namespace, message) => {
- *     socket.broadcast.to(namespace).emit('peerix:message', namespace, message);
+ *   socket.on('peerix:dispatch', (namespace, payload) => {
+ *     socket.broadcast.to(namespace).emit('peerix:message', namespace, payload);
  *   });
  * });
  * ```
  */
 export class SocketIoDriver extends Driver {
-  #handlers: Map<string, Set<(message: Uint8Array) => void>>;
+  #handlers: Map<string, Set<(payload: number[]) => void>>;
   #socket: { on: Function; off: Function; emit: Function; connected: boolean; } | null;
   #prefix: string;
   #onConnect: () => void;
   #onDisconnect: () => void;
-  #onMessage: (namespace: string, message: unknown) => void;
+  #onMessage: (namespace: string, payload: any) => void;
   #onError: (error: unknown) => void;
 
   /**
@@ -62,11 +62,11 @@ export class SocketIoDriver extends Driver {
    *
    * @param options Configuration options for the driver.
    * @param options.socket Socket.IO client instance.
-   * @param options.prefix Optional namespace prefix for channels.
+   * @param options.prefix Optional namespace prefix for event names (default: 'peerix').
    */
   constructor(options: { socket: { on: Function; off: Function; emit: Function; connected: boolean; }; prefix?: string; }) {
     super();
-    const { socket, prefix = '' } = options || {};
+    const { socket, prefix = 'peerix' } = options || {};
 
     if (!socket || typeof socket.on !== 'function'
       || typeof socket.off !== 'function' || typeof socket.emit !== 'function') {
@@ -94,15 +94,9 @@ export class SocketIoDriver extends Driver {
       this.emit('error', error);
     };
 
-    this.#onMessage = (namespace, message) => {
+    this.#onMessage = (namespace, payload) => {
       const handlers = this.#handlers.get(namespace);
       if (!handlers?.size) return;
-
-      const payload = this.#toUint8Array(message);
-      if (!payload) {
-        this.emit('error', new TypeError('SocketIoDriver received a non-binary message'));
-        return;
-      }
 
       for (const handler of handlers) {
         setTimeout(() => handler(payload), 0);
@@ -118,7 +112,7 @@ export class SocketIoDriver extends Driver {
     this.active = !!this.#socket.connected;
   }
 
-  async subscribe(namespace: string[], handler: (message: Uint8Array) => void) {
+  async subscribe(namespace: string[], handler: (payload: number[]) => void) {
     const ns = this.#getNamespace(...namespace);
     let handlers = this.#handlers.get(ns);
     const isFirstSubscription = !handlers;
@@ -136,13 +130,14 @@ export class SocketIoDriver extends Driver {
     }
   }
 
-  async unsubscribe(namespace: string[], handler: (message: Uint8Array) => void) {
+  async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
     const ns = this.#getNamespace(...namespace);
     const handlers = this.#handlers.get(ns);
     if (handlers) {
       handlers.delete(handler);
       if (!handlers.size) {
         this.#handlers.delete(ns);
+
         await new Promise(resolve => {
           if (!this.#socket) return resolve(null);
           this.#socket.emit(this.#getNamespace('unsubscribe'), ns, () => resolve(null));
@@ -151,9 +146,9 @@ export class SocketIoDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], message: Uint8Array) {
+  async dispatch(namespace: string[], payload: number[]) {
     const ns = this.#getNamespace(...namespace);
-    this.#socket?.emit(this.#getNamespace('dispatch'), ns, message);
+    this.#socket?.emit(this.#getNamespace('dispatch'), ns, payload);
   }
 
   /**
@@ -180,21 +175,5 @@ export class SocketIoDriver extends Driver {
    */
   #getNamespace(...namespaces: string[]) {
     return [this.#prefix, ...namespaces].filter(Boolean).join(':');
-  }
-
-  /**
-   * Converts supported payload shapes to Uint8Array.
-   * 
-   * @param message The incoming message payload to convert.
-   * @returns The converted Uint8Array or null if the format is unsupported.
-   */
-  #toUint8Array(message: unknown): Uint8Array | null {
-    if (message instanceof Uint8Array) {
-      return message;
-    }
-    if (message instanceof ArrayBuffer) {
-      return new Uint8Array(message);
-    }
-    return null;
   }
 }
