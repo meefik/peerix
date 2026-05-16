@@ -85,8 +85,8 @@ export class Driver {
    * @param namespace The namespace to subscribe to.
    * @param handler The handler function to call when a message is received.
    */
-  async subscribe(namespace: string[], handler: (payload: number[]) => void) {
-    // stub method to be implemented by concrete drivers
+  async subscribe(namespace: string[], handler: (data: number[]) => void) {
+    // Base implementation is intentionally empty.
   }
 
   /**
@@ -95,18 +95,18 @@ export class Driver {
    * @param namespace The namespace to unsubscribe from.
    * @param handler The handler function to remove.
    */
-  async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
-    // stub method to be implemented by concrete drivers
+  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
+    // Base implementation is intentionally empty.
   }
 
   /**
    * Dispatches a signaling message to the specified namespace.
    * 
    * @param namespace The namespace to dispatch the message to.
-   * @param payload The message payload to dispatch.
+   * @param data The message data to dispatch.
    */
-  async dispatch(namespace: string[], payload: number[]) {
-    // stub method to be implemented by concrete drivers
+  async dispatch(namespace: string[], data: number[]) {
+    // Base implementation is intentionally empty.
   }
 }
 

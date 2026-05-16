@@ -14,38 +14,38 @@ import { EventEmitter } from '../utils/emitter.js';
  * ```
  */
 export class BroadcastChannelDriver extends Driver {
-  #emitter: EventEmitter<{ [namespace: string]: [number[]]; }>;
+  #emitter: EventEmitter<Record<string, [number[]]>>;
   #bc: BroadcastChannel;
 
   /**
    * Creates a new instance of the driver.
    *
-   * @param channelName Optional BroadcastChannel name (defaults to 'peerix').
+   * @param channelName BroadcastChannel name (defaults to 'peerix').
    */
-  constructor(channelName: string) {
+  constructor(channelName: string = 'peerix') {
     super();
     this.#emitter = new EventEmitter();
-    this.#bc = new BroadcastChannel(channelName || 'peerix');
+    this.#bc = new BroadcastChannel(channelName);
     this.#bc.onmessage = (e) => {
-      const [ns, payload] = e.data;
+      const [ns, data] = e.data;
       if (!ns) return;
-      this.#emitter.emit(ns, payload);
+      this.#emitter.emit(ns, data);
     };
   }
 
-  async subscribe(namespace: string[], handler: (payload: number[]) => void) {
+  async subscribe(namespace: string[], handler: (data: number[]) => void) {
     const ns = this.#getNS(namespace);
     this.#emitter.on(ns, handler);
   }
 
-  async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
+  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
     const ns = this.#getNS(namespace);
     this.#emitter.off(ns, handler);
   }
 
-  async dispatch(namespace: string[], payload: number[]) {
+  async dispatch(namespace: string[], data: number[]) {
     const ns = this.#getNS(namespace);
-    this.#bc.postMessage([ns, payload]);
+    this.#bc.postMessage([ns, data]);
   }
 
   /**

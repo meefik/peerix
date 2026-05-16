@@ -24,11 +24,11 @@ import { EventEmitter } from '../utils/emitter.js';
  * ```
  */
 export class SupabaseDriver extends Driver {
-  #emitter: EventEmitter<{ [namespace: string]: [number[]]; }>;
+  #emitter: EventEmitter<Record<string, [number[]]>>;
   #prefix: string;
-  #supabase: { channel: Function, removeChannel: Function; } | null;
-  #channel: { state: string; on: Function, send: Function, subscribe: Function, unsubscribe: Function; } | null;
-  #onBroadcast: (message: { payload: [string, any]; }) => void;
+  #supabase: any | null;
+  #channel: any | null;
+  #onBroadcast: (message: { payload?: [string, number[]]; }) => void;
 
   /**
    * Creates a new instance of the driver.
@@ -50,23 +50,23 @@ export class SupabaseDriver extends Driver {
     this.#emitter = new EventEmitter();
 
     this.#onBroadcast = (message) => {
-      const [ns, payload] = message.payload || [];
+      const [ns, data = []] = message.payload || [];
       if (!ns) return;
-      this.#emitter.emit(ns, payload);
+      this.#emitter.emit(ns, data);
     };
 
     this.#channel = supabase.channel(this.#prefix)
       .on('broadcast', { event: 'message' }, this.#onBroadcast);
   }
 
-  async subscribe(namespace: string[], handler: (payload: number[]) => void) {
+  async subscribe(namespace: string[], handler: (data: number[]) => void) {
     const ns = this.#getNS(namespace);
     this.#emitter.on(ns, handler);
 
     await this.#subscribeToChannel();
   }
 
-  async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
+  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
     const ns = this.#getNS(namespace);
     this.#emitter.off(ns, handler);
 
@@ -75,13 +75,13 @@ export class SupabaseDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], payload: number[]) {
+  async dispatch(namespace: string[], data: number[]) {
     const ns = this.#getNS(namespace);
 
     await this.#channel?.send({
       type: 'broadcast',
       event: 'message',
-      payload: [ns, payload],
+      payload: [ns, data],
     });
   }
 
@@ -121,14 +121,17 @@ export class SupabaseDriver extends Driver {
 
     await new Promise((resolve, reject) => {
       if (!this.#channel) return resolve(null);
-      this.#channel.subscribe((status: string) => {
-        if (status === 'SUBSCRIBED') {
-          resolve(null);
-        }
-        else {
-          reject(new Error(`Failed to subscribe to Supabase channel: ${status}`));
-        }
-      });
+      try {
+        this.#channel.subscribe((status: any) => {
+          const state = typeof status === 'string'
+            ? status : status?.status;
+          if (state === 'SUBSCRIBED') resolve(null);
+          else reject(new Error(`Failed to subscribe to Supabase channel: ${state}`));
+        });
+      }
+      catch (err) {
+        reject(err);
+      }
     });
   }
 

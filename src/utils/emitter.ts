@@ -95,16 +95,19 @@ export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<keyof
   emit<K extends keyof T>(event: K | K[], ...args: T[K]) {
     if (event) {
       const events = Array.isArray(event) ? event : [event];
-      const context = this.#context || this;
+      const context = this.#context ?? this;
       const delay = this.#delay;
       for (const ev of events) {
-        if (this.has(ev)) {
-          for (const [handler, once] of this.get(ev) || []) {
-            if (once) {
-              this.off(ev, handler);
+        const handlers = this.get(ev);
+        if (!handlers) continue;
+        for (const [handler, once] of handlers.entries()) {
+          if (once) {
+            handlers.delete(handler);
+            if (!handlers.size) {
+              this.delete(ev);
             }
-            setTimeout(() => handler.apply(context, args), delay);
           }
+          setTimeout(() => handler.apply(context, args), delay);
         }
       }
     }

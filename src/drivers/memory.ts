@@ -14,7 +14,7 @@ import { EventEmitter } from '../utils/emitter.js';
  * ```
  */
 export class MemoryDriver extends Driver {
-  #emitter: EventEmitter<{ [namespace: string]: [number[]]; }>;
+  #emitter: EventEmitter<Record<string, [number[]]>>;
 
   /**
    * Creates a new instance of the driver.
@@ -29,28 +29,28 @@ export class MemoryDriver extends Driver {
     this.#emitter = new EventEmitter(null, { delay: randomizedDelay });
   }
 
-  async subscribe(namespace: string[], handler: (payload: number[]) => void) {
+  async subscribe(namespace: string[], handler: (data: number[]) => void) {
     const ns = this.#getNS(namespace);
     this.#emitter.on(ns, handler);
   }
 
-  async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
+  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
     const ns = this.#getNS(namespace);
     this.#emitter.off(ns, handler);
   }
 
-  async dispatch(namespace: string[], payload: number[]) {
+  async dispatch(namespace: string[], data: number[]) {
     const ns = this.#getNS(namespace);
-    this.#emitter.emit(ns, payload);
+    this.#emitter.emit(ns, data);
   }
 
   /**
    * Constructs a namespace string from an array of namespace segments.
-   * 
+   *
    * @param namespace Array of namespace segments.
    * @returns Constructed namespace string.
    */
-  #getNS(namespace: string[]) {
+  #getNS(namespace: string[]): string {
     return namespace.join(':');
   }
 }

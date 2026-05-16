@@ -10,7 +10,7 @@ import { EventEmitter } from '../utils/emitter.js';
  * @group Addons
  */
 export class Addon {
-  #emitter: EventEmitter<{ [key: string]: any[]; }>;
+  #emitter: EventEmitter<Record<string, any[]>>;
 
   /**
    * Creates a new Addon instance.
@@ -66,7 +66,7 @@ export class Addon {
    * @param peer The Peer instance to attach to.
    */
   async attach(peer: Peer) {
-    // stub method to be implemented by concrete addons
+    // Base implementation is intentionally empty.
   }
 
   /**
@@ -76,6 +76,6 @@ export class Addon {
    * @param peer The Peer instance to detach from.
    */
   async detach(peer: Peer) {
-    // stub method to be implemented by concrete addons
+    // Base implementation is intentionally empty.
   }
 }

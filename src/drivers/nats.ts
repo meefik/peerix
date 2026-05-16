@@ -25,7 +25,7 @@ import { EventEmitter } from '../utils/emitter.js';
  * ```
  */
 export class NatsDriver extends Driver {
-  #emitter: EventEmitter<{ [namespace: string]: [number[]]; }>;
+  #emitter: EventEmitter<Record<string, [number[]]>>;
   #subscriptions: Map<string, { unsubscribe: () => void; }>;
   #prefix: string;
   #nc: { subscribe: Function; publish: Function; status: Function; } | null;
@@ -55,7 +55,7 @@ export class NatsDriver extends Driver {
     this.#trackConnectionStatus();
   }
 
-  async subscribe(namespace: string[], handler: (payload: number[]) => void) {
+  async subscribe(namespace: string[], handler: (data: number[]) => void) {
     const ns = this.#getNS(namespace);
     this.#emitter.on(ns, handler);
 
@@ -72,7 +72,7 @@ export class NatsDriver extends Driver {
     }
   }
 
-  async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
+  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
     const ns = this.#getNS(namespace);
     this.#emitter.off(ns, handler);
 
@@ -83,9 +83,9 @@ export class NatsDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], payload: number[]) {
+  async dispatch(namespace: string[], data: number[]) {
     const ns = this.#getNS(namespace);
-    this.#nc?.publish(ns, new Uint8Array(payload));
+    this.#nc?.publish(ns, new Uint8Array(data));
   }
 
   /**
@@ -115,21 +115,20 @@ export class NatsDriver extends Driver {
 
   /**
    * Listens for NATS connection status events.
+   *
+   * The NATS client exposes an async-iterable status stream. We keep
+   * a reference to the iterator so we can cancel it during `destroy()`.
    */
   async #trackConnectionStatus() {
     try {
-      this.#statusIterator = this.#nc?.status()[Symbol.asyncIterator]();
-      for await (const s of { [Symbol.asyncIterator]: () => this.#statusIterator! }) {
+      const statusIterable = this.#nc?.status?.();
+      if (!statusIterable || typeof statusIterable[Symbol.asyncIterator] !== 'function') return;
+      this.#statusIterator = statusIterable[Symbol.asyncIterator]();
+      for await (const s of statusIterable as AsyncIterable<any>) {
         if (!this.#nc) break;
-        if (s.type === 'reconnect') {
-          this.active = true;
-        }
-        if (s.type === 'disconnect') {
-          this.active = false;
-        }
-        if (s.type === 'error') {
-          this.emit('error', s.data);
-        }
+        if (s.type === 'reconnect') this.active = true;
+        else if (s.type === 'disconnect') this.active = false;
+        else if (s.type === 'error') this.emit('error', s.data);
       }
     }
     catch (err) {

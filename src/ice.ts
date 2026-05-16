@@ -37,11 +37,15 @@ export class IceCandidateQueue {
   }
 
   /**
-   * Retrieves and removes queued ICE candidates for a remote peer that match the username fragment of the given remote description.
-   * 
+   * Retrieves queued ICE candidates for a remote peer that match the username 
+   * fragment of the given remote description.
+   *
+   * This method clears the entire queue for the peer after filtering, 
+   * so candidates that do not match are also discarded.
+   *
    * @param id Remote peer id.
    * @param description Peer connection remote description.
-   * @returns An array of ICE candidates whose username fragment matches the remote description. Returns an empty array if no candidates match.
+   * @returns An array of ICE candidates whose username fragment matches the remote description.
    */
   pull(id: string, description?: RTCSessionDescriptionInit): RTCIceCandidateInit[] {
     const candidates = [];

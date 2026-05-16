@@ -17,11 +17,9 @@ let deny: RegExp[];
  * - '-namespace:excluded'
  * - 'multiple,patterns,-with:exclusions'
  *
- * Possible log levels: debug, info, warn, error.
- *
  * Example usage:
  * ```javascript
- * import log from 'utils/logger.js';
+ * import log from './utils/logger.js';
  * log('module:submodule', 'This is a debug message');
  * log('module:submodule', () => 'This is a message inside a function');
  * log('module:submodule', () => ({ error: new Error('Something went wrong') }));
@@ -49,6 +47,9 @@ function stringify(value: any): string {
     return JSON.stringify(value, (k, v) => {
       if (v instanceof Error) {
         return { name: v.name, message: v.message };
+      }
+      if (v instanceof ArrayBuffer || ArrayBuffer.isView(v)) {
+        return { type: v.constructor.name, byteLength: v.byteLength };
       }
       if (v instanceof Map) {
         return Array.from(v);

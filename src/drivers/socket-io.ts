@@ -46,19 +46,19 @@ import { EventEmitter } from '../utils/emitter.js';
  *     callback();
  *   });
  *
- *   socket.on('peerix:dispatch', (namespace, payload) => {
- *     socket.broadcast.to(namespace).emit('peerix:message', namespace, payload);
+ *   socket.on('peerix:dispatch', (namespace, data) => {
+ *     socket.broadcast.to(namespace).emit('peerix:message', namespace, data);
  *   });
  * });
  * ```
  */
 export class SocketIoDriver extends Driver {
-  #emitter: EventEmitter<{ [namespace: string]: [number[]]; }>;
+  #emitter: EventEmitter<Record<string, [number[]]>>;
   #socket: { on: Function; off: Function; emit: Function; connected: boolean; } | null;
   #prefix: string;
   #onConnect: () => void;
   #onDisconnect: () => void;
-  #onMessage: (namespace: string, payload: any) => void;
+  #onMessage: (namespace: string, data: number[]) => void;
   #onError: (error: unknown) => void;
 
   /**
@@ -98,8 +98,8 @@ export class SocketIoDriver extends Driver {
       this.emit('error', error);
     };
 
-    this.#onMessage = (namespace, payload) => {
-      this.#emitter.emit(namespace, payload);
+    this.#onMessage = (namespace, data) => {
+      this.#emitter.emit(namespace, data);
     };
 
     this.#socket.on('connect', this.#onConnect);
@@ -111,7 +111,7 @@ export class SocketIoDriver extends Driver {
     this.active = !!this.#socket.connected;
   }
 
-  async subscribe(namespace: string[], handler: (payload: number[]) => void) {
+  async subscribe(namespace: string[], handler: (data: number[]) => void) {
     const ns = this.#getNS(...namespace);
     const isFirstSubscription = !this.#emitter.has(ns);
     this.#emitter.on(ns, handler);
@@ -124,7 +124,7 @@ export class SocketIoDriver extends Driver {
     }
   }
 
-  async unsubscribe(namespace: string[], handler: (payload: number[]) => void) {
+  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
     const ns = this.#getNS(...namespace);
     this.#emitter.off(ns, handler);
 
@@ -136,9 +136,9 @@ export class SocketIoDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], payload: number[]) {
+  async dispatch(namespace: string[], data: number[]) {
     const ns = this.#getNS(...namespace);
-    this.#socket?.emit(this.#getNS('dispatch'), ns, payload);
+    this.#socket?.emit(this.#getNS('dispatch'), ns, data);
   }
 
   /**
