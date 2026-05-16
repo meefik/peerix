@@ -118,8 +118,6 @@
     const driver = new BroadcastChannelDriver('peerix-demo');
     const peer = new Peer({ driver });
 
-    log('Peer ID: ' + peer.id);
-
     // Log peer events
     peer.on('connection', (e) => {
       const { name, remote, state } = e;

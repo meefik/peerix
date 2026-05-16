@@ -23,7 +23,7 @@ type Step = CallStep | WaitStep;
 
 type Scenario = {
   defaults: { timeout: number; };
-  peers: readonly { id: string; }[];
+  peers: readonly Record<PropertyKey, any>[];
   steps: readonly Step[];
 };
 
@@ -209,8 +209,8 @@ export class TestRunner {
   }
 
   async run(scenario: Scenario) {
-    for (const options of scenario.peers) {
-      const { id } = options;
+    for (const id in scenario.peers) {
+      const options = scenario.peers[id];
       this.peers[id] = new Peer(options);
     }
 

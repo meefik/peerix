@@ -9,6 +9,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## Changed
+
+- Use derived encryption keys for signaling instead of manually specified secret keys.
+- Enable signaling encryption by default.
+- Use the compressed public key as the peer ID.
+- Minimal build target is ES2020 to allow using modern JavaScript features such as BigInt.
+
 ## [0.2.0] - 2024-05-13
 
 ### Added
@@ -19,10 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Update NATS driver to use `nats-core` instead of `nats.ws`.
-- Refactor error codes for better clarity.
-- Refactor the driver interface to use plain arrays instead of typed arrays for better serialization.
-- Enable namespace hashing by default for privacy and avoiding issues with unsupported characters in namespaces.
+ - Update the NATS driver to use `nats-core` instead of `nats.ws`.
+ - Refactor error codes for clarity.
+ - Refactor the driver interface to use plain arrays instead of typed arrays for improved serialization.
+ - Enable namespace hashing by default to improve privacy and avoid issues with unsupported characters in namespaces.
 
 ## [0.1.0] - 2024-05-06
 

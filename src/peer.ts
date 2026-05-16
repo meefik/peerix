@@ -1,18 +1,32 @@
 import type { Driver } from './drivers/driver.js';
 import log from './utils/logger.js';
 import { RemotePeer } from './remote.js';
-import { Signaler } from './signaler.js';
+import { MemoryDriver } from './drivers/memory.js';
 import { IceCandidateQueue } from './ice.js';
 import { PeerixError } from './error.js';
-import { UUIDv4, timeout } from './utils/helpers.js';
+import { bytesToBase62, timeout } from './utils/helpers.js';
 import { EventEmitter } from './utils/emitter.js';
+import { compressMessage, decompressMessage } from './utils/compression.js';
+import { sha256, encryptMessage, decryptMessage, generateKeyPair, generateDerivedKey, importPublicKey, exportPublicKey } from './utils/encryption.js';
 
-// Signaling message types
-const SIGNAL_JOIN = 1;
-const SIGNAL_OFFER = 2;
-const SIGNAL_ANSWER = 3;
-const SIGNAL_CANDIDATE = 4;
-const SIGNAL_LEAVE = 5;
+// All peers without a driver will share the same in-memory signaling bus
+const defaultDriver = new MemoryDriver();
+
+// Signal format:
+// [type (1 byte), flags (1 byte), publicKey (33 bytes), payload (variable)]
+const TYPE_LENGTH = 1;
+const FLAGS_LENGTH = 1;
+const CRYPTOKEY_LENGTH = 33;
+const HEADER_LENGTH = TYPE_LENGTH + FLAGS_LENGTH + CRYPTOKEY_LENGTH;
+// Flag bitmasks
+const COMPRESSION_ENABLED = 1 << 0;
+const ENCRYPTION_ENABLED = 1 << 1;
+// Signal types
+const SIGNAL_ANNOUNCE = 1;
+const SIGNAL_INVOKE = 2;
+const SIGNAL_OFFER = 3;
+const SIGNAL_ANSWER = 4;
+const SIGNAL_CANDIDATE = 5;
 
 /**
  * Manages WebRTC peer connections, signaling, media streams, and data channels.
@@ -51,8 +65,6 @@ const SIGNAL_LEAVE = 5;
  * ```
  */
 export class Peer {
-  /** Unique identifier for the local peer. */
-  readonly id: string;
   /** Active remote peers indexed by remote peer id. */
   readonly connections: Map<string, RemotePeer>;
   /** Published local streams indexed by application-level stream label. */
@@ -62,20 +74,31 @@ export class Peer {
   /** Attachable extensions. */
   readonly addons: Set<any>;
 
-  /** Indicates whether the peer is currently active (joined a room). */
+  /** Indicates whether the peer is currently active (joined a room). @readonly */
   active: boolean;
-  /** Current room name. Empty until join() is called. */
+  /** Unique identifier for the local peer. Empty until join() is called. @readonly */
+  id: string;
+  /** Current room name. Empty until join() is called. @readonly */
   room: string;
-  /** Optional metadata announced to other peers in signaling messages. */
-  metadata?: any;
+  /** Optional metadata announced to other peers in signaling messages. Empty until join() is called. @readonly */
+  metadata: any;
 
-  #signaler: Signaler;
+  #driver: Driver;
   #iceServers: IceServer[];
   #iceTransportPolicy: IceTransportPolicy;
   #connectionTimeout: number;
+  #signalingHashing: boolean;
+  #signalingCompression: boolean;
+  #signalingEncryption: boolean;
+  #verify?: (options: { id: string; metadata?: any; }) => Promise<boolean> | boolean;
   #emitter: EventEmitter<PeerEvents>;
   #candidateQueue: IceCandidateQueue;
-  #verify?: (options: { id: string; metadata?: any; }) => Promise<boolean> | boolean;
+  #keyPair?: CryptoKeyPair;
+  #publicKey?: Uint8Array;
+  #sharedKeys: Map<string, CryptoKey>;
+  #signalHandler: (data: number[]) => void;
+  #signalActive: () => void;
+  #signalError: (err: any) => void;
 
   /**
    * Creates a new {@link Peer} instance.
@@ -90,54 +113,46 @@ export class Peer {
    */
   constructor(options?: PeerOptions) {
     const {
-      id = UUIDv4(),
       driver,
       iceServers = [],
       iceTransportPolicy = 'all',
       connectionTimeout = 15,
-      signalingCompression,
-      signalingHashing,
-      signalingEncryptionKey,
+      signalingCompression = true,
+      signalingHashing = true,
+      signalingEncryption = true,
     } = options || {};
 
     this.active = false;
-    this.id = id;
+    this.id = '';
     this.room = '';
     this.connections = new Map();
     this.streams = new Map();
     this.channels = new Map();
     this.addons = new Set();
-    this.#signaler = new Signaler({
-      driver,
-      compression: signalingCompression,
-      hashing: signalingHashing,
-      encryptionKey: signalingEncryptionKey,
-      onActive: () => {
-        if (this.active) {
-          // rejoin the room to re-establish peer connections if necessary
-          this.#dispatchSignal(
-            [this.room],
-            [SIGNAL_JOIN, this.id, this.metadata],
-            1000,
-          );
-        }
-      },
-      onInactive: () => { },
-      onError: (err) => {
-        const error = new PeerixError(err, 'SIGNALING_ERROR');
-        this.emit('error', { id: this.id, name: 'error', error });
-
-        log('signal:error', { id: this.id, error });
-      },
-      onSignal: async (message) => {
-        this.#signalHandler(message);
-      }
-    });
+    this.#driver = driver || defaultDriver;
     this.#iceServers = iceServers;
     this.#iceTransportPolicy = iceTransportPolicy;
     this.#connectionTimeout = connectionTimeout;
     this.#emitter = new EventEmitter(this);
     this.#candidateQueue = new IceCandidateQueue();
+    this.#signalingCompression = signalingCompression;
+    this.#signalingHashing = signalingHashing;
+    this.#signalingEncryption = signalingEncryption;
+    this.#sharedKeys = new Map();
+    this.#signalHandler = this.#handleSignal.bind(this);
+    this.#signalActive = () => {
+      if (!this.active) return;
+      this.#dispatchSignal({
+        type: SIGNAL_ANNOUNCE,
+        room: this.room,
+      });
+    };
+    this.#signalError = (err: any) => {
+      const error = new PeerixError(err, 'SIGNALING_ERROR');
+      this.emit('error', { id: this.id, name: 'error', error });
+
+      log('signal:error', { id: this.id, error });
+    };
   }
 
   /**
@@ -158,18 +173,22 @@ export class Peer {
     const { room = 'default', metadata, verify } =
       typeof options === 'object' ? options : { room: options };
 
+    this.#keyPair = this.#keyPair || await generateKeyPair();
+    this.#publicKey = await exportPublicKey(this.#keyPair.publicKey);
+
+    this.id = bytesToBase62(this.#publicKey);
     this.room = room;
     this.metadata = metadata;
     this.#verify = verify;
 
     log('peer:join', { id: this.id, room: this.room, metadata: this.metadata });
 
-    await this.#signaler.subscribe([this.room], [this.room, this.id]);
+    await this.#registerSignal();
 
-    await this.#signaler.dispatch(
-      [this.room],
-      [SIGNAL_JOIN, this.id, this.metadata],
-    );
+    await this.#dispatchSignal({
+      type: SIGNAL_ANNOUNCE,
+      room: this.room,
+    });
   }
 
   /**
@@ -186,7 +205,7 @@ export class Peer {
 
     log('peer:leave', { id: this.id, room: this.room, metadata: this.metadata });
 
-    await this.#signaler.unsubscribe([this.room], [this.room, this.id]);
+    await this.#unregisterSignal();
 
     for (const remote of this.connections.values()) {
       remote.dispose();
@@ -194,17 +213,13 @@ export class Peer {
     this.connections.clear();
 
     this.#candidateQueue.clear();
-
-    await this.#signaler.dispatch(
-      [this.room],
-      [SIGNAL_LEAVE, this.id],
-    );
+    this.#sharedKeys.clear();
 
     this.active = false;
   }
 
   /**
-   * Publishes new or updates an existing media stream to all remote peers 
+   * Publishes a new media stream or updates an existing one for all remote peers 
    * including new ones that join later.
    *
    * If you pass a MediaStream instance directly, it will be published under 
@@ -276,8 +291,8 @@ export class Peer {
    * Stops publishing a previously published media stream with the given label 
    * and removes it from all remote peers.
    * 
-   * If you pass a MediaStream instance directly, it will be unpublished based 
-   * on its id as label. Otherwise, you can specify the label in the options 
+  * If you pass a MediaStream instance directly, it will be unpublished using 
+  * its id as the label. Otherwise, you can specify the label in the options 
    * object or pass it directly as a string. 
    * 
    * If the stream was published with the `managed` option, its tracks will be 
@@ -504,42 +519,37 @@ export class Peer {
       channels: this.channels,
     });
 
-    remote.on('offer', (e) => {
-      const { description } = e;
-      this.#dispatchSignal(
-        [this.room, id],
-        [SIGNAL_OFFER, this.id, description, this.metadata],
-      );
-    });
-
-    remote.on('answer', (e) => {
-      const { description } = e;
-      this.#dispatchSignal(
-        [this.room, id],
-        [SIGNAL_ANSWER, this.id, description],
-      );
-    });
-
-    remote.on('candidate', (e) => {
-      const { candidate } = e;
-      this.#dispatchSignal(
-        [this.room, id],
-        [SIGNAL_CANDIDATE, this.id, candidate],
-      );
+    remote.on('signal', (e) => {
+      const { name, data } = e;
+      const type = {
+        'offer': SIGNAL_OFFER,
+        'answer': SIGNAL_ANSWER,
+        'candidate': SIGNAL_CANDIDATE,
+      };
+      this.#dispatchSignal({
+        type: type[name],
+        room: this.room,
+        to: id,
+        message: name === 'offer' ? [data, this.metadata] : [data],
+      });
     });
 
     remote.on('connection:failed', () => {
       // try to reconnect
-      this.#dispatchSignal(
-        [this.room, id],
-        [SIGNAL_JOIN, this.id, this.metadata],
-        1000,
-      );
+      this.#dispatchSignal({
+        type: SIGNAL_INVOKE,
+        room: this.room,
+        to: id,
+        message: [this.metadata],
+        encryptionKey: this.#sharedKeys.get(id),
+        jitter: 1000,
+      });
     });
 
     remote.on('connection:closed', () => {
       this.connections.delete(id);
       this.#candidateQueue.clear(id);
+      this.#sharedKeys.delete(id);
     });
 
     remote.on('connection', (e) => {
@@ -573,19 +583,87 @@ export class Peer {
   }
 
   /**
+   * Subscribes to signaling messages for the current room and peer ID.
+   */
+  async #registerSignal() {
+    const namespaces = [[this.room], [this.room, this.id]];
+    for (let namespace of namespaces) {
+      try {
+        if (this.#signalingHashing) {
+          namespace = await Promise.all(namespace.map(part => sha256(part)));
+        }
+
+        log('signal:register', { id: this.id, namespace });
+
+        this.#driver.on('active', this.#signalActive);
+        this.#driver.on('error', this.#signalError);
+        await this.#driver.subscribe(namespace, this.#signalHandler);
+      }
+      catch (err) {
+        const error = new PeerixError(err, 'SIGNALING_ERROR');
+        this.emit('error', { id: this.id, name: 'error', error });
+
+        log('signal:error', { id: this.id, namespace, error });
+      }
+    }
+  }
+
+  /**
+   * Unsubscribes from signaling messages for the current room and peer ID.
+   */
+  async #unregisterSignal() {
+    const namespaces = [[this.room], [this.room, this.id]];
+    for (let namespace of namespaces) {
+      try {
+        if (this.#signalingHashing) {
+          namespace = await Promise.all(namespace.map(part => sha256(part)));
+        }
+
+        log('signal:unregister', { id: this.id, namespace });
+
+        this.#driver.off('active', this.#signalActive);
+        this.#driver.off('error', this.#signalError);
+        await this.#driver.unsubscribe(namespace, this.#signalHandler);
+      }
+      catch (err) {
+        const error = new PeerixError(err, 'SIGNALING_ERROR');
+        this.emit('error', { id: this.id, name: 'error', error });
+
+        log('signal:error', { id: this.id, namespace, error });
+      }
+    }
+  }
+
+  /**
    * Dispatches a signaling message to the given namespace with optional jitter.
    * 
-   * @param namespace Signaling message namespace (e.g. [room], [room, peerId]).
-   * @param message Signaling message payload.
-   * @param jitter Optional maximum random delay in milliseconds to apply before dispatching the message.
+    * @param options Dispatch options for the signaling message.
+    * @param options.type The type of the signaling message.
+    * @param options.room The room name to dispatch the message to.
+    * @param options.to The peer ID to dispatch the message to.
+    * @param options.message Signaling message payload.
+    * @param options.encryptionKey Optional encryption key used for encrypting the message.
+    * @param options.jitter Optional maximum random delay in milliseconds to apply before dispatching the message.
    */
-  async #dispatchSignal(namespace: string[], message: any[], jitter: number = 0) {
+  async #dispatchSignal(options: { type: number; room: string; to?: string; message?: any[]; encryptionKey?: CryptoKey; jitter?: number; }) {
+    if (!this.active || !this.#driver.active) return;
+
+    const { type, room, to, message, jitter = 0, encryptionKey } = options;
+    let namespace = to ? [room, to] : [room];
+
     try {
-      log('signal:dispatch', { id: this.id, namespace, jitter, message });
+      if (this.#signalingHashing) {
+        namespace = await Promise.all(namespace.map(part => sha256(part)));
+      }
+
+      const buffer = await this.#encodeSignal(type, message, encryptionKey || to);
+
+      log('signal:dispatch', { id: this.id, type, namespace, message });
 
       const delay = ~~(Math.random() * jitter);
       await timeout(delay);
-      await this.#signaler.dispatch(namespace, message);
+
+      await this.#driver.dispatch(namespace, Array.from(buffer));
     }
     catch (err) {
       const error = new PeerixError(err, 'SIGNALING_ERROR');
@@ -601,21 +679,32 @@ export class Peer {
    * Processes signaling message to establish, negotiate, and tear down
    * peer connections.
    *
-   * @param message Incoming message from the signaling driver.
+   * @param data The signaling message data.
    */
-  async #signalHandler(message: any) {
-    if (!this.active || !message) return;
-
-    const [type, id, ...payload] = message;
-    if (!type || !id || this.id === id) return;
-
-    log('signal:receive', { id: this.id, type, remote: id, payload });
+  async #handleSignal(data: number[]) {
+    if (!this.active) return;
 
     try {
+      const [type, id, message] = await this.#decodeSignal(data);
+      if (!id) return;
+
+      log('signal:receive', { id: this.id, type, from: id, message });
+
+      // handle new peer announcement
+      if (type === SIGNAL_ANNOUNCE) {
+        this.#dispatchSignal({
+          type: SIGNAL_INVOKE,
+          room: this.room,
+          to: id,
+          message: [this.metadata],
+        });
+
+        return;
+      }
 
       // handle incoming connection
-      if (type === SIGNAL_JOIN) {
-        const [metadata] = payload;
+      if (type === SIGNAL_INVOKE) {
+        const [metadata] = message;
         await this.#createRemotePeer({ id, metadata });
 
         return;
@@ -623,43 +712,37 @@ export class Peer {
 
       // set remote description for offer and create answer
       if (type === SIGNAL_OFFER) {
-        const [description, metadata] = payload;
+        const [description, metadata] = message;
         const remote = await this.#createRemotePeer({ id, metadata });
         if (!remote) return;
 
-        await remote.applyDescription(description,
-          (description) => {
-            const candidates: RTCIceCandidateInit[] = [];
-            for (const candidate of this.#candidateQueue.pull(id, description)) {
-              candidates.push(candidate);
-            }
-            return candidates;
-          });
+        await remote.signal(description);
+
+        for (const candidate of this.#candidateQueue.pull(id, description)) {
+          await remote.signal(candidate);
+        }
 
         return;
       }
 
       // set remote description for answer
       if (type === SIGNAL_ANSWER) {
-        const [description] = payload;
+        const [description] = message;
         const remote = this.connections.get(id);
         if (!remote) return;
 
-        await remote.applyDescription(description,
-          (description) => {
-            const candidates: RTCIceCandidateInit[] = [];
-            for (const candidate of this.#candidateQueue.pull(id, description)) {
-              candidates.push(candidate);
-            }
-            return candidates;
-          });
+        await remote.signal(description);
+
+        for (const candidate of this.#candidateQueue.pull(id, description)) {
+          await remote.signal(candidate);
+        }
 
         return;
       }
 
       // add ice candidate
       if (type === SIGNAL_CANDIDATE) {
-        const [candidate] = payload;
+        const [candidate] = message;
         const remote = this.connections.get(id);
 
         const { connection } = remote || {};
@@ -667,28 +750,110 @@ export class Peer {
         const queued = this.#candidateQueue.push(id, candidate, description);
         if (!remote || queued) return;
 
-        await remote.addIceCandidate(candidate);
+        await remote.signal(candidate);
 
         return;
       }
-
-      // dispose peer connection
-      if (type === SIGNAL_LEAVE) {
-        const remote = this.connections.get(id);
-        if (!remote) return;
-
-        remote.dispose();
-
-        return;
-      }
-
     }
     catch (err) {
-      const error = new PeerixError(err, 'NEGOTIATION_ERROR');
+      const error = new PeerixError(err, 'SIGNALING_ERROR');
       this.emit('error', { id: this.id, name: 'error', error });
 
       log('peer:error', { id: this.id, error });
     }
+  }
+
+  /**
+   * Encodes a signaling message with the given type and payload, applying optional
+   * compression and encryption.
+   *
+   * @param type The type of the signaling message.
+   * @param message The signaling message payload.
+   * @param encryptionKey Optional encryption key or peer ID used for encrypting the message.
+   * @returns The encoded signaling message.
+   */
+  async #encodeSignal(type: number, message: any, encryptionKey?: CryptoKey | string) {
+    let flags = 0;
+    let payload: Uint8Array = message ?
+      new TextEncoder().encode(JSON.stringify(message))
+      : new Uint8Array();
+
+    if (payload.byteLength > 0) {
+      if (this.#signalingCompression) {
+        const compressed = await compressMessage(payload);
+        if (compressed.byteLength < payload.byteLength) {
+          payload = compressed;
+          flags |= COMPRESSION_ENABLED;
+        }
+      }
+
+      if (this.#signalingEncryption && encryptionKey) {
+        if (typeof encryptionKey === 'string') {
+          encryptionKey = this.#sharedKeys.get(encryptionKey);
+        }
+        if (!encryptionKey) throw new Error('Encryption key not found');
+        payload = await encryptMessage(payload, encryptionKey);
+        flags |= ENCRYPTION_ENABLED;
+      }
+    }
+
+    const buffer = new Uint8Array(HEADER_LENGTH + payload.byteLength);
+    let offset = 0;
+    buffer.set([type], offset);
+    offset += TYPE_LENGTH;
+    buffer.set([flags], offset);
+    offset += FLAGS_LENGTH;
+    buffer.set(this.#publicKey!, offset);
+    offset += CRYPTOKEY_LENGTH;
+    buffer.set(payload, offset);
+
+    return buffer;
+  }
+
+  /**
+   * Decodes an incoming signaling message and returns its components.
+   * 
+   * @param data The signaling message data as an array of numbers.
+   * @returns An array containing the message type, sender ID, and payload.
+   */
+  async #decodeSignal(data: number[]) {
+    const buffer = new Uint8Array(data);
+    if (buffer.byteLength < HEADER_LENGTH) return [];
+
+    let offset = 0;
+    const type = buffer[offset];
+    offset += TYPE_LENGTH;
+    const flags = buffer[offset];
+    offset += FLAGS_LENGTH;
+    const publicKey = buffer.slice(offset, offset + CRYPTOKEY_LENGTH);
+    offset += CRYPTOKEY_LENGTH;
+
+    const id = bytesToBase62(publicKey);
+    if (!id || this.id === id) return [];
+
+    let encryptionKey = this.#sharedKeys.get(id);
+    if (!encryptionKey && this.#signalingEncryption) {
+      const rawPublicKey = await importPublicKey(publicKey);
+      encryptionKey = await generateDerivedKey(this.#keyPair!.privateKey, rawPublicKey);
+      this.#sharedKeys.set(id, encryptionKey);
+    }
+
+    let payload: Uint8Array = buffer.slice(offset);
+    if (payload.byteLength > 0) {
+      if (encryptionKey) {
+        payload = await decryptMessage(payload, encryptionKey);
+      }
+
+      if (flags & COMPRESSION_ENABLED) {
+        payload = await decompressMessage(payload);
+      }
+    }
+
+    const message = payload.byteLength
+      ? JSON.parse(new TextDecoder().decode(payload))
+      : [];
+
+    return [type, id, message];
   }
 }
 
@@ -800,10 +965,6 @@ export interface ChannelOptions {
  */
 export interface PeerOptions {
   /**
-   * Unique peer identifier. A random UUID is generated when omitted.
-   */
-  id?: string;
-  /**
    * Signaling driver instance for message exchange between peers.
    * If omitted, a default in-memory driver is used, which is suitable 
    * for testing purposes only.
@@ -849,10 +1010,10 @@ export interface PeerOptions {
    */
   signalingHashing?: boolean;
   /**
-   * Encrypt signaling messages with AES-GCM using the provided encryption key.
-   * Disabled by default.
+   * Encrypt signaling messages with AES-GCM for end-to-end security.
+   * Enabled by default.
    */
-  signalingEncryptionKey?: string;
+  signalingEncryption?: boolean;
 }
 
 /**

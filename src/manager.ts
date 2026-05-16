@@ -2,9 +2,9 @@ import type { ChannelOptions } from './peer.js';
 import { EventEmitter } from './utils/emitter.js';
 
 /**
- * Manages a WebRTC connection, handling timeouts, pings, and message passing.
- * Internally creates a negotiated data channel (id 0) used for keep-alive pings
- * and arbitrary event delivery between peers.
+ * Manages internal peer-to-peer control messaging over a WebRTC data channel.
+ * Internally creates a negotiated data channel (id 0) used for event delivery
+ * between peers.
  */
 export class ConnectionManager {
   #emitter: EventEmitter<ConnectionManagerEvents>;
@@ -25,7 +25,7 @@ export class ConnectionManager {
   }
 
   /**
-   * Initialises the internal data channel and starts the connection timeout.
+   * Initialises the internal data channel.
    * 
    * @param connection The underlying WebRTC peer connection to manage.
    */
@@ -48,7 +48,7 @@ export class ConnectionManager {
   }
 
   /**
-   * Cancels the connection timeout and closes the internal data channel.
+   * Closes the internal data channel.
    */
   close() {
     if (this.#channel) {
@@ -65,7 +65,8 @@ export class ConnectionManager {
    * @param payload Optional data to attach to the event.
    */
   send<K extends keyof ConnectionManagerEvents>(event: K, ...payload: ConnectionManagerEvents[K]) {
-    this.#channel?.send(JSON.stringify([event, ...payload]));
+    if (!this.active) return;
+    this.#channel!.send(JSON.stringify([event, ...payload]));
   }
 
   /**
@@ -89,7 +90,7 @@ export class ConnectionManager {
   }
 
   /**
-   * Emits an event, invoking all registered listeners synchronously.
+    * Emits an event, scheduling all registered listeners for execution.
    *
    * @param event The event name or array of event names to emit.
    * @param args Arguments passed to each listener.
@@ -107,12 +108,13 @@ export interface ConnectionManagerEvents {
   'open': [];
   /** Internal data channel closes. */
   'close': [];
-  /** Offer is created and sent. */
-  'offer': [RTCSessionDescriptionInit, { [key: string]: string; }];
-  /** Answer is created and sent. */
-  'answer': [RTCSessionDescriptionInit];
-  /** ICE candidate is received. */
-  'candidate': [RTCIceCandidateInit];
   /** New data channel is requested. */
   'channel': [ChannelOptions];
+  /** Signal event is received. */
+  'signal': [
+    // data
+    RTCSessionDescriptionInit | RTCIceCandidateInit,
+    // labels
+    Record<string, string>?,
+  ];
 }
