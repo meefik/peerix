@@ -87,7 +87,7 @@ export class Peer {
   #iceServers: IceServer[];
   #iceTransportPolicy: IceTransportPolicy;
   #connectionTimeout: number;
-  #signalingHashing: boolean;
+  #namespaceHashing: boolean;
   #signalingCompression: boolean;
   #signalingEncryption: boolean;
   #verify?: (options: { id: string; metadata?: any; }) => Promise<boolean> | boolean;
@@ -116,8 +116,8 @@ export class Peer {
       iceServers = [],
       iceTransportPolicy = 'all',
       connectionTimeout = 15,
+      namespaceHashing = true,
       signalingCompression = true,
-      signalingHashing = true,
       signalingEncryption = true,
     } = options || {};
 
@@ -135,7 +135,7 @@ export class Peer {
     this.#emitter = new EventEmitter(this);
     this.#candidateQueue = new IceCandidateQueue();
     this.#signalingCompression = signalingCompression;
-    this.#signalingHashing = signalingHashing;
+    this.#namespaceHashing = namespaceHashing;
     this.#signalingEncryption = signalingEncryption;
     this.#sharedKeys = new Map();
     this.#signalHandler = this.#handleSignal.bind(this);
@@ -594,7 +594,7 @@ export class Peer {
     const namespaces = [[this.room], [this.room, this.id]];
     for (let namespace of namespaces) {
       try {
-        if (this.#signalingHashing) {
+        if (this.#namespaceHashing) {
           namespace = await Promise.all(namespace.map(part => sha256(part)));
         }
 
@@ -620,7 +620,7 @@ export class Peer {
     const namespaces = [[this.room], [this.room, this.id]];
     for (let namespace of namespaces) {
       try {
-        if (this.#signalingHashing) {
+        if (this.#namespaceHashing) {
           namespace = await Promise.all(namespace.map(part => sha256(part)));
         }
 
@@ -657,7 +657,7 @@ export class Peer {
     let namespace = to ? [room, to] : [room];
 
     try {
-      if (this.#signalingHashing) {
+      if (this.#namespaceHashing) {
         namespace = await Promise.all(namespace.map(part => sha256(part)));
       }
 
@@ -1004,18 +1004,18 @@ export interface PeerOptions {
    */
   connectionTimeout?: number;
   /**
-   * Enable compression for signaling messages to reduce bandwidth usage 
-   * by about 30%.
-   * Enabled by default.
-   */
-  signalingCompression?: boolean;
-  /**
    * Enable hashing of namespaces in signaling messages for privacy. 
    * This also helps to avoid unsupported characters in room names 
    * and peer identifiers.
    * Enabled by default.
    */
-  signalingHashing?: boolean;
+  namespaceHashing?: boolean;
+  /**
+   * Enable compression for signaling messages to reduce bandwidth usage 
+   * by about 30%.
+   * Enabled by default.
+   */
+  signalingCompression?: boolean;
   /**
    * Encrypt signaling messages with AES-GCM for end-to-end security.
    * Enabled by default.
