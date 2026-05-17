@@ -4,7 +4,7 @@ import { RemotePeer } from './remote.js';
 import { MemoryDriver } from './drivers/memory.js';
 import { IceCandidateQueue } from './ice.js';
 import { PeerixError } from './error.js';
-import { bytesToBase62, timeout } from './utils/helpers.js';
+import { base62ToBytes, bytesToBase62, timeout } from './utils/helpers.js';
 import { EventEmitter } from './utils/emitter.js';
 import { compressMessage, decompressMessage } from './utils/compression.js';
 import { sha256, encryptMessage, decryptMessage, generateKeyPair, generateDerivedKey, importPublicKey, exportPublicKey } from './utils/encryption.js';
@@ -94,7 +94,6 @@ export class Peer {
   #emitter: EventEmitter<PeerEvents>;
   #candidateQueue: IceCandidateQueue;
   #keyPair?: CryptoKeyPair;
-  #publicKey?: Uint8Array;
   #sharedKeys: Map<string, CryptoKey>;
   #signalHandler: (data: number[]) => void;
   #signalActive: () => void;
@@ -173,10 +172,16 @@ export class Peer {
     const { room = 'default', metadata, verify } =
       typeof options === 'object' ? options : { room: options };
 
-    this.#keyPair = this.#keyPair || await generateKeyPair();
-    this.#publicKey = await exportPublicKey(this.#keyPair.publicKey);
+    if (this.#signalingEncryption) {
+      this.#keyPair = this.#keyPair || await generateKeyPair();
+      const publicKey = await exportPublicKey(this.#keyPair.publicKey);
+      this.id = bytesToBase62(publicKey);
+    }
+    else if (!this.id) {
+      const randomKey = crypto.getRandomValues(new Uint8Array(CRYPTOKEY_LENGTH));
+      this.id = bytesToBase62(randomKey);
+    }
 
-    this.id = bytesToBase62(this.#publicKey);
     this.room = room;
     this.metadata = metadata;
     this.#verify = verify;
@@ -797,13 +802,15 @@ export class Peer {
       }
     }
 
+    const publicKey = base62ToBytes(this.id);
+
     const buffer = new Uint8Array(HEADER_LENGTH + payload.byteLength);
     let offset = 0;
     buffer.set([type], offset);
     offset += TYPE_LENGTH;
     buffer.set([flags], offset);
     offset += FLAGS_LENGTH;
-    buffer.set(this.#publicKey!, offset);
+    buffer.set(publicKey, offset);
     offset += CRYPTOKEY_LENGTH;
     buffer.set(payload, offset);
 

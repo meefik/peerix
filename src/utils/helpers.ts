@@ -16,18 +16,38 @@ export function timeout(ms: number = 0): Promise<void> {
  * @returns The Base62 encoded string.
  */
 export function bytesToBase62(bytes: Uint8Array): string {
-  let bigIntVal = 0n;
-  for (const byte of bytes) {
-    bigIntVal = (bigIntVal << 8n) + BigInt(byte);
+  if (bytes.length === 0) return '';
+
+  // skip leading zeros to preserve a short representation
+  let start = 0;
+  while (start < bytes.length && bytes[start] === 0) start++;
+  if (start === bytes.length) return CHARSET[0];
+
+  // work with a Uint8Array view and a reusable quotient buffer to minimize allocations
+  let value = bytes.subarray(start);
+  const digits: number[] = [];
+  const quotient = new Uint8Array(value.length);
+
+  while (value.length > 0) {
+    let remainder = 0;
+    let qlen = 0;
+    for (let i = 0; i < value.length; i++) {
+      const cur = remainder * 256 + value[i];
+      const q = (cur / 62) | 0;
+      remainder = cur % 62;
+      if (qlen > 0 || q > 0) {
+        quotient[qlen++] = q;
+      }
+    }
+    digits.push(remainder);
+    if (qlen === 0) break;
+    value = quotient.subarray(0, qlen);
   }
 
-  let result = '';
-  while (bigIntVal > 0n) {
-    result = CHARSET[Number(bigIntVal % 62n)] + result;
-    bigIntVal /= 62n;
-  }
-
-  return result;
+  // map digits to chars; digits are little-endian so reverse
+  let out = '';
+  for (let i = digits.length - 1; i >= 0; i--) out += CHARSET[digits[i]];
+  return out;
 }
 
 /**
@@ -37,18 +57,47 @@ export function bytesToBase62(bytes: Uint8Array): string {
  * @returns The decoded byte array.
  */
 export function base62ToBytes(str: string): Uint8Array {
-  let bigIntVal = 0n;
-  for (const char of str) {
-    const idx = CHARSET.indexOf(char);
+  if (str.length === 0) return new Uint8Array();
+
+  // use little-endian representation (LSB at index 0)
+  const bytesLE: number[] = [];
+  for (let si = 0; si < str.length; si++) {
+    const idx = CHARSET.indexOf(str[si]);
     if (idx === -1) throw new Error('Invalid base62 character');
-    bigIntVal = bigIntVal * 62n + BigInt(idx);
+
+    // multiply current value by 62
+    let carry = 0;
+    for (let i = 0; i < bytesLE.length; i++) {
+      const prod = bytesLE[i] * 62 + carry;
+      bytesLE[i] = prod & 0xff;
+      carry = prod >>> 8;
+    }
+    while (carry > 0) {
+      bytesLE.push(carry & 0xff);
+      carry >>>= 8;
+    }
+
+    // add idx
+    carry = idx;
+    let i = 0;
+    while (carry > 0) {
+      if (i < bytesLE.length) {
+        const sum = bytesLE[i] + carry;
+        bytesLE[i] = sum & 0xff;
+        carry = sum >>> 8;
+      } else {
+        bytesLE.push(carry & 0xff);
+        carry >>>= 8;
+      }
+      i++;
+    }
   }
 
-  const bytes = [];
-  while (bigIntVal > 0n) {
-    bytes.unshift(Number(bigIntVal & 0xFFn));
-    bigIntVal >>= 8n;
-  }
+  // remove high-order zeros (which are trailing zeros in little-endian)
+  while (bytesLE.length > 1 && bytesLE[bytesLE.length - 1] === 0) bytesLE.pop();
 
-  return new Uint8Array(bytes);
+  // convert to big-endian Uint8Array
+  const out = new Uint8Array(bytesLE.length);
+  for (let i = 0; i < bytesLE.length; i++) out[i] = bytesLE[bytesLE.length - 1 - i];
+  return out;
 }
