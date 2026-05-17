@@ -1,7 +1,7 @@
 import { IceServer, IceTransportPolicy, PeerConnectionState, ChannelOptions, StreamOptions } from './peer.js';
 import log from './utils/logger.js';
 import { PeerixError } from './error.js';
-import { timeout } from './utils/helpers.js';
+import { delay } from './utils/helpers.js';
 import { EventEmitter } from './utils/emitter.js';
 import { ConnectionManager } from './manager.js';
 import { Timeout } from './utils/timeout.js';
@@ -712,7 +712,7 @@ export class RemotePeer {
 
     // wait to avoid interrupting previous operations
     while (this.#makingOffer || this.#pendingAnswer) {
-      await timeout(0);
+      await delay(0);
     }
 
     await connection.setRemoteDescription(description);

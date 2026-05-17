@@ -5,8 +5,8 @@ const CHARSET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
  *
  * @param ms - The delay in milliseconds (default is 0).
  */
-export function timeout(ms: number = 0): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+export function delay(ms: number = 0): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, Math.floor(ms)));
 }
 
 /**

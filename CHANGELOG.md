@@ -11,12 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## Added
+
+- Add debouncing for ICE candidates sent via signaling to reduce the number of messages.
+
 ## Changed
 
 - Use derived encryption keys for signaling instead of manually specified secret keys.
 - Enable signaling encryption by default.
 - Use the compressed public key as the peer ID.
 - Minimal build target is ES2020 to allow using modern JavaScript features such as BigInt.
+- Rename 'signalingHashing' to 'namespaceHashing' for clarity.
 
 ## [0.2.0] - 2024-05-13
 

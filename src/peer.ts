@@ -4,7 +4,7 @@ import { RemotePeer } from './remote.js';
 import { MemoryDriver } from './drivers/memory.js';
 import { IceCandidateQueue } from './ice.js';
 import { PeerixError } from './error.js';
-import { base62ToBytes, bytesToBase62, timeout } from './utils/helpers.js';
+import { base62ToBytes, bytesToBase62, delay } from './utils/helpers.js';
 import { EventEmitter } from './utils/emitter.js';
 import { compressMessage, decompressMessage } from './utils/compression.js';
 import { sha256, encryptMessage, decryptMessage, generateKeyPair, generateDerivedKey, importPublicKey, exportPublicKey } from './utils/encryption.js';
@@ -27,6 +27,10 @@ const SIGNAL_INVOKE = 2;
 const SIGNAL_OFFER = 3;
 const SIGNAL_ANSWER = 4;
 const SIGNAL_CANDIDATE = 5;
+
+// Delay in milliseconds to apply before dispatching ICE candidates 
+// to batch them and minimize renegotiations
+const ICE_CANDIDATE_DEBOUNCE_MS = 50;
 
 /**
  * Manages WebRTC peer connections, signaling, media streams, and data channels.
@@ -524,19 +528,35 @@ export class Peer {
       channels: this.channels,
     });
 
+    const iceCandidateQueue: RTCIceCandidateInit[] = [];
+    let iceCandidateDebounceTimer: number | undefined;
+
     remote.on('signal', (e) => {
       const { name, data } = e;
-      const type = {
+      const types = {
         'offer': SIGNAL_OFFER,
         'answer': SIGNAL_ANSWER,
         'candidate': SIGNAL_CANDIDATE,
       };
-      this.#dispatchSignal({
-        type: type[name],
+      const dispatch = (name: keyof typeof types, message: any[]) => this.#dispatchSignal({
+        type: types[name],
         room: this.room,
         to: id,
-        message: name === 'offer' ? [data, this.metadata] : [data],
+        message,
       });
+      if (name === 'candidate') {
+        clearTimeout(iceCandidateDebounceTimer);
+        iceCandidateQueue.push(data as RTCIceCandidateInit);
+        iceCandidateDebounceTimer = setTimeout(() => {
+          dispatch(name, iceCandidateQueue.splice(0, iceCandidateQueue.length));
+        }, ICE_CANDIDATE_DEBOUNCE_MS);
+      }
+      else if (name === 'offer') {
+        dispatch(name, [data, this.metadata]);
+      }
+      else if (name === 'answer') {
+        dispatch(name, [data]);
+      }
     });
 
     remote.on('connection:failed', () => {
@@ -665,8 +685,7 @@ export class Peer {
 
       log('signal:dispatch', { id: this.id, type, namespace, message });
 
-      const delay = ~~(Math.random() * jitter);
-      await timeout(delay);
+      await delay(Math.random() * jitter);
 
       await this.#driver.dispatch(namespace, Array.from(buffer));
     }
@@ -747,15 +766,18 @@ export class Peer {
 
       // add ice candidate
       if (type === SIGNAL_CANDIDATE) {
-        const [candidate] = message;
+        const [...candidates] = message;
         const remote = this.connections.get(id);
 
         const { connection } = remote || {};
         const description = connection?.remoteDescription || undefined;
-        const queued = this.#candidateQueue.push(id, candidate, description);
-        if (!remote || queued) return;
 
-        await remote.signal(candidate);
+        for (const candidate of candidates) {
+          const queued = this.#candidateQueue.push(id, candidate, description);
+          if (!remote || queued) continue;
+
+          await remote.signal(candidate);
+        }
 
         return;
       }
