@@ -9,3 +9,9 @@ indent_size = 2
 end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
+
+[*.{js,ts,tsx}]
+quote_type = single
+
+[*.{md,html}]
+quote_type = single

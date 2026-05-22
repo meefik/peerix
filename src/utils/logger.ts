@@ -64,18 +64,22 @@ function stringify(value: any): string {
         return {
           id: v.id,
           active: v.active,
-          tracks: v.getTracks().map(t => (
-            {
-              id: t.id, kind: t.kind, enabled: t.enabled,
-              muted: t.muted, readyState: t.readyState
-            }),
-          ),
+          tracks: v.getTracks().map((t) => ({
+            id: t.id,
+            kind: t.kind,
+            enabled: t.enabled,
+            muted: t.muted,
+            readyState: t.readyState,
+          })),
         };
       }
       if (v instanceof MediaStreamTrack) {
         return {
-          id: v.id, kind: v.kind, enabled: v.enabled,
-          muted: v.muted, readyState: v.readyState
+          id: v.id,
+          kind: v.kind,
+          enabled: v.enabled,
+          muted: v.muted,
+          readyState: v.readyState,
         };
       }
       if (v instanceof RTCDataChannel) {
@@ -89,8 +93,7 @@ function stringify(value: any): string {
       }
       return v;
     });
-  }
-  catch (e) {
+  } catch (e) {
     return value;
   }
 }
@@ -108,15 +111,15 @@ function patternToRegex(pattern: string): RegExp {
 function compile(raw: string): [RegExp[], RegExp[]] {
   const allow: RegExp[] = [];
   const deny: RegExp[] = [];
-  raw.split(',')
-    .map(s => s.trim())
+  raw
+    .split(',')
+    .map((s) => s.trim())
     .filter(Boolean)
     .forEach((p) => {
       if (p.startsWith('-')) {
         const sub = p.slice(1);
         if (sub) deny.push(patternToRegex(sub));
-      }
-      else {
+      } else {
         allow.push(patternToRegex(p));
       }
     });
@@ -134,8 +137,7 @@ function readDebugSetting(): string {
     const { localStorage } = window || {};
     if (!localStorage) return '';
     return localStorage.getItem('debug') || '';
-  }
-  catch (e) {
+  } catch (e) {
     return '';
   }
 }

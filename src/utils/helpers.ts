@@ -1,4 +1,5 @@
-const CHARSET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const CHARSET =
+  '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
 /**
  * Returns a promise that resolves after a specified delay.
@@ -6,12 +7,12 @@ const CHARSET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
  * @param ms - The delay in milliseconds (default is 0).
  */
 export function delay(ms: number = 0): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, Math.floor(ms)));
+  return new Promise((resolve) => setTimeout(resolve, Math.floor(ms)));
 }
 
 /**
  * Converts a Uint8Array to a Base62 string.
- * 
+ *
  * @param bytes The input byte array.
  * @returns The Base62 encoded string.
  */
@@ -52,7 +53,7 @@ export function bytesToBase62(bytes: Uint8Array): string {
 
 /**
  * Converts a Base62 string to a Uint8Array.
- * 
+ *
  * @param str The Base62 encoded string.
  * @returns The decoded byte array.
  */
@@ -98,6 +99,7 @@ export function base62ToBytes(str: string): Uint8Array {
 
   // convert to big-endian Uint8Array
   const out = new Uint8Array(bytesLE.length);
-  for (let i = 0; i < bytesLE.length; i++) out[i] = bytesLE[bytesLE.length - 1 - i];
+  for (let i = 0; i < bytesLE.length; i++)
+    out[i] = bytesLE[bytesLE.length - 1 - i];
   return out;
 }

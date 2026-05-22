@@ -26,11 +26,14 @@ export class ConnectionManager {
 
   /**
    * Initialises the internal data channel.
-   * 
+   *
    * @param connection The underlying WebRTC peer connection to manage.
    */
   open(connection: RTCPeerConnection) {
-    const channel = connection.createDataChannel('', { negotiated: true, id: 0 });
+    const channel = connection.createDataChannel('', {
+      negotiated: true,
+      id: 0,
+    });
     this.#channel = channel;
 
     channel.addEventListener('open', () => {
@@ -64,7 +67,10 @@ export class ConnectionManager {
    * @param event The event name to send.
    * @param payload Optional data to attach to the event.
    */
-  send<K extends keyof ConnectionManagerEvents>(event: K, ...payload: ConnectionManagerEvents[K]) {
+  send<K extends keyof ConnectionManagerEvents>(
+    event: K,
+    ...payload: ConnectionManagerEvents[K]
+  ) {
     if (!this.active) return;
     this.#channel!.send(JSON.stringify([event, ...payload]));
   }
@@ -75,7 +81,10 @@ export class ConnectionManager {
    * @param event The event name or array of event names to listen for.
    * @param handler The callback invoked when the event fires.
    */
-  on<K extends keyof ConnectionManagerEvents>(event: K | K[], handler: (...args: ConnectionManagerEvents[K]) => void) {
+  on<K extends keyof ConnectionManagerEvents>(
+    event: K | K[],
+    handler: (...args: ConnectionManagerEvents[K]) => void,
+  ) {
     this.#emitter.on(event, handler);
   }
 
@@ -85,17 +94,23 @@ export class ConnectionManager {
    * @param event The event name or array of event names to stop listening for.
    * @param handler The callback to remove.
    */
-  off<K extends keyof ConnectionManagerEvents>(event: K | K[], handler: (...args: ConnectionManagerEvents[K]) => void) {
+  off<K extends keyof ConnectionManagerEvents>(
+    event: K | K[],
+    handler: (...args: ConnectionManagerEvents[K]) => void,
+  ) {
     this.#emitter.off(event, handler);
   }
 
   /**
-    * Emits an event, scheduling all registered listeners for execution.
+   * Emits an event, scheduling all registered listeners for execution.
    *
    * @param event The event name or array of event names to emit.
    * @param args Arguments passed to each listener.
    */
-  emit<K extends keyof ConnectionManagerEvents>(event: K | K[], ...args: ConnectionManagerEvents[K]) {
+  emit<K extends keyof ConnectionManagerEvents>(
+    event: K | K[],
+    ...args: ConnectionManagerEvents[K]
+  ) {
     this.#emitter.emit(event, ...args);
   }
 }
@@ -105,15 +120,17 @@ export class ConnectionManager {
  */
 export interface ConnectionManagerEvents {
   /** Internal data channel opens successfully. */
-  'open': [];
+  open: [];
   /** Internal data channel closes. */
-  'close': [];
+  close: [];
   /** New data channel is requested. */
-  'channel': [ChannelOptions];
+  channel: [ChannelOptions];
   /** Signal event is received. */
-  'signal': [
-    // data
-    RTCSessionDescriptionInit | RTCIceCandidateInit,
+  signal: [
+    (
+      // data
+      RTCSessionDescriptionInit | RTCIceCandidateInit
+    ),
     // labels
     Record<string, string>?,
   ];

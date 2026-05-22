@@ -4,21 +4,21 @@ import { EventEmitter } from '../utils/emitter.js';
 /**
  * Supabase-based signaling driver for distributed communication across multiple
  * browsers and devices.
- * 
- * This driver uses [Supabase Realtime](https://supabase.com/docs/guides/realtime) 
+ *
+ * This driver uses [Supabase Realtime](https://supabase.com/docs/guides/realtime)
  * to relay signaling messages between clients through your Supabase server.
  *
  * > This driver requires the `@supabase/supabase-js` module in the browser.
- * 
+ *
  * @group Drivers
- * 
+ *
  * @example
  * ```javascript
  * import { createClient } from '@supabase/supabase-js';
  *
  * // connect to a Supabase server
  * const supabase = createClient('your_project_url', 'your_supabase_api_key');
- * 
+ *
  * // create a new driver instance
  * const driver = new SupabaseDriver({ supabase, prefix: 'peerix' });
  * ```
@@ -28,7 +28,7 @@ export class SupabaseDriver extends Driver {
   #prefix: string;
   #supabase: any | null;
   #channel: any | null;
-  #onBroadcast: (message: { payload?: [string, number[]]; }) => void;
+  #onBroadcast: (message: { payload?: [string, number[]] }) => void;
 
   /**
    * Creates a new instance of the driver.
@@ -37,12 +37,21 @@ export class SupabaseDriver extends Driver {
    * @param options.supabase Supabase client instance for communication.
    * @param options.prefix Optional prefix for channel namespacing (default: 'peerix').
    */
-  constructor(options: { supabase: { channel: Function, removeChannel: Function; }; prefix?: string; }) {
+  constructor(options: {
+    supabase: { channel: Function; removeChannel: Function };
+    prefix?: string;
+  }) {
     super();
     const { supabase, prefix = 'peerix' } = options || {};
 
-    if (!supabase || typeof supabase.channel !== 'function' || typeof supabase.removeChannel !== 'function') {
-      throw new TypeError('SupabaseDriver requires a valid Supabase client instance');
+    if (
+      !supabase ||
+      typeof supabase.channel !== 'function' ||
+      typeof supabase.removeChannel !== 'function'
+    ) {
+      throw new TypeError(
+        'SupabaseDriver requires a valid Supabase client instance',
+      );
     }
 
     this.#supabase = supabase;
@@ -55,7 +64,8 @@ export class SupabaseDriver extends Driver {
       this.#emitter.emit(ns, data);
     };
 
-    this.#channel = supabase.channel(this.#prefix)
+    this.#channel = supabase
+      .channel(this.#prefix)
       .on('broadcast', { event: 'message' }, this.#onBroadcast);
   }
 
@@ -94,7 +104,7 @@ export class SupabaseDriver extends Driver {
       this.#emitter.clear();
 
       if (this.#channel) {
-        this.#unsubscribeFromChannel().catch(() => { });
+        this.#unsubscribeFromChannel().catch(() => {});
         this.#supabase.removeChannel(this.#channel);
         this.#channel = null;
       }
@@ -105,7 +115,7 @@ export class SupabaseDriver extends Driver {
 
   /**
    * Constructs a namespace string from an array of namespace segments.
-   * 
+   *
    * @param namespace Array of namespace segments.
    * @returns Constructed namespace string.
    */
@@ -123,13 +133,14 @@ export class SupabaseDriver extends Driver {
       if (!this.#channel) return resolve(null);
       try {
         this.#channel.subscribe((status: any) => {
-          const state = typeof status === 'string'
-            ? status : status?.status;
+          const state = typeof status === 'string' ? status : status?.status;
           if (state === 'SUBSCRIBED') resolve(null);
-          else reject(new Error(`Failed to subscribe to Supabase channel: ${state}`));
+          else
+            reject(
+              new Error(`Failed to subscribe to Supabase channel: ${state}`),
+            );
         });
-      }
-      catch (err) {
+      } catch (err) {
         reject(err);
       }
     });

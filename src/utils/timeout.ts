@@ -8,7 +8,7 @@ export class Timeout {
 
   /**
    * Creates a new Timeout instance.
-   * 
+   *
    * @param callback The function to be called when the timeout expires.
    * @param delay The delay in milliseconds before the timeout expires.
    */
@@ -19,7 +19,7 @@ export class Timeout {
 
   /**
    * Starts the timeout.
-   * 
+   *
    * @param delay Optional delay in milliseconds before the timeout expires. If not provided, the initial delay is used.
    */
   start(delay?: number) {

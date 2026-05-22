@@ -9,8 +9,8 @@ export default defineConfig(({ command }) => {
     },
     resolve: {
       alias: {
-        'peerix': resolve(__dirname, './src/index.js')
-      }
+        peerix: resolve(__dirname, './src/index.js'),
+      },
     },
     build: {
       lib: {
@@ -18,9 +18,7 @@ export default defineConfig(({ command }) => {
         name: 'peerix',
         formats: ['umd', 'es'],
         fileName: (format) => {
-          return format === 'umd'
-            ? 'peerix.umd.js'
-            : 'peerix.esm.js';
+          return format === 'umd' ? 'peerix.umd.js' : 'peerix.esm.js';
         },
       },
       target: 'es2020',

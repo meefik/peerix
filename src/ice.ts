@@ -6,7 +6,7 @@ export class IceCandidateQueue {
 
   /**
    * Parses the ICE username fragment (ufrag) from an SDP string.
-   * 
+   *
    * @param sdp SDP string to parse.
    * @returns The ICE username fragment if found, otherwise undefined.
    */
@@ -16,13 +16,17 @@ export class IceCandidateQueue {
 
   /**
    * Queues an ICE candidate for a remote peer if its remote description is not yet set or the username fragment does not match.
-   * 
+   *
    * @param id Remote peer id.
    * @param candidate ICE candidate to queue.
    * @param description Peer connection remote description.
    * @returns True if the candidate was queued, false if it can be added directly to the peer connection.
    */
-  push(id: string, candidate: RTCIceCandidateInit, description?: RTCSessionDescriptionInit): boolean {
+  push(
+    id: string,
+    candidate: RTCIceCandidateInit,
+    description?: RTCSessionDescriptionInit,
+  ): boolean {
     const { sdp } = description || {};
     const ufrag = this.#parseUfrag(sdp);
 
@@ -37,17 +41,20 @@ export class IceCandidateQueue {
   }
 
   /**
-   * Retrieves queued ICE candidates for a remote peer that match the username 
+   * Retrieves queued ICE candidates for a remote peer that match the username
    * fragment of the given remote description.
    *
-   * This method clears the entire queue for the peer after filtering, 
+   * This method clears the entire queue for the peer after filtering,
    * so candidates that do not match are also discarded.
    *
    * @param id Remote peer id.
    * @param description Peer connection remote description.
    * @returns An array of ICE candidates whose username fragment matches the remote description.
    */
-  pull(id: string, description?: RTCSessionDescriptionInit): RTCIceCandidateInit[] {
+  pull(
+    id: string,
+    description?: RTCSessionDescriptionInit,
+  ): RTCIceCandidateInit[] {
     const candidates = [];
     if (this.#queues.has(id)) {
       const { sdp } = description || {};
@@ -65,7 +72,7 @@ export class IceCandidateQueue {
 
   /**
    * Clears all queued candidates.
-   * 
+   *
    * @param id Optional remote peer id to clear candidates for. If not provided, all queues will be cleared.
    */
   clear(id?: string) {

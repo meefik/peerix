@@ -1,9 +1,10 @@
 /**
  * Error codes for categorizing Peerix-related errors.
- * 
+ *
  * @group Errors
  */
-export type ErrorCode = 'UNKNOWN_ERROR'
+export type ErrorCode =
+  | 'UNKNOWN_ERROR'
   | 'SIGNALING_ERROR'
   | 'NEGOTIATION_ERROR'
   | 'ICECANDIDATE_ERROR'
@@ -13,7 +14,7 @@ export type ErrorCode = 'UNKNOWN_ERROR'
 /**
  * Custom error class for Peerix-related errors.
  * Extends the built-in Error class and adds a `code` property.
- * 
+ *
  * @group Errors
  */
 export class PeerixError extends Error {
@@ -26,14 +27,15 @@ export class PeerixError extends Error {
 
   /**
    * Creates a new {@link PeerixError} instance.
-   * 
+   *
    * @param error An object containing the error details: name, message.
    * @param code An error code for categorizing the error.
    */
   constructor(error: any, code?: ErrorCode) {
     const { name, message } =
       typeof error === 'object' && error !== null
-        ? error : { message: String(error) };
+        ? error
+        : { message: String(error) };
     super(message);
     this.name = name || 'Error';
     this.message = message || 'Unknown error';

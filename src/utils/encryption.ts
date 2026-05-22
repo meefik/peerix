@@ -26,7 +26,7 @@ export async function generateKeyPair(): Promise<CryptoKeyPair> {
   const keyPair = await crypto.subtle.generateKey(
     { name: 'ECDH', namedCurve: 'P-256' },
     false,
-    ['deriveKey']
+    ['deriveKey'],
   );
   return keyPair;
 }
@@ -38,13 +38,16 @@ export async function generateKeyPair(): Promise<CryptoKeyPair> {
  * @param publicKey The remote ECDH public key.
  * @returns The derived AES-GCM key.
  */
-export async function generateDerivedKey(privateKey: CryptoKey, publicKey: CryptoKey): Promise<CryptoKey> {
+export async function generateDerivedKey(
+  privateKey: CryptoKey,
+  publicKey: CryptoKey,
+): Promise<CryptoKey> {
   const derivedKey = await crypto.subtle.deriveKey(
     { name: 'ECDH', public: publicKey },
     privateKey,
     { name: 'AES-GCM', length: 256 },
     false,
-    ['encrypt', 'decrypt']
+    ['encrypt', 'decrypt'],
   );
   return derivedKey;
 }
@@ -74,7 +77,7 @@ export async function importPublicKey(key: Uint8Array): Promise<CryptoKey> {
     new Uint8Array(rawKey),
     { name: 'ECDH', namedCurve: 'P-256' },
     false,
-    []
+    [],
   );
 }
 
@@ -85,7 +88,10 @@ export async function importPublicKey(key: Uint8Array): Promise<CryptoKey> {
  * @param sharedKey The derived AES-GCM key.
  * @returns The encrypted payload as IV (12 bytes) followed by ciphertext.
  */
-export async function encryptMessage(decrypted: Uint8Array, sharedKey: CryptoKey): Promise<Uint8Array> {
+export async function encryptMessage(
+  decrypted: Uint8Array,
+  sharedKey: CryptoKey,
+): Promise<Uint8Array> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = new Uint8Array(
     await crypto.subtle.encrypt(
@@ -107,13 +113,16 @@ export async function encryptMessage(decrypted: Uint8Array, sharedKey: CryptoKey
  * @param sharedKey The derived AES-GCM key.
  * @returns The decrypted plaintext bytes.
  */
-export async function decryptMessage(encrypted: Uint8Array, sharedKey: CryptoKey): Promise<Uint8Array> {
+export async function decryptMessage(
+  encrypted: Uint8Array,
+  sharedKey: CryptoKey,
+): Promise<Uint8Array> {
   const iv = encrypted.slice(0, 12);
   const ct = new Uint8Array(encrypted.slice(12));
   const decrypted = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv },
     sharedKey,
-    ct
+    ct,
   );
   return new Uint8Array(decrypted);
 }
@@ -156,12 +165,25 @@ function decompressPublicKey(compressedKey: Uint8Array): Uint8Array {
     throw new Error('Invalid compressed public key prefix');
   }
   const xBytes = compressedKey.slice(1);
-  const x = BigInt('0x' + Array.from(xBytes).map(b => b.toString(16).padStart(2, '0')).join(''));
+  const x = BigInt(
+    '0x' +
+      Array.from(xBytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join(''),
+  );
 
   // P-256 Curve Constants (cached locally)
-  const p = P ?? BigInt("0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff");
-  const b = B ?? BigInt("0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b");
-  const a = A ?? (p - 3n); // In P-256, a is always -3
+  const p =
+    P ??
+    BigInt(
+      '0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff',
+    );
+  const b =
+    B ??
+    BigInt(
+      '0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b',
+    );
+  const a = A ?? p - 3n; // In P-256, a is always -3
   // Cache them for subsequent calls
   P = p;
   B = b;
@@ -178,7 +200,7 @@ function decompressPublicKey(compressedKey: Uint8Array): Uint8Array {
   let y = expMod(y2, exp, p);
 
   // 3. Check parity: if prefix 0x02, y must be even. If 0x03, y must be odd.
-  const isEven = (y % 2n === 0n);
+  const isEven = y % 2n === 0n;
   if ((prefix === 0x02 && !isEven) || (prefix === 0x03 && isEven)) {
     y = p - y;
   }

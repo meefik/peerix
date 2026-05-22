@@ -6,7 +6,7 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * This driver is useful for testing and debugging purposes, but is not suitable
  * for production use due to its limitations (e.g. same-origin restriction).
- * 
+ *
  * @group Drivers
  * @example
  * ```javascript
@@ -50,7 +50,7 @@ export class BroadcastChannelDriver extends Driver {
 
   /**
    * Constructs a namespace string from an array of namespace segments.
-   * 
+   *
    * @param namespace Array of namespace segments.
    * @returns Constructed namespace string.
    */

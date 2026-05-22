@@ -4,32 +4,32 @@ import { EventEmitter } from '../utils/emitter.js';
 /**
  * Socket.IO-based signaling driver for distributed communication across multiple
  * browsers and devices.
- * 
- * This driver uses [Socket.IO](https://socket.io/) to relay signaling messages 
+ *
+ * This driver uses [Socket.IO](https://socket.io/) to relay signaling messages
  * between clients through your own WebSocket server.
  *
  * Expected Socket.IO events:
  * - Client -> Server: `prefix:subscribe`, `prefix:unsubscribe`, `prefix:dispatch`
  * - Server -> Client: `prefix:message`
  *
- * > This driver requires the `socket.io-client` module in the browser, 
+ * > This driver requires the `socket.io-client` module in the browser,
  * > and the `socket.io` module for server-side implementation in Node.js.
- * 
+ *
  * @group Drivers
- * 
+ *
  * @example
- * 
+ *
  * Client-side code (browser with Socket.IO client):
  * ```javascript
  * import { io } from 'socket.io-client';
  *
  * // connect to a Socket.IO server (e.g. at localhost:8080)
  * const socket = io('http://localhost:8080');
- * 
+ *
  * // create a new driver instance
  * const driver = new SocketIoDriver({ socket, prefix: 'peerix' });
  * ```
- * 
+ *
  * Server-side code (Node.js with Socket.IO):
  * ```javascript
  * const { Server } = require('socket.io');
@@ -54,7 +54,12 @@ import { EventEmitter } from '../utils/emitter.js';
  */
 export class SocketIoDriver extends Driver {
   #emitter: EventEmitter<Record<string, [number[]]>>;
-  #socket: { on: Function; off: Function; emit: Function; connected: boolean; } | null;
+  #socket: {
+    on: Function;
+    off: Function;
+    emit: Function;
+    connected: boolean;
+  } | null;
   #prefix: string;
   #onConnect: () => void;
   #onDisconnect: () => void;
@@ -68,12 +73,19 @@ export class SocketIoDriver extends Driver {
    * @param options.socket Socket.IO client instance.
    * @param options.prefix Optional namespace prefix for event names (default: 'peerix').
    */
-  constructor(options: { socket: { on: Function; off: Function; emit: Function; connected: boolean; }; prefix?: string; }) {
+  constructor(options: {
+    socket: { on: Function; off: Function; emit: Function; connected: boolean };
+    prefix?: string;
+  }) {
     super();
     const { socket, prefix = 'peerix' } = options || {};
 
-    if (!socket || typeof socket.on !== 'function'
-      || typeof socket.off !== 'function' || typeof socket.emit !== 'function') {
+    if (
+      !socket ||
+      typeof socket.on !== 'function' ||
+      typeof socket.off !== 'function' ||
+      typeof socket.emit !== 'function'
+    ) {
       throw new TypeError('SocketIoDriver requires a valid Socket.IO client');
     }
 
@@ -86,7 +98,7 @@ export class SocketIoDriver extends Driver {
       // re-subscribe to all namespaces to restore message flow after reconnecting
       const event = this.#getNS('subscribe');
       for (const namespace of this.#emitter.keys()) {
-        this.#socket?.emit(event, namespace, () => { });
+        this.#socket?.emit(event, namespace, () => {});
       }
     };
 
@@ -117,7 +129,7 @@ export class SocketIoDriver extends Driver {
     this.#emitter.on(ns, handler);
 
     if (isFirstSubscription) {
-      await new Promise(resolve => {
+      await new Promise((resolve) => {
         if (!this.#socket) return resolve(null);
         this.#socket.emit(this.#getNS('subscribe'), ns, () => resolve(null));
       });
@@ -129,7 +141,7 @@ export class SocketIoDriver extends Driver {
     this.#emitter.off(ns, handler);
 
     if (!this.#emitter.has(ns)) {
-      await new Promise(resolve => {
+      await new Promise((resolve) => {
         if (!this.#socket) return resolve(null);
         this.#socket.emit(this.#getNS('unsubscribe'), ns, () => resolve(null));
       });
@@ -159,7 +171,7 @@ export class SocketIoDriver extends Driver {
 
   /**
    * Constructs a namespace string from an array of namespace segments.
-   * 
+   *
    * @param namespaces Array of namespace segments.
    * @returns Constructed namespace string.
    */

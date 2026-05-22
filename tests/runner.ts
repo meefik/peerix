@@ -3,7 +3,14 @@ import { Peer } from '../src/index.js';
 
 type PeerEventName = keyof PeerEvents;
 
-type PeerCall = 'open' | 'close' | 'send' | 'join' | 'publish' | 'unpublish' | 'leave';
+type PeerCall =
+  | 'open'
+  | 'close'
+  | 'send'
+  | 'join'
+  | 'publish'
+  | 'unpublish'
+  | 'leave';
 
 type CallStep = {
   peer: string;
@@ -22,7 +29,7 @@ type WaitStep = {
 type Step = CallStep | WaitStep;
 
 type Scenario = {
-  defaults: { timeout: number; };
+  defaults: { timeout: number };
   peers: readonly Record<PropertyKey, any>[];
   steps: readonly Step[];
 };
@@ -41,7 +48,7 @@ export class TestRunner {
   private cursors: Record<string, Map<PeerEventName, number>> = {};
   private waiters: Record<string, Map<PeerEventName, (() => void)[]>> = {};
 
-  constructor(options?: { debug?: string; }) {
+  constructor(options?: { debug?: string }) {
     if (options?.debug) localStorage.debug = options.debug;
   }
 
@@ -59,8 +66,11 @@ export class TestRunner {
 
   private matchesExpected(actual: any, expected: any): boolean {
     if (Array.isArray(expected)) {
-      if (!Array.isArray(actual) || actual.length !== expected.length) return false;
-      return expected.every((value, index) => this.matchesExpected(actual[index], value));
+      if (!Array.isArray(actual) || actual.length !== expected.length)
+        return false;
+      return expected.every((value, index) =>
+        this.matchesExpected(actual[index], value),
+      );
     }
 
     if (this.isRecord(expected)) {
@@ -75,9 +85,15 @@ export class TestRunner {
     return actual === expected;
   }
 
-  private createSyntheticMediaStream({ width = 640, height = 360, audio = true, video = true, fps = 15 }: SyntheticStreamParams = {}): MediaStream {
+  private createSyntheticMediaStream({
+    width = 640,
+    height = 360,
+    audio = true,
+    video = true,
+    fps = 15,
+  }: SyntheticStreamParams = {}): MediaStream {
     const tracks: MediaStreamTrack[] = [];
-    let draw = () => { };
+    let draw = () => {};
 
     if (video) {
       const canvas = document.createElement('canvas');
@@ -95,7 +111,11 @@ export class TestRunner {
         ctx.font = `${Math.min(canvas.width, canvas.height) * 0.2}px monospace`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(`${new Date().toLocaleTimeString()}`, canvas.width / 2, canvas.height / 2);
+        ctx.fillText(
+          `${new Date().toLocaleTimeString()}`,
+          canvas.width / 2,
+          canvas.height / 2,
+        );
         if (stream?.active) setTimeout(draw, ~~(1000 / fps));
       };
 
@@ -166,23 +186,31 @@ export class TestRunner {
         const from = this.cursors[peerId].get(event) ?? 0;
         const queue = this.eventStore[peerId].get(event) ?? [];
         const tail = queue.slice(from);
-        const matched = tail.filter((payload) => this.matchesExpected(payload, where));
+        const matched = tail.filter((payload) =>
+          this.matchesExpected(payload, where),
+        );
 
         if (matched.length >= count) {
           if (where === undefined) {
             this.cursors[peerId].set(event, from + count);
-          }
-          else {
+          } else {
             // Remove only matched events so out-of-order payloads stay available for later waits.
             let remaining = count;
-            for (let index = from; index < queue.length && remaining > 0; index += 1) {
+            for (
+              let index = from;
+              index < queue.length && remaining > 0;
+              index += 1
+            ) {
               if (this.matchesExpected(queue[index], where)) {
                 queue.splice(index, 1);
                 index -= 1;
                 remaining -= 1;
               }
             }
-            const nextCursor = Math.min(this.cursors[peerId].get(event) ?? 0, queue.length);
+            const nextCursor = Math.min(
+              this.cursors[peerId].get(event) ?? 0,
+              queue.length,
+            );
             this.cursors[peerId].set(event, nextCursor);
           }
 
@@ -190,7 +218,9 @@ export class TestRunner {
           resolve(matched.slice(0, count));
         } else if (Date.now() - started > timeout) {
           cleanup();
-          reject(new Error(`Timeout waiting for "${event}" on peer "${peerId}"`));
+          reject(
+            new Error(`Timeout waiting for "${event}" on peer "${peerId}"`),
+          );
         }
       };
 
@@ -230,8 +260,7 @@ export class TestRunner {
         const call = (peer as any)[step.call];
         const args = this.normalizeCallArgs(step);
         await call.apply(peer, args);
-      }
-      else if (this.isWaitStep(step)) {
+      } else if (this.isWaitStep(step)) {
         await this.waitForEvent(
           step.peer,
           step.wait,

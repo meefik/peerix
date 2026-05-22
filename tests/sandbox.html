@@ -1,289 +1,323 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Peerix Sandbox</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      font-size: 16px;
-      margin: 2em;
-    }
-
-    main {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-    }
-
-    footer {
-      margin-top: 3em;
-      font-size: 0.9em;
-      color: #555;
-    }
-
-    video {
-      width: 160px;
-      height: 90px;
-      border: 1px solid #ccc;
-      box-sizing: border-box;
-      background-color: gray;
-    }
-
-    .streams {
-      display: flex;
-      gap: 0.5rem;
-    }
-
-    .streams:empty::before {
-      content: 'No active streams';
-      color: gray;
-      font-size: 0.9em;
-    }
-
-    .logs {
-      border: 1px dashed gray;
-      box-sizing: border-box;
-      height: 200px;
-      overflow-y: auto;
-      font-family: monospace;
-      font-size: 0.8em;
-      scroll-behavior: smooth;
-      padding: 0.5em;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5em;
-    }
-
-    .logs:empty::before {
-      content: 'No events logged yet';
-      color: gray;
-    }
-  </style>
-</head>
-
-<body>
-  <h1>Peerix Sandbox</h1>
-  <main>
-    <label>
-      <legend>Room</legend>
-      <input type="text" id="room" placeholder="Room ID" value="demo" />
-      <input type="text" id="metadata" placeholder="Metadata" />
-      <button data-action="join">Join</button>
-      <button data-action="leave">Leave</button>
-    </label>
-    <label>
-      <legend>Channel</legend>
-      <input id="channel" placeholder="Channel label" value="default" />
-      <button data-action="open">Open</button>
-      <button data-action="close">Close</button>
-    </label>
-    <label>
-      <legend>Message</legend>
-      <input id="message" placeholder="Data" />
-      <input id="send-channel" placeholder="Channel label" />
-      <button data-action="send">Send</button>
-    </label>
-    <label>
-      <legend>Stream</legend>
-      <input id="stream-label" placeholder="Stream label" value="default" />
-      <button data-action="publish">Publish</button>
-      <button data-action="unpublish">Unpublish</button>
-      <label><input id="audio-enabled" type="checkbox" checked /> Audio</label>
-      <label><input id="video-enabled" type="checkbox" checked /> Video</label>
-    </label>
-    <label>
-      <legend>Local Streams</legend>
-      <div id="local-streams" class="streams"></div>
-    </label>
-    <label>
-      <legend>Remote Streams</legend>
-      <div id="remote-streams" class="streams"></div>
-    </label>
-    <label>
-      <legend>Event Log (<a href="#" id="clear-logs">clear</a>)</legend>
-      <div id="logs" class="logs"></div>
-    </label>
-  </main>
-  <footer>
-    <hr />
-    <p>&copy; <a href="https://peerix.dev" target="_blank">peerix.dev</a></p>
-  </footer>
-
-  <script type="module">
-    import { Peer, BroadcastChannelDriver } from '../src/index.js';
-
-    const driver = new BroadcastChannelDriver('peerix-demo');
-    const peer = new Peer({ driver });
-
-    // Log peer events
-    peer.on('connection', (e) => {
-      const { name, remote, state } = e;
-      const details = [];
-      if (remote) details.push(`remote: ${remote.id}`);
-      if (state) details.push(`state: ${state}`);
-      if (remote?.metadata) details.push(`metadata: ${remote.metadata}`);
-      log(`[${name}] ${details.join(', ')}`);
-    });
-
-    peer.on('channel', (e) => {
-      const { name, remote, channel, data, error } = e;
-      const details = [];
-      if (remote) details.push(`remote: ${remote.id}`);
-      if (channel) details.push(`channel: ${channel.label}`);
-      if (data) details.push(`data: ${data}`);
-      if (error) details.push(`error: ${error}`);
-      log(`[${name}] ${details.join(', ')}`);
-    });
-
-    peer.on('stream', (e) => {
-      const { name, remote, stream, label } = e;
-      const details = [];
-      if (remote) details.push(`remote: ${remote.id}`);
-      if (stream) details.push(`stream: ${label} (${stream.active ? 'active' : 'inactive'})`);
-      log(`[${name}] ${details.join(', ')}`);
-    });
-
-    peer.on('track', (e) => {
-      const { name, remote, stream, track, label } = e;
-      const details = [];
-      if (remote) details.push(`remote: ${remote.id}`);
-      if (stream) details.push(`stream: ${label} (${stream.active ? 'active' : 'inactive'})`);
-      if (track) details.push(`track: ${track.kind} (${track.readyState})`);
-      log(`[${name}] ${details.join(', ')}`);
-    });
-
-    peer.on('error', (e) => {
-      const { name, error } = e;
-      log(`[${name}] ${error}`);
-    });
-
-    peer.on('track:add', (e) => {
-      toggleMediaElement(e.stream);
-    });
-
-    peer.on('track:remove', (e) => {
-      toggleMediaElement(e.stream);
-    });
-
-    // Action handlers
-    const handlers = {
-      join: () => {
-        const room = document.getElementById('room').value;
-        const metadata = document.getElementById('metadata').value;
-        peer.join({ room, metadata });
-      },
-      leave: () => {
-        peer.leave();
-      },
-      open: () => {
-        const channel = document.getElementById('channel').value;
-        peer.open({ label: channel });
-      },
-      close: () => {
-        const channel = document.getElementById('channel').value;
-        peer.close({ label: channel });
-      },
-      send: () => {
-        const message = document.getElementById('message').value;
-        const channel = document.getElementById('send-channel').value;
-        if (channel) peer.send(message, { label: channel });
-        else peer.send(message);
-      },
-      publish: async () => {
-        const stream = createSyntheticMediaStream({
-          video: document.getElementById('video-enabled').checked,
-          audio: document.getElementById('audio-enabled').checked
-        });
-        const label = document.getElementById('stream-label').value || 'default';
-        const newStream = await peer.publish({ label, stream, managed: true });
-        if (newStream) toggleMediaElement(newStream, true);
-      },
-      unpublish: async () => {
-        const label = document.getElementById('stream-label').value || 'default';
-        const oldStream = await peer.unpublish({ label });
-        if (oldStream) toggleMediaElement(oldStream, true);
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Peerix Sandbox</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        font-size: 16px;
+        margin: 2em;
       }
-    };
 
-    document.querySelectorAll('[data-action]').forEach(btn =>
-      btn.addEventListener('click', () => handlers[btn.dataset.action]?.())
-    );
-
-    document.getElementById('clear-logs').addEventListener('click', (e) => {
-      e.preventDefault();
-      logs.innerHTML = '';
-    });
-
-    function log(msg) {
-      const logs = document.getElementById('logs');
-      const el = document.createElement('div');
-      el.textContent = msg;
-      logs.appendChild(el);
-      logs.scrollTop = logs.scrollHeight;
-    }
-
-    function createMedia(stream, videoEnabled) {
-      const media = document.createElement(videoEnabled ? 'video' : 'audio');
-      media.id = stream.id;
-      media.autoplay = true;
-      media.playsInline = true;
-      media.controls = true;
-      media.srcObject = stream;
-      return media;
-    }
-
-    function toggleMediaElement(stream, local) {
-      const videoEnabled = stream.getVideoTracks().length > 0;
-      let media = document.getElementById(stream.id);
-
-      if (!stream.active) return media?.remove();
-
-      const shouldRecreate = !media || (videoEnabled ? media.tagName !== 'VIDEO' : media.tagName !== 'AUDIO');
-      if (shouldRecreate) {
-        media?.remove();
-        media = createMedia(stream, videoEnabled);
-        const container = local ? document.getElementById('local-streams') : document.getElementById('remote-streams');
-        container.appendChild(media);
+      main {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
       }
-    }
 
-    function createSyntheticMediaStream({ width = 640, height = 360, video = true, audio = true, fps = 15 } = {}) {
-      const tracks = [];
-      let draw;
-      if (video) {
-        const canvas = document.createElement('canvas');
-        Object.assign(canvas, { width, height });
-        const ctx = canvas.getContext('2d');
-        draw = () => {
-          ctx.fillStyle = 'black';
-          ctx.fillRect(0, 0, width, height);
-          ctx.fillStyle = 'lime';
-          ctx.font = `${Math.min(width, height) * 0.2}px monospace`;
-          Object.assign(ctx, { textAlign: 'center', textBaseline: 'middle' });
-          ctx.fillText(new Date().toLocaleTimeString(), width / 2, height / 2);
-          if (syntheticStream?.active) setTimeout(draw, ~~(1000 / fps));
-        };
-        tracks.push(...canvas.captureStream(fps).getVideoTracks());
+      footer {
+        margin-top: 3em;
+        font-size: 0.9em;
+        color: #555;
       }
-      if (audio) {
-        const audioCtx = new AudioContext();
-        const oscillator = audioCtx.createOscillator();
-        const dst = audioCtx.createMediaStreamDestination();
-        oscillator.connect(dst);
-        oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
-        oscillator.start();
-        tracks.push(...dst.stream.getAudioTracks());
+
+      video {
+        width: 160px;
+        height: 90px;
+        border: 1px solid #ccc;
+        box-sizing: border-box;
+        background-color: gray;
       }
-      const syntheticStream = new MediaStream(tracks);
-      if (draw) draw();
-      return syntheticStream;
-    }
 
-    window.peer = peer;
-  </script>
-</body>
+      .streams {
+        display: flex;
+        gap: 0.5rem;
+      }
 
+      .streams:empty::before {
+        content: 'No active streams';
+        color: gray;
+        font-size: 0.9em;
+      }
+
+      .logs {
+        border: 1px dashed gray;
+        box-sizing: border-box;
+        height: 200px;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 0.8em;
+        scroll-behavior: smooth;
+        padding: 0.5em;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5em;
+      }
+
+      .logs:empty::before {
+        content: 'No events logged yet';
+        color: gray;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>Peerix Sandbox</h1>
+    <main>
+      <label>
+        <legend>Room</legend>
+        <input type="text" id="room" placeholder="Room ID" value="demo" />
+        <input type="text" id="metadata" placeholder="Metadata" />
+        <button data-action="join">Join</button>
+        <button data-action="leave">Leave</button>
+      </label>
+      <label>
+        <legend>Channel</legend>
+        <input id="channel" placeholder="Channel label" value="default" />
+        <button data-action="open">Open</button>
+        <button data-action="close">Close</button>
+      </label>
+      <label>
+        <legend>Message</legend>
+        <input id="message" placeholder="Data" />
+        <input id="send-channel" placeholder="Channel label" />
+        <button data-action="send">Send</button>
+      </label>
+      <label>
+        <legend>Stream</legend>
+        <input id="stream-label" placeholder="Stream label" value="default" />
+        <button data-action="publish">Publish</button>
+        <button data-action="unpublish">Unpublish</button>
+        <label>
+          <input id="audio-enabled" type="checkbox" checked />
+          Audio
+        </label>
+        <label>
+          <input id="video-enabled" type="checkbox" checked />
+          Video
+        </label>
+      </label>
+      <label>
+        <legend>Local Streams</legend>
+        <div id="local-streams" class="streams"></div>
+      </label>
+      <label>
+        <legend>Remote Streams</legend>
+        <div id="remote-streams" class="streams"></div>
+      </label>
+      <label>
+        <legend>Event Log (<a href="#" id="clear-logs">clear</a>)</legend>
+        <div id="logs" class="logs"></div>
+      </label>
+    </main>
+    <footer>
+      <hr />
+      <p>&copy; <a href="https://peerix.dev" target="_blank">peerix.dev</a></p>
+    </footer>
+
+    <script type="module">
+      import { Peer, BroadcastChannelDriver } from '../src/index.js';
+
+      const driver = new BroadcastChannelDriver('peerix-demo');
+      const peer = new Peer({ driver });
+
+      // Log peer events
+      peer.on('connection', (e) => {
+        const { name, remote, state } = e;
+        const details = [];
+        if (remote) details.push(`remote: ${remote.id}`);
+        if (state) details.push(`state: ${state}`);
+        if (remote?.metadata) details.push(`metadata: ${remote.metadata}`);
+        log(`[${name}] ${details.join(', ')}`);
+      });
+
+      peer.on('channel', (e) => {
+        const { name, remote, channel, data, error } = e;
+        const details = [];
+        if (remote) details.push(`remote: ${remote.id}`);
+        if (channel) details.push(`channel: ${channel.label}`);
+        if (data) details.push(`data: ${data}`);
+        if (error) details.push(`error: ${error}`);
+        log(`[${name}] ${details.join(', ')}`);
+      });
+
+      peer.on('stream', (e) => {
+        const { name, remote, stream, label } = e;
+        const details = [];
+        if (remote) details.push(`remote: ${remote.id}`);
+        if (stream)
+          details.push(
+            `stream: ${label} (${stream.active ? 'active' : 'inactive'})`,
+          );
+        log(`[${name}] ${details.join(', ')}`);
+      });
+
+      peer.on('track', (e) => {
+        const { name, remote, stream, track, label } = e;
+        const details = [];
+        if (remote) details.push(`remote: ${remote.id}`);
+        if (stream)
+          details.push(
+            `stream: ${label} (${stream.active ? 'active' : 'inactive'})`,
+          );
+        if (track) details.push(`track: ${track.kind} (${track.readyState})`);
+        log(`[${name}] ${details.join(', ')}`);
+      });
+
+      peer.on('error', (e) => {
+        const { name, error } = e;
+        log(`[${name}] ${error}`);
+      });
+
+      peer.on('track:add', (e) => {
+        toggleMediaElement(e.stream);
+      });
+
+      peer.on('track:remove', (e) => {
+        toggleMediaElement(e.stream);
+      });
+
+      // Action handlers
+      const handlers = {
+        join: () => {
+          const room = document.getElementById('room').value;
+          const metadata = document.getElementById('metadata').value;
+          peer.join({ room, metadata });
+        },
+        leave: () => {
+          peer.leave();
+        },
+        open: () => {
+          const channel = document.getElementById('channel').value;
+          peer.open({ label: channel });
+        },
+        close: () => {
+          const channel = document.getElementById('channel').value;
+          peer.close({ label: channel });
+        },
+        send: () => {
+          const message = document.getElementById('message').value;
+          const channel = document.getElementById('send-channel').value;
+          if (channel) peer.send(message, { label: channel });
+          else peer.send(message);
+        },
+        publish: async () => {
+          const stream = createSyntheticMediaStream({
+            video: document.getElementById('video-enabled').checked,
+            audio: document.getElementById('audio-enabled').checked,
+          });
+          const label =
+            document.getElementById('stream-label').value || 'default';
+          const newStream = await peer.publish({
+            label,
+            stream,
+            managed: true,
+          });
+          if (newStream) toggleMediaElement(newStream, true);
+        },
+        unpublish: async () => {
+          const label =
+            document.getElementById('stream-label').value || 'default';
+          const oldStream = await peer.unpublish({ label });
+          if (oldStream) toggleMediaElement(oldStream, true);
+        },
+      };
+
+      document
+        .querySelectorAll('[data-action]')
+        .forEach((btn) =>
+          btn.addEventListener('click', () => handlers[btn.dataset.action]?.()),
+        );
+
+      document.getElementById('clear-logs').addEventListener('click', (e) => {
+        e.preventDefault();
+        logs.innerHTML = '';
+      });
+
+      function log(msg) {
+        const logs = document.getElementById('logs');
+        const el = document.createElement('div');
+        el.textContent = msg;
+        logs.appendChild(el);
+        logs.scrollTop = logs.scrollHeight;
+      }
+
+      function createMedia(stream, videoEnabled) {
+        const media = document.createElement(videoEnabled ? 'video' : 'audio');
+        media.id = stream.id;
+        media.autoplay = true;
+        media.playsInline = true;
+        media.controls = true;
+        media.srcObject = stream;
+        return media;
+      }
+
+      function toggleMediaElement(stream, local) {
+        const videoEnabled = stream.getVideoTracks().length > 0;
+        let media = document.getElementById(stream.id);
+
+        if (!stream.active) return media?.remove();
+
+        const shouldRecreate =
+          !media ||
+          (videoEnabled
+            ? media.tagName !== 'VIDEO'
+            : media.tagName !== 'AUDIO');
+        if (shouldRecreate) {
+          media?.remove();
+          media = createMedia(stream, videoEnabled);
+          const container = local
+            ? document.getElementById('local-streams')
+            : document.getElementById('remote-streams');
+          container.appendChild(media);
+        }
+      }
+
+      function createSyntheticMediaStream({
+        width = 640,
+        height = 360,
+        video = true,
+        audio = true,
+        fps = 15,
+      } = {}) {
+        const tracks = [];
+        let draw;
+        if (video) {
+          const canvas = document.createElement('canvas');
+          Object.assign(canvas, { width, height });
+          const ctx = canvas.getContext('2d');
+          draw = () => {
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, width, height);
+            ctx.fillStyle = 'lime';
+            ctx.font = `${Math.min(width, height) * 0.2}px monospace`;
+            Object.assign(ctx, { textAlign: 'center', textBaseline: 'middle' });
+            ctx.fillText(
+              new Date().toLocaleTimeString(),
+              width / 2,
+              height / 2,
+            );
+            if (syntheticStream?.active) setTimeout(draw, ~~(1000 / fps));
+          };
+          tracks.push(...canvas.captureStream(fps).getVideoTracks());
+        }
+        if (audio) {
+          const audioCtx = new AudioContext();
+          const oscillator = audioCtx.createOscillator();
+          const dst = audioCtx.createMediaStreamDestination();
+          oscillator.connect(dst);
+          oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+          oscillator.start();
+          tracks.push(...dst.stream.getAudioTracks());
+        }
+        const syntheticStream = new MediaStream(tracks);
+        if (draw) draw();
+        return syntheticStream;
+      }
+
+      window.peer = peer;
+    </script>
+  </body>
 </html>

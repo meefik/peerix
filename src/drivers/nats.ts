@@ -2,33 +2,33 @@ import { Driver } from './driver.js';
 import { EventEmitter } from '../utils/emitter.js';
 
 /**
- * NATS-based signaling driver for distributed communication across multiple 
+ * NATS-based signaling driver for distributed communication across multiple
  * browsers and devices.
  *
- * This driver uses [NATS](https://nats.io/) as the underlying messaging system, 
- * allowing for distributed signaling across multiple browsers and devices. 
- * 
- * > This driver requires the `@nats-io/nats-core` module for WebSocket-based 
+ * This driver uses [NATS](https://nats.io/) as the underlying messaging system,
+ * allowing for distributed signaling across multiple browsers and devices.
+ *
+ * > This driver requires the `@nats-io/nats-core` module for WebSocket-based
  * > NATS connections directly in the browser.
- * 
+ *
  * @group Drivers
- * 
+ *
  * @example
  * ```javascript
  * import { wsconnect } from '@nats-io/nats-core';
  *
- * // connect to a NATS server (e.g. the public demo server) 
+ * // connect to a NATS server (e.g. the public demo server)
  * const nc = await wsconnect({ servers: ['wss://demo.nats.io:8443'], noEcho: true });
- * 
+ *
  * // create a new driver instance
  * const driver = new NatsDriver({ nc, prefix: 'peerix' });
  * ```
  */
 export class NatsDriver extends Driver {
   #emitter: EventEmitter<Record<string, [number[]]>>;
-  #subscriptions: Map<string, { unsubscribe: () => void; }>;
+  #subscriptions: Map<string, { unsubscribe: () => void }>;
   #prefix: string;
-  #nc: { subscribe: Function; publish: Function; status: Function; } | null;
+  #nc: { subscribe: Function; publish: Function; status: Function } | null;
   #statusIterator: AsyncIterator<any> | null;
 
   /**
@@ -38,12 +38,19 @@ export class NatsDriver extends Driver {
    * @param options.nc A NATS connection instance.
    * @param options.prefix An optional prefix for NATS subjects (default: 'peerix').
    */
-  constructor(options: { nc: { subscribe: Function; publish: Function; status: Function; }; prefix?: string; }) {
+  constructor(options: {
+    nc: { subscribe: Function; publish: Function; status: Function };
+    prefix?: string;
+  }) {
     super();
     const { nc, prefix = 'peerix' } = options || {};
 
-    if (!nc || typeof nc.subscribe !== 'function'
-      || typeof nc.publish !== 'function' || typeof nc.status !== 'function') {
+    if (
+      !nc ||
+      typeof nc.subscribe !== 'function' ||
+      typeof nc.publish !== 'function' ||
+      typeof nc.status !== 'function'
+    ) {
       throw new TypeError('NatsDriver requires a valid NATS client connection');
     }
 
@@ -97,7 +104,7 @@ export class NatsDriver extends Driver {
       this.#statusIterator?.return?.();
       this.#statusIterator = null;
       this.#emitter.clear();
-      this.#subscriptions.forEach(sub => sub.unsubscribe());
+      this.#subscriptions.forEach((sub) => sub.unsubscribe());
       this.#subscriptions.clear();
       this.#nc = null;
     }
@@ -105,7 +112,7 @@ export class NatsDriver extends Driver {
 
   /**
    * Constructs a namespace string from an array of namespace segments.
-   * 
+   *
    * @param namespace Array of namespace segments.
    * @returns Constructed namespace string.
    */
@@ -122,7 +129,11 @@ export class NatsDriver extends Driver {
   async #trackConnectionStatus() {
     try {
       const statusIterable = this.#nc?.status?.();
-      if (!statusIterable || typeof statusIterable[Symbol.asyncIterator] !== 'function') return;
+      if (
+        !statusIterable ||
+        typeof statusIterable[Symbol.asyncIterator] !== 'function'
+      )
+        return;
       this.#statusIterator = statusIterable[Symbol.asyncIterator]();
       for await (const s of statusIterable as AsyncIterable<any>) {
         if (!this.#nc) break;
@@ -130,11 +141,9 @@ export class NatsDriver extends Driver {
         else if (s.type === 'disconnect') this.active = false;
         else if (s.type === 'error') this.emit('error', s.data);
       }
-    }
-    catch (err) {
+    } catch (err) {
       this.emit('error', err);
-    }
-    finally {
+    } finally {
       this.#statusIterator = null;
     }
   }

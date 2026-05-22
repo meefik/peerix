@@ -2,22 +2,22 @@ import { EventEmitter } from '../utils/emitter';
 
 /**
  * Base class for signaling drivers.
- * 
- * Drivers are responsible for sending and receiving signaling messages 
- * between peers. They should implement the subscribe, unsubscribe and 
+ *
+ * Drivers are responsible for sending and receiving signaling messages
+ * between peers. They should implement the subscribe, unsubscribe and
  * dispatch methods to handle message routing based on namespaces.
- * 
+ *
  * @example
  * ```javascript
  * class MyDriver extends Driver {
  *   async subscribe(namespace, handler) {
  *     // subscribe to messages for the given namespace and call handler on message
  *   }
- * 
+ *
  *   async unsubscribe(namespace, handler) {
  *     // unsubscribe from messages for the given namespace and handler
  *   }
- * 
+ *
  *   async dispatch(namespace, payload) {
  *     // dispatch a message to the given namespace
  *   }
@@ -51,27 +51,33 @@ export class Driver {
 
   /**
    * Registers an event handler for the specified internal event.
-   * 
+   *
    * @param event The event name.
    * @param handler The event handler function.
    */
-  on<K extends keyof DriverEvents>(event: K, handler: (...args: DriverEvents[K]) => void) {
+  on<K extends keyof DriverEvents>(
+    event: K,
+    handler: (...args: DriverEvents[K]) => void,
+  ) {
     this.#emitter.on(event, handler);
   }
 
   /**
    * Unregisters an event handler for the specified internal event.
-   * 
+   *
    * @param event The event name.
    * @param handler The event handler function to remove.
    */
-  off<K extends keyof DriverEvents>(event: K, handler: (...args: DriverEvents[K]) => void) {
+  off<K extends keyof DriverEvents>(
+    event: K,
+    handler: (...args: DriverEvents[K]) => void,
+  ) {
     this.#emitter.off(event, handler);
   }
 
   /**
    * Emits an internal event with optional data.
-   * 
+   *
    * @param event The event name.
    * @param args The data to pass to event handlers.
    */
@@ -81,7 +87,7 @@ export class Driver {
 
   /**
    * Subscribes to signaling messages for the specified namespace.
-   * 
+   *
    * @param namespace The namespace to subscribe to.
    * @param handler The handler function to call when a message is received.
    */
@@ -91,7 +97,7 @@ export class Driver {
 
   /**
    * Unsubscribes from signaling messages for the specified namespace.
-   * 
+   *
    * @param namespace The namespace to unsubscribe from.
    * @param handler The handler function to remove.
    */
@@ -101,7 +107,7 @@ export class Driver {
 
   /**
    * Dispatches a signaling message to the specified namespace.
-   * 
+   *
    * @param namespace The namespace to dispatch the message to.
    * @param data The message data to dispatch.
    */
@@ -112,16 +118,16 @@ export class Driver {
 
 /**
  * Defines the internal events emitted by the {@link Driver} class.
- * 
+ *
  * @group Drivers
  */
 export interface DriverEvents {
   /** Emitted when the driver becomes active. */
-  'active': [];
+  active: [];
   /** Emitted when the driver becomes inactive. */
-  'inactive': [];
+  inactive: [];
   /** Emitted when an error occurs within the driver. */
-  'error': [any];
+  error: [any];
   /** Allows for additional custom events. */
   [event: string]: any[];
 }

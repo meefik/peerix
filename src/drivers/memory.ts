@@ -6,7 +6,7 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * This driver is useful for testing and debugging purposes, but is not suitable
  * for production use due to its limitations (e.g. single-process scope).
- * 
+ *
  * @group Drivers
  * @example
  * ```javascript
@@ -18,14 +18,15 @@ export class MemoryDriver extends Driver {
 
   /**
    * Creates a new instance of the driver.
-   * 
+   *
    * @param options Optional configuration for the driver.
    * @param options.delay Delay (in milliseconds) for message delivery to simulate network latency. The delay will be a random value between 75% and 125% of the specified delay.
    */
-  constructor(options?: { delay?: number; }) {
+  constructor(options?: { delay?: number }) {
     super();
     const { delay = 0 } = options || {};
-    const randomizedDelay = delay > 0 ? Math.floor(delay * (0.75 + 0.5 * Math.random())) : 0;
+    const randomizedDelay =
+      delay > 0 ? Math.floor(delay * (0.75 + 0.5 * Math.random())) : 0;
     this.#emitter = new EventEmitter(null, { delay: randomizedDelay });
   }
 

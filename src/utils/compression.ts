@@ -7,11 +7,15 @@
  * @returns The compressed bytes, or the original bytes when compression is
  * not supported or fails.
  */
-export async function compressMessage(uncompressed: Uint8Array): Promise<Uint8Array> {
+export async function compressMessage(
+  uncompressed: Uint8Array,
+): Promise<Uint8Array> {
   if (!('CompressionStream' in window)) return uncompressed;
   try {
     const stream = new Blob([new Uint8Array(uncompressed)]).stream();
-    const compressedStream = stream.pipeThrough(new CompressionStream('deflate'));
+    const compressedStream = stream.pipeThrough(
+      new CompressionStream('deflate'),
+    );
     const arrayBuffer = await new Response(compressedStream).arrayBuffer();
     return new Uint8Array(arrayBuffer);
   } catch {
@@ -28,11 +32,15 @@ export async function compressMessage(uncompressed: Uint8Array): Promise<Uint8Ar
  * @returns The decompressed bytes, or the original bytes when decompression
  * is not supported or fails.
  */
-export async function decompressMessage(compressed: Uint8Array): Promise<Uint8Array> {
+export async function decompressMessage(
+  compressed: Uint8Array,
+): Promise<Uint8Array> {
   if (!('DecompressionStream' in window)) return compressed;
   try {
     const stream = new Blob([new Uint8Array(compressed)]).stream();
-    const decompressedStream = stream.pipeThrough(new DecompressionStream('deflate'));
+    const decompressedStream = stream.pipeThrough(
+      new DecompressionStream('deflate'),
+    );
     const buffer = await new Response(decompressedStream).arrayBuffer();
     return new Uint8Array(buffer);
   } catch {

@@ -33,10 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
- - Update the NATS driver to use `nats-core` instead of `nats.ws`.
- - Refactor error codes for clarity.
- - Refactor the driver interface to use plain arrays instead of typed arrays for improved serialization.
- - Enable namespace hashing by default to improve privacy and avoid issues with unsupported characters in namespaces.
+- Update the NATS driver to use `nats-core` instead of `nats.ws`.
+- Refactor error codes for clarity.
+- Refactor the driver interface to use plain arrays instead of typed arrays for improved serialization.
+- Enable namespace hashing by default to improve privacy and avoid issues with unsupported characters in namespaces.
 
 ## [0.1.0] - 2024-05-06
 

@@ -6,7 +6,10 @@
  * and emitting events with `emit`. Supports multiple events and handlers,
  * as well as a custom execution context.
  */
-export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<keyof T, Map<(...args: any[]) => void, boolean>> {
+export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<
+  keyof T,
+  Map<(...args: any[]) => void, boolean>
+> {
   #context: any;
   #delay: number;
 
@@ -17,7 +20,7 @@ export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<keyof
    * @param options Optional configuration for the emitter.
    * @param options.delay Delay (in milliseconds) for event handler execution.
    */
-  constructor(context?: any, options?: { delay?: number; }) {
+  constructor(context?: any, options?: { delay?: number }) {
     super();
     this.#context = context;
     const { delay = 0 } = options || {};
@@ -76,8 +79,7 @@ export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<keyof
             if (!this.get(ev)?.size) {
               this.delete(ev);
             }
-          }
-          else {
+          } else {
             this.get(ev)?.clear();
             this.delete(ev);
           }

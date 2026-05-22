@@ -3,6 +3,7 @@
 Peerix is a peer-to-peer media and data sharing JavaScript library. Peerix uses WebRTC for peer-to-peer communication and relies on a signaling mechanism to facilitate peer discovery and connection management. The library abstracts away the complexities of WebRTC and provides a minimalistic API for developers to create real-time applications with media streaming and data sharing capabilities.
 
 Read the full documentation and API reference on the official website:
+
 - 📚 [Documentation](https://peerix.dev/docs)
 - 📑 [API Reference](https://api.peerix.dev)
 - 💻 [Source Code](https://github.com/peerix-dev/peerix)
@@ -52,9 +53,12 @@ const peer = new Peer({ driver });
 peer.on('connection', (e) => {
   const { remote } = e;
   console.log(
-    'State changed for peer:', remote.id, 
-    'with metadata:', remote.metadata,
-    'state:', remote.state
+    'State changed for peer:',
+    remote.id,
+    'with metadata:',
+    remote.metadata,
+    'state:',
+    remote.state,
   );
 });
 
@@ -67,7 +71,9 @@ peer.on('error', (e) => {
 // join a room
 peer.join({
   room: 'room-id',
-  metadata: { /* optional metadata */ }
+  metadata: {
+    /* optional metadata */
+  },
 });
 
 // later, if you want to leave the room
@@ -83,8 +89,10 @@ Work with data channels to exchange messages with other peers:
 peer.on('channel:open', (e) => {
   const { remote, channel } = e;
   console.log(
-    'Channel opened with peer:', remote.id, 
-    'channel:', channel.label
+    'Channel opened with peer:',
+    remote.id,
+    'channel:',
+    channel.label,
   );
   // send a message to the connected peer
   channel.send('Hello, peer!');
@@ -94,8 +102,10 @@ peer.on('channel:open', (e) => {
 peer.on('channel:close', (e) => {
   const { remote, channel } = e;
   console.log(
-    'Channel closed with peer:', remote.id, 
-    'channel:', channel.label
+    'Channel closed with peer:',
+    remote.id,
+    'channel:',
+    channel.label,
   );
 });
 
@@ -103,9 +113,12 @@ peer.on('channel:close', (e) => {
 peer.on('channel:message', (e) => {
   const { remote, channel, data } = e;
   console.log(
-    'Received message from peer:', remote.id,
-    'channel:', channel.label,
-    'data:', data
+    'Received message from peer:',
+    remote.id,
+    'channel:',
+    channel.label,
+    'data:',
+    data,
   );
 });
 
@@ -128,9 +141,12 @@ Work with media streams to share audio and video with other peers:
 peer.on('stream:add', (e) => {
   const { remote, stream, label } = e;
   console.log(
-    'Peer:', remote.id,
-    'published a stream with label:', label,
-    'stream state:', stream.active
+    'Peer:',
+    remote.id,
+    'published a stream with label:',
+    label,
+    'stream state:',
+    stream.active,
   );
 });
 
@@ -138,16 +154,20 @@ peer.on('stream:add', (e) => {
 peer.on('stream:remove', (e) => {
   const { remote, stream, label } = e;
   console.log(
-    'Peer:', remote.id,
-    'unpublished a stream with label:', label,
-    'stream state:', stream.active
+    'Peer:',
+    remote.id,
+    'unpublished a stream with label:',
+    label,
+    'stream state:',
+    stream.active,
   );
 });
 
 // get a media stream from the user's camera and microphone
-const stream = await navigator.mediaDevices.getUserMedia(
-  { video: true, audio: true }
-);
+const stream = await navigator.mediaDevices.getUserMedia({
+  video: true,
+  audio: true,
+});
 
 // start sharing the stream with the room
 peer.publish({ label: 'camera', stream });
@@ -165,10 +185,14 @@ In addition to stream-level events, you can also listen for track-level events t
 peer.on('track:add', (e) => {
   const { remote, stream, track, label } = e;
   console.log(
-    'Peer:', remote.id,
-    'published a track:', track.id,
-    'in stream:', stream.id,
-    'with label:', label
+    'Peer:',
+    remote.id,
+    'published a track:',
+    track.id,
+    'in stream:',
+    stream.id,
+    'with label:',
+    label,
   );
 });
 
@@ -176,10 +200,14 @@ peer.on('track:add', (e) => {
 peer.on('track:remove', (e) => {
   const { remote, stream, track, label } = e;
   console.log(
-    'Peer:', remote.id,
-    'unpublished a track:', track.id,
-    'from stream:', stream.id,
-    'with label:', label
+    'Peer:',
+    remote.id,
+    'unpublished a track:',
+    track.id,
+    'from stream:',
+    stream.id,
+    'with label:',
+    label,
   );
 });
 ```
@@ -188,9 +216,10 @@ You can republish a new stream with the same label to update the media being sha
 
 ```js
 // get a new media stream from the user's camera without microphone
-const newStream = await navigator.mediaDevices.getUserMedia(
-  { video: true, audio: false }
-);
+const newStream = await navigator.mediaDevices.getUserMedia({
+  video: true,
+  audio: false,
+});
 
 // republish the new stream with the same label to update the media
 peer.publish({ label: 'camera', stream: newStream });
@@ -203,6 +232,7 @@ In this case, the tracks from the old stream will be removed and replaced with t
 Peerix emits various lifecycle events that allow you to track the state of peer connections, media streams, and data channels. You can listen for these events to manage your application's behavior based on the connection state and media availability.
 
 Lifecycle events include:
+
 - `connection[:new,:connecting,:connected,:disconnected,:failed,:closed]`: a peer's connection state changes.
 - `channel[:new,:open,:close,:message,:error]`: a data channel's state changes or it receives a message.
 - `stream[:add,:remove]`: a remote peer publishes or unpublishes a media stream.
@@ -214,6 +244,7 @@ You can subscribe to either group or specific events using the `:event` suffix.
 ## Signaling Drivers
 
 Peerix supports multiple signaling drivers for peer discovery and negotiation purposes. You can choose the driver that best fits your application's needs:
+
 - `MemoryDriver`: A simple in-memory driver for testing and development. It allows several peer instances to discover each other within one browser page.
 - `BroadcastChannelDriver`: Uses [BroadcastChannel API](https://developer.mozilla.org/docs/Web/API/BroadcastChannel) for communication between tabs in the same browser.
 - `NatsDriver`: Uses [NATS](https://nats.io/) messaging system for communication between peers across different browsers and devices over the internet.
@@ -250,8 +281,11 @@ If you do not want to create your own signaling server, you can use the NATS dri
 import { NatsDriver } from 'peerix';
 import { wsconnect } from '@nats-io/nats-core';
 
-// connect to a NATS server (e.g. the public demo server) 
-const nc = await wsconnect({ servers: ['wss://demo.nats.io:8443'], noEcho: true });
+// connect to a NATS server (e.g. the public demo server)
+const nc = await wsconnect({
+  servers: ['wss://demo.nats.io:8443'],
+  noEcho: true,
+});
 
 // create a new driver instance
 const driver = new NatsDriver({ nc, prefix: 'peerix' });
@@ -284,7 +318,7 @@ const peer = new Peer({
     {
       urls: 'turn:turn.example.com:3478',
       username: 'user',
-      credential: 'pass'
+      credential: 'pass',
     },
   ],
 });
