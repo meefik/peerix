@@ -4,18 +4,20 @@ import { EventEmitter } from '../utils/emitter';
  * Base class for signaling drivers.
  *
  * Drivers are responsible for sending and receiving signaling messages
- * between peers. They should implement the subscribe, unsubscribe and
+ * between peers. They should implement the subscribe, unsubscribe, and
  * dispatch methods to handle message routing based on namespaces.
+ *
+ * @group Drivers
  *
  * @example
  * ```javascript
  * class MyDriver extends Driver {
  *   async subscribe(namespace, handler) {
- *     // subscribe to messages for the given namespace and call handler on message
+ *     // subscribe to messages for the given namespace and call the handler on each message
  *   }
  *
  *   async unsubscribe(namespace, handler) {
- *     // unsubscribe from messages for the given namespace and handler
+ *     // unsubscribe the handler from messages for the given namespace
  *   }
  *
  *   async dispatch(namespace, payload) {
@@ -23,7 +25,6 @@ import { EventEmitter } from '../utils/emitter';
  *   }
  * }
  * ```
- * @group Drivers
  */
 export class Driver {
   #active = true;

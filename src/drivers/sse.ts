@@ -3,7 +3,7 @@ import { EventEmitter } from '../utils/emitter.js';
 
 /**
  * Server-Sent Events ([SSE](https://developer.mozilla.org/docs/Web/API/Server-sent_events))
- * signaling driver implementation.
+ * signaling driver.
  *
  * SSE is a unidirectional communication protocol that allows servers to push real-time
  * updates to clients over a single HTTP connection. This driver uses SSE to receive
@@ -35,7 +35,7 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * const subscribers = new Map();
  *
- * // router for outgoing messages
+ * // route for outgoing messages
  * app.get('/api/sse', (req, res) => {
  *   const ns = req.query.ns;
  *   if (!ns) return res.status(400).end();
@@ -46,7 +46,7 @@ import { EventEmitter } from '../utils/emitter.js';
  *   res.setHeader('Content-Type', 'text/event-stream');
  *   res.setHeader('Cache-Control', 'no-cache');
  *   res.setHeader('Connection', 'keep-alive');
- *   res.write(`: created\n\n`);
+ *   res.flushHeaders();
  *   // clean up if the browser closes the page or disconnects
  *   req.on('close', () => {
  *     clients.delete(res);
@@ -55,7 +55,7 @@ import { EventEmitter } from '../utils/emitter.js';
  *   });
  * });
  *
- * // router for incoming messages
+ * // route for incoming messages
  * app.post('/api/sse', (req, res) => {
  *   const ns = req.query.ns;
  *   const data = req.body || '';
@@ -83,7 +83,7 @@ export class SseDriver extends Driver {
    * Creates a new instance of the driver.
    *
    * @param options Optional configuration for the driver.
-   * @param options.url The URL to connect to for SSE. Defaults to '/api/sse'.
+   * @param options.url URL to connect to via SSE. Defaults to '/api/sse'.
    * @param options.withCredentials Whether to include credentials in requests. Defaults to false.
    */
   constructor(options?: { url?: string; withCredentials?: boolean }) {
@@ -138,7 +138,7 @@ export class SseDriver extends Driver {
    * Constructs a namespace string from an array of namespace segments.
    *
    * @param namespace Array of namespace segments.
-   * @returns Constructed namespace string.
+   * @returns The constructed namespace string.
    */
   #getNS(namespace: string[]): string {
     return namespace.join(',');

@@ -4,10 +4,15 @@ import { EventEmitter } from '../utils/emitter.js';
 /**
  * BroadcastChannel-based signaling driver for intra-origin communication.
  *
- * This driver is useful for testing and debugging purposes, but is not suitable
- * for production use due to its limitations (e.g. same-origin restriction).
+ * This driver uses the [BroadcastChannel API](https://developer.mozilla.org/docs/Web/API/BroadcastChannel)
+ * to relay signaling messages between browser contexts (e.g., tabs, windows, iframes)
+ * that share the same origin.
+ *
+ * It is useful for testing and debugging purposes, but is not suitable
+ * for production use due to its limitations (e.g., same-origin restrictions).
  *
  * @group Drivers
+ *
  * @example
  * ```javascript
  * const driver = new BroadcastChannelDriver('peerix');

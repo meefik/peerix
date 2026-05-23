@@ -2,18 +2,18 @@ import { Driver } from './driver.js';
 import { EventEmitter } from '../utils/emitter.js';
 
 /**
- * Socket.IO-based signaling driver for distributed communication across multiple
- * browsers and devices.
+ * Socket.IO-based signaling driver.
  *
  * This driver uses [Socket.IO](https://socket.io/) to relay signaling messages
- * between clients through your own WebSocket server.
+ * between clients via your own WebSocket server.
  *
  * Expected Socket.IO events:
  * - Client -> Server: `prefix:subscribe`, `prefix:unsubscribe`, `prefix:dispatch`
  * - Server -> Client: `prefix:message`
  *
- * > This driver requires the `socket.io-client` module in the browser,
- * > and the `socket.io` module for server-side implementation in Node.js.
+ * > This driver requires the [`socket.io-client`](https://www.npmjs.com/package/socket.io-client)
+ * > module in the browser and the [`socket.io`](https://www.npmjs.com/package/socket.io)
+ * > module for server-side use in Node.js.
  *
  * @group Drivers
  *
@@ -70,7 +70,7 @@ export class SocketIoDriver extends Driver {
    * Creates a new instance of the driver.
    *
    * @param options Configuration options for the driver.
-   * @param options.socket Socket.IO client instance.
+   * @param options.socket Socket.IO socket instance.
    * @param options.prefix Optional namespace prefix for event names (default: 'peerix').
    */
   constructor(options: {
@@ -95,7 +95,7 @@ export class SocketIoDriver extends Driver {
 
     this.#onConnect = () => {
       this.active = true;
-      // re-subscribe to all namespaces to restore message flow after reconnecting
+      // resubscribe to all namespaces to restore message flow after reconnection
       const event = this.#getNS('subscribe');
       for (const namespace of this.#emitter.keys()) {
         this.#socket?.emit(event, namespace, () => {});
@@ -173,7 +173,7 @@ export class SocketIoDriver extends Driver {
    * Constructs a namespace string from an array of namespace segments.
    *
    * @param namespaces Array of namespace segments.
-   * @returns Constructed namespace string.
+   * @returns The constructed namespace string.
    */
   #getNS(...namespaces: string[]) {
     return [this.#prefix, ...namespaces].filter(Boolean).join(':');

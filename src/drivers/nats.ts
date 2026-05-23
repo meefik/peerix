@@ -2,14 +2,13 @@ import { Driver } from './driver.js';
 import { EventEmitter } from '../utils/emitter.js';
 
 /**
- * NATS-based signaling driver for distributed communication across multiple
- * browsers and devices.
+ * NATS-based signaling driver.
  *
  * This driver uses [NATS](https://nats.io/) as the underlying messaging system,
- * allowing for distributed signaling across multiple browsers and devices.
+ * enabling distributed signaling across multiple browsers and devices.
  *
- * > This driver requires the `@nats-io/nats-core` module for WebSocket-based
- * > NATS connections directly in the browser.
+ * > This driver requires the [`@nats-io/nats-core`](https://www.npmjs.com/package/@nats-io/nats-core)
+ * > module for WebSocket-based NATS connections directly in the browser.
  *
  * @group Drivers
  *
@@ -17,7 +16,7 @@ import { EventEmitter } from '../utils/emitter.js';
  * ```javascript
  * import { wsconnect } from '@nats-io/nats-core';
  *
- * // connect to a NATS server (e.g. the public demo server)
+ * // connect to a NATS server (e.g., the public demo server)
  * const nc = await wsconnect({ servers: ['wss://demo.nats.io:8443'], noEcho: true });
  *
  * // create a new driver instance
@@ -35,8 +34,8 @@ export class NatsDriver extends Driver {
    * Creates a new instance of the driver.
    *
    * @param options Configuration options for the driver.
-   * @param options.nc A NATS connection instance.
-   * @param options.prefix An optional prefix for NATS subjects (default: 'peerix').
+   * @param options.nc NATS connection instance.
+   * @param options.prefix Optional prefix for NATS subjects (default: 'peerix').
    */
   constructor(options: {
     nc: { subscribe: Function; publish: Function; status: Function };
@@ -51,7 +50,9 @@ export class NatsDriver extends Driver {
       typeof nc.publish !== 'function' ||
       typeof nc.status !== 'function'
     ) {
-      throw new TypeError('NatsDriver requires a valid NATS client connection');
+      throw new TypeError(
+        'NatsDriver requires a valid NATS connection instance',
+      );
     }
 
     this.#nc = nc;
@@ -114,7 +115,7 @@ export class NatsDriver extends Driver {
    * Constructs a namespace string from an array of namespace segments.
    *
    * @param namespace Array of namespace segments.
-   * @returns Constructed namespace string.
+   * @returns The constructed namespace string.
    */
   #getNS(namespace: string[]) {
     return [this.#prefix, ...namespace].filter(Boolean).join('.');

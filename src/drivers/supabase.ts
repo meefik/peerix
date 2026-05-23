@@ -2,13 +2,13 @@ import { Driver } from './driver.js';
 import { EventEmitter } from '../utils/emitter.js';
 
 /**
- * Supabase-based signaling driver for distributed communication across multiple
- * browsers and devices.
+ * Supabase-based signaling driver.
  *
  * This driver uses [Supabase Realtime](https://supabase.com/docs/guides/realtime)
  * to relay signaling messages between clients through your Supabase server.
  *
- * > This driver requires the `@supabase/supabase-js` module in the browser.
+ * > This driver requires the [`@supabase/supabase-js`](https://www.npmjs.com/package/@supabase/supabase-js)
+ * > module in the browser.
  *
  * @group Drivers
  *
@@ -34,7 +34,7 @@ export class SupabaseDriver extends Driver {
    * Creates a new instance of the driver.
    *
    * @param options Configuration options for the driver.
-   * @param options.supabase Supabase client instance for communication.
+   * @param options.supabase Supabase client instance.
    * @param options.prefix Optional prefix for channel namespacing (default: 'peerix').
    */
   constructor(options: {
@@ -124,7 +124,7 @@ export class SupabaseDriver extends Driver {
   }
 
   /**
-   * Subscribes to the Supabase channel for receiving broadcast messages.
+   * Subscribes to the Supabase channel to receive broadcast messages.
    */
   async #subscribeToChannel() {
     if (!this.#channel || this.#channel.state !== 'closed') return;
@@ -147,7 +147,7 @@ export class SupabaseDriver extends Driver {
   }
 
   /**
-   * Unsubscribes from the Supabase channel for receiving broadcast messages.
+   * Unsubscribes from the Supabase channel used to receive broadcast messages.
    */
   async #unsubscribeFromChannel() {
     if (!this.#channel || this.#channel.state === 'closed') return;
