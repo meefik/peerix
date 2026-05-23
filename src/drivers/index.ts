@@ -5,3 +5,4 @@ export * from './nats.js';
 export * from './socket-io.js';
 export * from './supabase.js';
 export * from './sse.js';
+export * from './mqtt.js';
