@@ -1,6 +1,6 @@
 # Peerix
 
-Peerix is a peer-to-peer media and data sharing JavaScript library. Peerix uses WebRTC for peer-to-peer communication and relies on a signaling mechanism to facilitate peer discovery and connection management. The library abstracts away the complexities of WebRTC and provides a minimalistic API for developers to create real-time applications with media streaming and data sharing capabilities.
+Peerix is a peer-to-peer media and data-sharing JavaScript library. Peerix uses WebRTC for peer-to-peer communication and relies on a signaling mechanism to facilitate peer discovery and connection management. The library abstracts away the complexities of WebRTC and provides a minimal API for developers to create real-time applications with media streaming and data-sharing capabilities.
 
 Read the full documentation and API reference on the official website:
 
@@ -12,7 +12,7 @@ Read the full documentation and API reference on the official website:
 
 ## How It Works
 
-Peerix is a front-end library that runs entirely in the browser, allowing for low-latency media streaming and data sharing between peers. It is designed to work in a decentralized manner, allowing peers to connect directly to each other without relying on a central server for media relay. However, it does require a signaling server for peers to discover each other and establish connections. You can use various built-in signaling drivers, or you can implement your own custom driver to fit your application's needs.
+Peerix is a front-end library that runs entirely in the browser, allowing low-latency media streaming and data sharing between peers. It is designed to work in a decentralized manner, allowing peers to connect directly to each other without relying on a central server for media relay. However, it does require a signaling server for peers to discover each other and establish connections. You can use various built-in signaling drivers, or you can implement a custom driver to fit your application's needs.
 
 Peerix is composed of several key components:
 
@@ -247,11 +247,12 @@ Peerix supports multiple signaling drivers for peer discovery and negotiation pu
 
 - `MemoryDriver`: A simple in-memory driver for testing and development. It allows several peer instances to discover each other within one browser page.
 - `BroadcastChannelDriver`: Uses [BroadcastChannel API](https://developer.mozilla.org/docs/Web/API/BroadcastChannel) for communication between tabs in the same browser.
+- `SseDriver`: Uses [Server-Sent Events (SSE)](https://developer.mozilla.org/docs/Web/API/Server-sent_events) for communication between peers through an SSE-compatible server.
 - `NatsDriver`: Uses [NATS](https://nats.io/) messaging system for communication between peers across different browsers and devices over the internet.
 - `SocketIoDriver`: Uses [Socket.IO](https://socket.io/) client for communication between peers through a Socket.IO server.
 - `SupabaseDriver`: Uses [Supabase](https://supabase.com/) database and real-time features for communication between peers.
 
-If no driver is provided when creating a `Peer`, Peerix will use an in-memory `MemoryDriver` by default — useful for single-page development and quick tests. For multi-tab testing use `BroadcastChannelDriver`, and for distributed signaling use `NatsDriver`, `SocketIoDriver`, `SupabaseDriver`, or your own custom driver in production scenarios.
+If no driver is provided when creating a `Peer`, Peerix uses an in-memory `MemoryDriver` by default, which is useful for single-page development and quick tests. For multi-tab testing, use `BroadcastChannelDriver`. For production server-side signaling, use `SocketIoDriver`, `SseDriver`, or your own custom driver; for distributed signaling, use `NatsDriver`.
 
 You can also implement your own custom signaling driver by extending the `Driver` class and implementing the required methods:
 
@@ -273,7 +274,7 @@ class MyDriver extends Driver {
 
 This driver interface allows you to integrate Peerix with any signaling mechanism you prefer.
 
-> Consider using NATS for production applications. NATS is a high-performance messaging system that enables efficient signaling between peers from the browser.
+> NATS is a high-performance messaging system that enables efficient signaling between peers from the browser.
 
 If you do not want to create your own signaling server, you can use the NATS driver with a public NATS server or set up your own NATS server for better performance and reliability. Using NATS allows you to use Peerix without any server-side code because all signaling is handled through NATS servers directly from the browser.
 
@@ -293,9 +294,13 @@ const driver = new NatsDriver({ nc, prefix: 'peerix' });
 
 You should install the `@nats-io/nats-core` package to use the NATS Driver, as it provides a WebSocket client for connecting to NATS servers from the browser.
 
-Peerix uses several techniques to reduce the number of signaling messages required to establish and maintain peer connections. Each peer connection begins with a negotiated data channel for signaling after the initial connection is established, eliminating the need for a signaling server during the lifetime of the peer connection. Additionally, Peerix uses compression to minimize the size of signaling messages, further reducing the overhead and load on the signaling server.
+Peerix uses several techniques to secure and minimize the number and size of signaling messages required to establish and maintain peer connections, such as negotiating multiple media streams and data channels:
 
-Peerix supports end-to-end encryption (E2EE) for signaling messages, ensuring the privacy of these messages by ensuring that only peers with the correct encryption key can read them. You can also enable namespace hashing before sending the data to the signaling server to prevent the server from knowing the actual namespace being used.
+- Each peer connection negotiates a data channel for signaling after the initial connection is established, eliminating the need for a signaling server for the lifetime of the connection.
+- Uses a binary format instead of JSON for signaling messages, minimizing message overhead.
+- Reduces the frequency of candidate exchanges and the number of signaling messages by debouncing ICE candidates.
+- Uses compression to reduce the size of signaling messages, further lowering overhead and load on the signaling server.
+- Provides built-in namespace hashing and E2EE for signaling messages to protect sensitive information during transmission.
 
 ## ICE Servers
 
@@ -303,7 +308,7 @@ ICE (Interactive Connectivity Establishment) is a framework used in WebRTC to fi
 
 > Use TURN servers for better connectivity in restrictive network environments.
 
-Peerix allows you to specify ICE servers for better connectivity and performance, especially in restrictive network environments. Use `iceServers` option when creating the `Peer` instance to provide custom STUN and TURN servers:
+Peerix allows you to specify ICE servers for better connectivity and performance, especially in restrictive network environments. Use the `iceServers` option when creating the `Peer` instance to provide custom STUN and TURN servers:
 
 ```js
 // create the Peer instance with custom ICE servers
@@ -326,18 +331,16 @@ const peer = new Peer({
 
 ## License
 
-### Open Source License
-
-Peerix is a WebRTC peer-to-peer JavaScript/TypeScript library.
-
 Copyright (C) 2026 Peerix
 
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License, version 3, published by the Free Software Foundation.
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
 
-This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+http://www.apache.org/licenses/LICENSE-2.0
 
-You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-### Commercial License
-
-For proprietary applications or if you do not wish to comply with the GPL license, please contact the [Peerix Team](https://peerix.dev/contact) to discuss commercial licensing options.
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.

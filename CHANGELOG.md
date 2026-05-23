@@ -9,19 +9,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2024-05-23
 
-## Added
+### Added
 
+- Add `SseDriver` for signaling using Server-Sent Events (SSE).
 - Add debouncing for ICE candidates sent via signaling to reduce the number of messages.
 
-## Changed
+### Changed
 
 - Use derived encryption keys for signaling instead of manually specified secret keys.
 - Enable signaling encryption by default.
 - Use the compressed public key as the peer ID.
-- Minimal build target is ES2020 to allow using modern JavaScript features such as BigInt.
+- The minimum build target is ES2020 to allow the use of modern JavaScript features such as BigInt.
 - Rename 'signalingHashing' to 'namespaceHashing' for clarity.
+- The license has been changed from GPL-3.0 to Apache-2.0 to allow more permissive use of the library in both open-source and commercial projects.
 
 ## [0.2.0] - 2024-05-13
 
@@ -29,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add `SocketIoDriver` for signaling using Socket.IO.
 - Add `SupabaseDriver` for signaling using Supabase Realtime.
-- Add `destroy` method to some drivers.
+- Add a `destroy` method to some drivers.
 
 ### Changed
 
