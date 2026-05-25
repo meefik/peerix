@@ -27,7 +27,7 @@ import { EventEmitter } from '../utils/emitter.js';
  * const socket = io('http://localhost:8080');
  *
  * // create a new driver instance
- * const driver = new SocketIoDriver({ socket, prefix: 'peerix' });
+ * const driver = new SocketIoDriver({ socket, prefix: 'peerix:' });
  * ```
  *
  * Server-side code (Node.js with Socket.IO):
@@ -46,21 +46,18 @@ import { EventEmitter } from '../utils/emitter.js';
  *     callback();
  *   });
  *
- *   socket.on('peerix:dispatch', (namespace, data) => {
+ *   socket.on('peerix:dispatch', (namespace, data, callback) => {
  *     socket.broadcast.to(namespace).emit('peerix:message', namespace, data);
+ *     callback();
  *   });
  * });
  * ```
  */
 export class SocketIoDriver extends Driver {
   #emitter: EventEmitter<Record<string, [number[]]>>;
-  #socket: {
-    on: Function;
-    off: Function;
-    emit: Function;
-    connected: boolean;
-  } | null;
+  #socket: SocketIoClient | null;
   #prefix: string;
+  #ackTimeout: number;
   #onConnect: () => void;
   #onDisconnect: () => void;
   #onMessage: (namespace: string, data: number[]) => void;
@@ -71,34 +68,44 @@ export class SocketIoDriver extends Driver {
    *
    * @param options Configuration options for the driver.
    * @param options.socket Socket.IO socket instance.
-   * @param options.prefix Optional namespace prefix for event names (default: 'peerix').
+   * @param options.prefix Optional prefix for event names.
+   * @param options.ackTimeout Optional timeout for acknowledgements (default: 10000ms).
    */
   constructor(options: {
-    socket: { on: Function; off: Function; emit: Function; connected: boolean };
+    socket: SocketIoClient;
     prefix?: string;
+    ackTimeout?: number;
   }) {
     super();
-    const { socket, prefix = 'peerix' } = options || {};
+    const { socket, prefix = '', ackTimeout = 10000 } = options || {};
 
     if (
       !socket ||
       typeof socket.on !== 'function' ||
       typeof socket.off !== 'function' ||
-      typeof socket.emit !== 'function'
+      typeof socket.emit !== 'function' ||
+      typeof socket.timeout !== 'function'
     ) {
       throw new TypeError('SocketIoDriver requires a valid Socket.IO client');
     }
 
     this.#socket = socket;
-    this.#prefix = String(prefix);
+    this.#prefix = `${prefix}`;
+    this.#ackTimeout = Number(ackTimeout);
     this.#emitter = new EventEmitter();
 
-    this.#onConnect = () => {
-      this.active = true;
-      // resubscribe to all namespaces to restore message flow after reconnection
-      const event = this.#getNS('subscribe');
-      for (const namespace of this.#emitter.keys()) {
-        this.#socket?.emit(event, namespace, () => {});
+    this.#onConnect = async () => {
+      // resubscribe to all namespaces after socket reconnects
+      try {
+        await Promise.all(
+          Array.from(this.#emitter.keys()).map((event) =>
+            this.#socketEmit('subscribe', event),
+          ),
+        );
+        this.active = true;
+      } catch (error) {
+        this.emit('error', error);
+        this.active = false;
       }
     };
 
@@ -118,64 +125,91 @@ export class SocketIoDriver extends Driver {
     this.#socket.on('disconnect', this.#onDisconnect);
     this.#socket.on('connect_error', this.#onError);
     this.#socket.on('error', this.#onError);
-    this.#socket.on(this.#getNS('message'), this.#onMessage);
+    this.#socket.on(`${this.#prefix}message`, this.#onMessage);
 
     this.active = !!this.#socket.connected;
   }
 
   async subscribe(namespace: string[], handler: (data: number[]) => void) {
-    const ns = this.#getNS(...namespace);
-    const isFirstSubscription = !this.#emitter.has(ns);
-    this.#emitter.on(ns, handler);
+    if (!this.#socket) return;
+
+    const [event] = namespace.slice(-1);
+    const isFirstSubscription = !this.#emitter.has(event);
+    this.#emitter.on(event, handler);
 
     if (isFirstSubscription) {
-      await new Promise((resolve) => {
-        if (!this.#socket) return resolve(null);
-        this.#socket.emit(this.#getNS('subscribe'), ns, () => resolve(null));
-      });
+      try {
+        await this.#socketEmit('subscribe', event);
+      } catch (error) {
+        this.#emitter.off(event, handler);
+        throw error;
+      }
     }
   }
 
   async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
-    const ns = this.#getNS(...namespace);
-    this.#emitter.off(ns, handler);
+    if (!this.#socket) return;
 
-    if (!this.#emitter.has(ns)) {
-      await new Promise((resolve) => {
-        if (!this.#socket) return resolve(null);
-        this.#socket.emit(this.#getNS('unsubscribe'), ns, () => resolve(null));
-      });
+    const [event] = namespace.slice(-1);
+    this.#emitter.off(event, handler);
+
+    if (!this.#emitter.has(event)) {
+      await this.#socketEmit('unsubscribe', event);
     }
   }
 
   async dispatch(namespace: string[], data: number[]) {
-    const ns = this.#getNS(...namespace);
-    this.#socket?.emit(this.#getNS('dispatch'), ns, data);
+    if (!this.#socket) return;
+
+    const [event] = namespace.slice(-1);
+    await this.#socketEmit('dispatch', event, data);
   }
 
-  /**
-   * Cleans up all event listeners and marks the driver as inactive.
-   */
   destroy() {
+    super.destroy();
+    this.#emitter.clear();
+
     if (this.#socket) {
-      this.active = false;
-      this.#emitter.clear();
       this.#socket.off('connect', this.#onConnect);
       this.#socket.off('disconnect', this.#onDisconnect);
       this.#socket.off('connect_error', this.#onError);
       this.#socket.off('error', this.#onError);
-      this.#socket.off(this.#getNS('message'), this.#onMessage);
+      this.#socket.off(`${this.#prefix}message`, this.#onMessage);
       this.#socket = null;
     }
   }
 
   /**
-   * Constructs a namespace string from an array of namespace segments.
+   * Emits an event to the Socket.IO server with acknowledgement support.
    *
-   * @param namespaces Array of namespace segments.
-   * @returns The constructed namespace string.
+   * @param event The event name to emit.
+   * @param args The arguments to send with the event.
    */
-  #getNS(...namespaces: string[]) {
-    return [this.#prefix, ...namespaces].filter(Boolean).join(':');
+  async #socketEmit(event: string, ...args: any[]) {
+    await new Promise<void>((resolve, reject) => {
+      if (!this.#socket) return resolve();
+      const socket =
+        this.#ackTimeout > 0
+          ? this.#socket.timeout(this.#ackTimeout)
+          : this.#socket;
+      socket.emit(`${this.#prefix}${event}`, ...args, (error: unknown) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
   }
+}
+
+/**
+ * Interface representing a Socket.IO client instance.
+ *
+ * @internal
+ * @group Drivers
+ */
+export interface SocketIoClient {
+  on: (event: string, handler: (...args: any[]) => void) => void;
+  off: (event: string, handler: (...args: any[]) => void) => void;
+  emit: (event: string, ...args: any[]) => void;
+  timeout: (ms: number) => SocketIoClient;
+  connected: boolean;
 }

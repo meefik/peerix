@@ -32,34 +32,24 @@ export class BroadcastChannelDriver extends Driver {
     this.#emitter = new EventEmitter();
     this.#bc = new BroadcastChannel(channelName);
     this.#bc.onmessage = (e) => {
-      const [ns, data] = e.data;
-      if (!ns) return;
-      this.#emitter.emit(ns, data);
+      const [event, data] = e.data;
+      this.#emitter.emit(event, data);
     };
+    this.active = true;
   }
 
   async subscribe(namespace: string[], handler: (data: number[]) => void) {
-    const ns = this.#getNS(namespace);
-    this.#emitter.on(ns, handler);
+    const [event] = namespace.slice(-1);
+    this.#emitter.on(event, handler);
   }
 
   async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
-    const ns = this.#getNS(namespace);
-    this.#emitter.off(ns, handler);
+    const [event] = namespace.slice(-1);
+    this.#emitter.off(event, handler);
   }
 
   async dispatch(namespace: string[], data: number[]) {
-    const ns = this.#getNS(namespace);
-    this.#bc.postMessage([ns, data]);
-  }
-
-  /**
-   * Constructs a namespace string from an array of namespace segments.
-   *
-   * @param namespace Array of namespace segments.
-   * @returns Constructed namespace string.
-   */
-  #getNS(namespace: string[]) {
-    return namespace.join(':');
+    const [event] = namespace.slice(-1);
+    this.#bc.postMessage([event, data]);
   }
 }

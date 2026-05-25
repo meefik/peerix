@@ -7,6 +7,19 @@ import { EventEmitter } from '../utils/emitter';
  * between peers. They should implement the subscribe, unsubscribe, and
  * dispatch methods to handle message routing based on namespaces.
  *
+ * A namespace is an array of strings representing the hierarchical path
+ * for routing messages between peers. It looks like this:
+ * `['room-id', 'peer-id']`.
+ *
+ * Drivers typically use a string event name instead of an array. Since
+ * each part of the namespace is globally unique, drivers can simply use
+ * the last part of the namespace as the event name for routing messages
+ * to minimize the event name length. In complex cases, drivers can also
+ * use other parts of the namespace or concatenate multiple parts.
+ *
+ * The active property indicates whether the driver is currently connected
+ * to the signaling backend and able to send/receive messages.
+ *
  * @group Drivers
  *
  * @example
@@ -27,7 +40,7 @@ import { EventEmitter } from '../utils/emitter';
  * ```
  */
 export class Driver {
-  #active = true;
+  #active: boolean;
   #emitter: EventEmitter<DriverEvents>;
 
   /** Indicates whether the driver is currently active. */
@@ -48,6 +61,7 @@ export class Driver {
    */
   constructor() {
     this.#emitter = new EventEmitter(this);
+    this.#active = false;
   }
 
   /**
@@ -114,6 +128,14 @@ export class Driver {
    */
   async dispatch(namespace: string[], data: number[]) {
     // Base implementation is intentionally empty.
+  }
+
+  /**
+   * Destroys the driver instance, cleaning up any resources.
+   */
+  destroy() {
+    this.#emitter.clear();
+    this.active = false;
   }
 }
 

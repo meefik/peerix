@@ -20,126 +20,115 @@ import { EventEmitter } from '../utils/emitter.js';
  * const supabase = createClient('your_project_url', 'your_supabase_api_key');
  *
  * // create a new driver instance
- * const driver = new SupabaseDriver({ supabase, prefix: 'peerix' });
+ * const driver = new SupabaseDriver({ supabase });
  * ```
  */
 export class SupabaseDriver extends Driver {
   #emitter: EventEmitter<Record<string, [number[]]>>;
   #prefix: string;
-  #supabase: any | null;
-  #channel: any | null;
-  #onBroadcast: (message: { payload?: [string, number[]] }) => void;
+  #supabase: SupabaseClient | null;
+  #channels: Map<string, SupabaseChannel>;
+  #onBroadcast: (message: { payload?: any }) => void;
 
   /**
    * Creates a new instance of the driver.
    *
    * @param options Configuration options for the driver.
    * @param options.supabase Supabase client instance.
-   * @param options.prefix Optional prefix for channel namespacing (default: 'peerix').
+   * @param options.prefix Optional Supabase channel prefix.
    */
-  constructor(options: {
-    supabase: { channel: Function; removeChannel: Function };
-    prefix?: string;
-  }) {
+  constructor(options: { supabase: SupabaseClient; prefix?: string }) {
     super();
-    const { supabase, prefix = 'peerix' } = options || {};
+    const { supabase, prefix = '' } = options || {};
 
     if (
       !supabase ||
       typeof supabase.channel !== 'function' ||
       typeof supabase.removeChannel !== 'function'
     ) {
-      throw new TypeError(
-        'SupabaseDriver requires a valid Supabase client instance',
-      );
+      throw new TypeError('SupabaseDriver requires a valid Supabase client');
     }
 
     this.#supabase = supabase;
-    this.#prefix = String(prefix);
+    this.#prefix = `${prefix}`;
     this.#emitter = new EventEmitter();
+    this.#channels = new Map();
 
     this.#onBroadcast = (message) => {
-      const [ns, data = []] = message.payload || [];
-      if (!ns) return;
-      this.#emitter.emit(ns, data);
+      const [event, data] = message.payload;
+      this.#emitter.emit(event, data);
     };
-
-    this.#channel = supabase
-      .channel(this.#prefix)
-      .on('broadcast', { event: 'message' }, this.#onBroadcast);
   }
 
   async subscribe(namespace: string[], handler: (data: number[]) => void) {
-    const ns = this.#getNS(namespace);
-    this.#emitter.on(ns, handler);
+    if (!this.#supabase) return;
 
-    await this.#subscribeToChannel();
-  }
+    const [channelName] = namespace;
+    const [event] = namespace.slice(-1);
+    this.#emitter.on(event, handler);
 
-  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
-    const ns = this.#getNS(namespace);
-    this.#emitter.off(ns, handler);
-
-    if (!this.#emitter.size) {
-      await this.#unsubscribeFromChannel();
+    try {
+      await this.#subscribeToChannel(channelName);
+    } catch (error) {
+      this.#emitter.off(event, handler);
+      throw error;
     }
   }
 
-  async dispatch(namespace: string[], data: number[]) {
-    const ns = this.#getNS(namespace);
+  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
+    if (!this.#supabase) return;
 
-    await this.#channel?.send({
-      type: 'broadcast',
-      event: 'message',
-      payload: [ns, data],
-    });
+    const [channelName] = namespace;
+    const [event] = namespace.slice(-1);
+    this.#emitter.off(event, handler);
+
+    await this.#unsubscribeFromChannel(channelName);
   }
 
-  /**
-   * Cleans up all event listeners and marks the driver as inactive.
-   */
+  async dispatch(namespace: string[], data: number[]) {
+    if (!this.#supabase) return;
+
+    const [channelName] = namespace;
+    const [event] = namespace.slice(-1);
+    await this.#sendToChannel(channelName, event, data);
+  }
+
   destroy() {
+    super.destroy();
+    this.#emitter.clear();
+
     if (this.#supabase) {
-      this.active = false;
-      this.#emitter.clear();
-
-      if (this.#channel) {
-        this.#unsubscribeFromChannel().catch(() => {});
-        this.#supabase.removeChannel(this.#channel);
-        this.#channel = null;
+      for (const channel of this.#channels.values()) {
+        channel.unsubscribe().catch(() => {});
+        this.#supabase.removeChannel(channel);
       }
-
+      this.#channels.clear();
       this.#supabase = null;
     }
   }
 
   /**
-   * Constructs a namespace string from an array of namespace segments.
-   *
-   * @param namespace Array of namespace segments.
-   * @returns Constructed namespace string.
+   * Subscribes to the Supabase channel for receiving broadcast messages.
    */
-  #getNS(namespace: string[]) {
-    return namespace.join(':');
-  }
-
-  /**
-   * Subscribes to the Supabase channel to receive broadcast messages.
-   */
-  async #subscribeToChannel() {
-    if (!this.#channel || this.#channel.state !== 'closed') return;
-
-    await new Promise((resolve, reject) => {
-      if (!this.#channel) return resolve(null);
+  async #subscribeToChannel(channelName: string) {
+    await new Promise<void>((resolve, reject) => {
+      const channel = this.#getChannel(channelName);
+      if (!this.#supabase || channel) {
+        return resolve();
+      }
       try {
-        this.#channel.subscribe((status: any) => {
-          const state = typeof status === 'string' ? status : status?.status;
-          if (state === 'SUBSCRIBED') resolve(null);
-          else
+        const channel = this.#supabase.channel(`${this.#prefix}${channelName}`);
+        channel.on('broadcast', { event: 'message' }, this.#onBroadcast);
+        channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') resolve();
+          else {
+            this.#channels.delete(channelName);
             reject(
-              new Error(`Failed to subscribe to Supabase channel: ${state}`),
+              new Error(`Failed to subscribe to Supabase channel: ${status}`),
             );
+          }
         });
+        this.#channels.set(channelName, channel);
       } catch (err) {
         reject(err);
       }
@@ -149,9 +138,66 @@ export class SupabaseDriver extends Driver {
   /**
    * Unsubscribes from the Supabase channel used to receive broadcast messages.
    */
-  async #unsubscribeFromChannel() {
-    if (!this.#channel || this.#channel.state === 'closed') return;
+  async #unsubscribeFromChannel(channelName: string) {
+    const channel = this.#getChannel(channelName);
+    if (!this.#supabase || !channel) return;
 
-    await this.#channel.unsubscribe();
+    await channel.unsubscribe();
+    this.#supabase.removeChannel(channel);
+    this.#channels.delete(channelName);
   }
+
+  async #sendToChannel(channelName: string, event: string, data: number[]) {
+    const channel = this.#getChannel(channelName);
+    if (!this.#supabase || !channel) return;
+
+    await channel.send({
+      type: 'broadcast',
+      event: 'message',
+      payload: [event, data],
+    });
+  }
+
+  /**
+   * Retrieves the Supabase channel for the given channel name.
+   *
+   * @param channelName The name of the channel to retrieve.
+   * @returns The Supabase channel if it exists.
+   */
+  #getChannel(channelName: string): SupabaseChannel | void {
+    return this.#channels.get(`${this.#prefix}${channelName}`);
+  }
+}
+
+/**
+ * Interface representing a Supabase client instance.
+ *
+ * @internal
+ * @group Drivers
+ */
+export interface SupabaseClient {
+  channel: (channelName: string) => SupabaseChannel;
+  removeChannel: (channel: SupabaseChannel) => void;
+}
+
+/**
+ * Interface representing a Supabase Realtime channel.
+ *
+ * @internal
+ * @group Drivers
+ */
+export interface SupabaseChannel {
+  on: (
+    event: string,
+    filter: { event: string },
+    handler: (message: { payload?: [string, number[]] }) => void,
+  ) => any;
+  send: (payload: {
+    type: string;
+    event: string;
+    payload?: any;
+  }) => Promise<void>;
+  subscribe: (callback: (status: string) => void) => void;
+  unsubscribe: () => Promise<void>;
+  state: string;
 }

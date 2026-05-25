@@ -29,30 +29,21 @@ export class MemoryDriver extends Driver {
     const randomizedDelay =
       delay > 0 ? Math.floor(delay * (0.75 + 0.5 * Math.random())) : 0;
     this.#emitter = new EventEmitter(null, { delay: randomizedDelay });
+    this.active = true;
   }
 
   async subscribe(namespace: string[], handler: (data: number[]) => void) {
-    const ns = this.#getNS(namespace);
-    this.#emitter.on(ns, handler);
+    const [event] = namespace.slice(-1);
+    this.#emitter.on(event, handler);
   }
 
   async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
-    const ns = this.#getNS(namespace);
-    this.#emitter.off(ns, handler);
+    const [event] = namespace.slice(-1);
+    this.#emitter.off(event, handler);
   }
 
   async dispatch(namespace: string[], data: number[]) {
-    const ns = this.#getNS(namespace);
-    this.#emitter.emit(ns, data);
-  }
-
-  /**
-   * Constructs a namespace string from an array of namespace segments.
-   *
-   * @param namespace Array of namespace segments.
-   * @returns Constructed namespace string.
-   */
-  #getNS(namespace: string[]): string {
-    return namespace.join(':');
+    const [event] = namespace.slice(-1);
+    this.#emitter.emit(event, data);
   }
 }

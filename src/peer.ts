@@ -155,10 +155,9 @@ export class Peer {
     this.#sharedKeys = new Map();
     this.#signalHandler = this.#handleSignal.bind(this);
     this.#signalActive = () => {
-      if (!this.active) return;
-      this.#dispatchSignal({
+      void this.#dispatchSignal({
         type: SIGNAL_ANNOUNCE,
-        room: this.room,
+        namespace: [this.room],
       });
     };
     this.#signalError = (err: any) => {
@@ -182,7 +181,6 @@ export class Peer {
    */
   async join(options?: string | PeerJoinOptions) {
     if (this.active) return;
-    this.active = true;
 
     const {
       room = 'default',
@@ -201,17 +199,23 @@ export class Peer {
       this.id = bytesToBase62(randomKey);
     }
 
-    this.room = room;
+    this.room = `${room}`;
     this.metadata = metadata;
     this.#verify = verify;
 
-    log('peer:join', { id: this.id, room: this.room, metadata: this.metadata });
-
-    await this.#registerSignal();
-
-    await this.#dispatchSignal({
-      type: SIGNAL_ANNOUNCE,
+    log('peer:join', {
+      id: this.id,
       room: this.room,
+      metadata: this.metadata,
+    });
+
+    await this.#registerSignal([this.room, this.id]);
+
+    this.active = true;
+
+    void this.#dispatchSignal({
+      type: SIGNAL_ANNOUNCE,
+      namespace: [this.room],
     });
   }
 
@@ -233,7 +237,7 @@ export class Peer {
       metadata: this.metadata,
     });
 
-    await this.#unregisterSignal();
+    await this.#unregisterSignal([this.room, this.id]);
 
     for (const remote of this.connections.values()) {
       remote.dispose();
@@ -528,6 +532,18 @@ export class Peer {
   }
 
   /**
+   * Escapes a namespace by hashing or sanitizing it based on the driver's configuration.
+   *
+   * @param namespace The namespace to escape.
+   * @returns The escaped namespace.
+   */
+  async #escapeNamespace(namespace: string[]) {
+    return this.#namespaceHashing
+      ? await Promise.all(namespace.map((n) => sha256(n)))
+      : namespace.map((n) => n.replace(/[^a-zA-Z0-9_-]/gu, '_'));
+  }
+
+  /**
    * Creates a new RemotePeer instance for an incoming connection or returns an existing one.
    *
    * @param options Options for creating the remote peer connection.
@@ -570,11 +586,11 @@ export class Peer {
         candidate: SIGNAL_CANDIDATE,
       };
       const dispatch = (name: keyof typeof types, message: any[]) =>
-        this.#dispatchSignal({
+        void this.#dispatchSignal({
           type: types[name],
-          room: this.room,
-          to: id,
+          namespace: [this.room, id],
           message,
+          encryptionKey: this.#sharedKeys.get(id),
         });
       if (name === 'candidate') {
         clearTimeout(iceCandidateDebounceTimer);
@@ -590,11 +606,10 @@ export class Peer {
     });
 
     remote.on('connection:failed', () => {
-      // try to reconnect
-      this.#dispatchSignal({
+      // try to reconnect to the same peer
+      void this.#dispatchSignal({
         type: SIGNAL_INVOKE,
-        room: this.room,
-        to: id,
+        namespace: [this.room, id],
         message: [this.metadata],
         encryptionKey: this.#sharedKeys.get(id),
         jitter: 1000,
@@ -642,50 +657,34 @@ export class Peer {
   /**
    * Subscribes to signaling messages for the current room and peer ID.
    */
-  async #registerSignal() {
-    const namespaces = [[this.room], [this.room, this.id]];
-    for (let namespace of namespaces) {
-      try {
-        if (this.#namespaceHashing) {
-          namespace = await Promise.all(namespace.map((part) => sha256(part)));
-        }
+  async #registerSignal(namespace: string[]) {
+    this.#driver.on('active', this.#signalActive);
+    this.#driver.on('error', this.#signalError);
 
-        log('signal:register', { id: this.id, namespace });
+    for (let i = 0; i < namespace.length; i++) {
+      const part = namespace.slice(0, i + 1);
+      const escaped = await this.#escapeNamespace(part);
 
-        this.#driver.on('active', this.#signalActive);
-        this.#driver.on('error', this.#signalError);
-        await this.#driver.subscribe(namespace, this.#signalHandler);
-      } catch (err) {
-        const error = new PeerixError(err, 'SIGNALING_ERROR');
-        this.emit('error', { id: this.id, name: 'error', error });
+      log('signal:subscribe', { id: this.id, namespace: escaped });
 
-        log('signal:error', { id: this.id, namespace, error });
-      }
+      await this.#driver.subscribe(escaped, this.#signalHandler);
     }
   }
 
   /**
    * Unsubscribes from signaling messages for the current room and peer ID.
    */
-  async #unregisterSignal() {
-    const namespaces = [[this.room], [this.room, this.id]];
-    for (let namespace of namespaces) {
-      try {
-        if (this.#namespaceHashing) {
-          namespace = await Promise.all(namespace.map((part) => sha256(part)));
-        }
+  async #unregisterSignal(namespace: string[]) {
+    this.#driver.off('active', this.#signalActive);
+    this.#driver.off('error', this.#signalError);
 
-        log('signal:unregister', { id: this.id, namespace });
+    for (let i = 0; i < namespace.length; i++) {
+      const part = namespace.slice(0, i + 1);
+      const escaped = await this.#escapeNamespace(part);
 
-        this.#driver.off('active', this.#signalActive);
-        this.#driver.off('error', this.#signalError);
-        await this.#driver.unsubscribe(namespace, this.#signalHandler);
-      } catch (err) {
-        const error = new PeerixError(err, 'SIGNALING_ERROR');
-        this.emit('error', { id: this.id, name: 'error', error });
+      log('signal:unsubscribe', { id: this.id, namespace: escaped });
 
-        log('signal:error', { id: this.id, namespace, error });
-      }
+      await this.#driver.unsubscribe(escaped, this.#signalHandler);
     }
   }
 
@@ -702,33 +701,29 @@ export class Peer {
    */
   async #dispatchSignal(options: {
     type: number;
-    room: string;
-    to?: string;
+    namespace: string[];
     message?: any[];
     encryptionKey?: CryptoKey;
     jitter?: number;
   }) {
     if (!this.active || !this.#driver.active) return;
 
-    const { type, room, to, message, jitter = 0, encryptionKey } = options;
-    let namespace = to ? [room, to] : [room];
+    const { type, namespace, message, jitter = 0, encryptionKey } = options;
 
     try {
-      if (this.#namespaceHashing) {
-        namespace = await Promise.all(namespace.map((part) => sha256(part)));
-      }
-
-      const buffer = await this.#encodeSignal(
-        type,
-        message,
-        encryptionKey || to,
-      );
-
-      log('signal:dispatch', { id: this.id, type, namespace, message });
+      const escaped = await this.#escapeNamespace(namespace);
+      const buffer = await this.#encodeSignal(type, message, encryptionKey);
 
       await delay(Math.random() * jitter);
 
-      await this.#driver.dispatch(namespace, Array.from(buffer));
+      log('signal:dispatch', {
+        id: this.id,
+        type,
+        namespace: escaped,
+        message,
+      });
+
+      await this.#driver.dispatch(escaped, Array.from(buffer));
     } catch (err) {
       const error = new PeerixError(err, 'SIGNALING_ERROR');
       this.emit('error', { id: this.id, name: 'error', error });
@@ -756,11 +751,11 @@ export class Peer {
 
       // handle new peer announcement
       if (type === SIGNAL_ANNOUNCE) {
-        this.#dispatchSignal({
+        void this.#dispatchSignal({
           type: SIGNAL_INVOKE,
-          room: this.room,
-          to: id,
+          namespace: [this.room, id],
           message: [this.metadata],
+          encryptionKey: this.#sharedKeys.get(id),
         });
 
         return;
@@ -835,14 +830,10 @@ export class Peer {
    *
    * @param type The type of the signaling message.
    * @param message The signaling message payload.
-   * @param encryptionKey Optional encryption key or peer ID used for encrypting the message.
+   * @param encryptionKey Optional encryption key used for encrypting the message.
    * @returns The encoded signaling message.
    */
-  async #encodeSignal(
-    type: number,
-    message: any,
-    encryptionKey?: CryptoKey | string,
-  ) {
+  async #encodeSignal(type: number, message: any, encryptionKey?: CryptoKey) {
     let flags = 0;
     let payload: Uint8Array = message
       ? new TextEncoder().encode(JSON.stringify(message))
@@ -857,10 +848,7 @@ export class Peer {
         }
       }
 
-      if (this.#signalingEncryption && encryptionKey) {
-        if (typeof encryptionKey === 'string') {
-          encryptionKey = this.#sharedKeys.get(encryptionKey);
-        }
+      if (this.#signalingEncryption) {
         if (!encryptionKey) throw new Error('Encryption key not found');
         payload = await encryptMessage(payload, encryptionKey);
         flags |= ENCRYPTION_ENABLED;
@@ -1079,8 +1067,6 @@ export interface PeerOptions {
   connectionTimeout?: number;
   /**
    * Enable hashing of namespaces in signaling messages for privacy.
-   * This also helps to avoid unsupported characters in room names
-   * and peer identifiers.
    * Enabled by default.
    */
   namespaceHashing?: boolean;
@@ -1105,6 +1091,7 @@ export interface PeerOptions {
 export interface PeerJoinOptions {
   /**
    * Room name to join.
+   * It is recommended to use `a-zA-Z0-9_-` characters only.
    * If omitted, the peer will join a room with the `default` name.
    */
   room?: string;

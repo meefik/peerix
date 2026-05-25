@@ -48,7 +48,7 @@ export class RemotePeer {
   /**
    * Creates a {@link RemotePeer} instance.
    *
-   * @ignore
+   * @internal
    * @param options Options for creating the remote peer connection.
    */
   constructor(options: RemotePeerOptions) {
@@ -440,7 +440,7 @@ export class RemotePeer {
   /**
    * Applies a remote session description or ICE candidate received from the remote peer.
    *
-   * @ignore
+   * @internal
    * @param data Remote session description or ICE candidate to apply.
    * @returns Promise that resolves when the description is applied and ICE candidates are added.
    */
@@ -473,7 +473,6 @@ export class RemotePeer {
   /**
    * Adds an ICE candidate to the peer connection.
    *
-   * @ignore
    * @param candidate ICE candidate to add.
    * @returns Promise that resolves when the candidate is added.
    */
@@ -959,7 +958,7 @@ export class RemotePeer {
 /**
  * Options for creating a {@link RemotePeer} instance.
  *
- * @ignore
+ * @internal
  * @group Remote Peers
  */
 export interface RemotePeerOptions {
@@ -986,6 +985,9 @@ export interface RemotePeerOptions {
 /**
  * Event emitted when a signal is received from the remote peer,
  * such as an offer, answer, or ICE candidate.
+ *
+ * @internal
+ * @group Remote Peers
  */
 export interface RemoteSignalEvent {
   /** Unique identifier for the remote peer. */
@@ -1097,7 +1099,7 @@ export interface RemotePeerErrorEvent {
  * @group Remote Peers
  */
 export interface RemotePeerEvents {
-  /** Signal event. @ignore */
+  /** Signal event. @internal */
   signal: [RemoteSignalEvent];
   /** General connection event. */
   connection: [RemotePeerConnectionEvent];

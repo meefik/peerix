@@ -16,18 +16,33 @@ import { EventEmitter } from '../utils/emitter.js';
  * ```javascript
  * import { wsconnect } from '@nats-io/nats-core';
  *
- * // connect to a NATS server (e.g., the public demo server)
- * const nc = await wsconnect({ servers: ['wss://demo.nats.io:8443'], noEcho: true });
+ * // connect to a NATS server (e.g., the local server)
+ * const nc = await wsconnect({ servers: ['ws://localhost:8080'], noEcho: true });
  *
  * // create a new driver instance
- * const driver = new NatsDriver({ nc, prefix: 'peerix' });
+ * const driver = new NatsDriver({ nc });
+ * ```
+ *
+ * Running a local NATS server with WebSocket support for testing:
+ * ```sh
+ * cat << EOF > /tmp/nats-server.conf
+ * websocket: {
+ *   port: 8080,
+ *   no_tls: true,
+ *   same_origin: false
+ * }
+ * EOF
+ *
+ * docker run --rm -p 4222:4222 -p 8080:8080 \
+ *   -v /tmp/nats-server.conf:/nats-server.conf \
+ *   nats:latest -c /nats-server.conf
  * ```
  */
 export class NatsDriver extends Driver {
   #emitter: EventEmitter<Record<string, [number[]]>>;
-  #subscriptions: Map<string, { unsubscribe: () => void }>;
+  #subscriptions: Map<string, NatsSubscription>;
   #prefix: string;
-  #nc: { subscribe: Function; publish: Function; status: Function } | null;
+  #nc: NatsConnection | null;
   #statusIterator: AsyncIterator<any> | null;
 
   /**
@@ -35,14 +50,11 @@ export class NatsDriver extends Driver {
    *
    * @param options Configuration options for the driver.
    * @param options.nc NATS connection instance.
-   * @param options.prefix Optional prefix for NATS subjects (default: 'peerix').
+   * @param options.prefix Optional prefix for NATS subjects.
    */
-  constructor(options: {
-    nc: { subscribe: Function; publish: Function; status: Function };
-    prefix?: string;
-  }) {
+  constructor(options: { nc: NatsConnection; prefix?: string }) {
     super();
-    const { nc, prefix = 'peerix' } = options || {};
+    const { nc, prefix = '' } = options || {};
 
     if (
       !nc ||
@@ -50,61 +62,67 @@ export class NatsDriver extends Driver {
       typeof nc.publish !== 'function' ||
       typeof nc.status !== 'function'
     ) {
-      throw new TypeError(
-        'NatsDriver requires a valid NATS connection instance',
-      );
+      throw new TypeError('NatsDriver requires a valid NATS connection');
     }
 
     this.#nc = nc;
-    this.#prefix = String(prefix);
+    this.#prefix = `${prefix}`;
     this.#emitter = new EventEmitter();
     this.#subscriptions = new Map();
     this.#statusIterator = null;
     this.#trackConnectionStatus();
+    this.active = true;
   }
 
   async subscribe(namespace: string[], handler: (data: number[]) => void) {
-    const ns = this.#getNS(namespace);
-    this.#emitter.on(ns, handler);
+    if (!this.#nc) return;
 
-    if (!this.#subscriptions.has(ns)) {
-      const sub = this.#nc?.subscribe(ns, {
-        callback: (error: Error, msg: any) => {
-          if (error) return this.emit('error', error);
-          this.#emitter.emit(ns, msg.data);
-        },
-      });
-      if (sub) {
-        this.#subscriptions.set(ns, sub);
+    const subject = this.#getSubject(namespace);
+    this.#emitter.on(subject, handler);
+
+    if (!this.#subscriptions.has(subject)) {
+      try {
+        const sub = this.#nc.subscribe(subject, {
+          callback: (error: Error, msg: any) => {
+            if (error) return this.emit('error', error);
+            this.#emitter.emit(subject, Array.from(msg?.data || []));
+          },
+        });
+        this.#subscriptions.set(subject, sub);
+      } catch (error) {
+        this.#emitter.off(subject, handler);
+        throw error;
       }
     }
   }
 
   async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
-    const ns = this.#getNS(namespace);
-    this.#emitter.off(ns, handler);
+    if (!this.#nc) return;
 
-    const sub = this.#subscriptions.get(ns);
-    if (sub) {
+    const subject = this.#getSubject(namespace);
+    this.#emitter.off(subject, handler);
+
+    const sub = this.#subscriptions.get(subject);
+    if (!this.#emitter.has(subject) && sub) {
+      this.#subscriptions.delete(subject);
       sub.unsubscribe();
-      this.#subscriptions.delete(ns);
     }
   }
 
   async dispatch(namespace: string[], data: number[]) {
-    const ns = this.#getNS(namespace);
-    this.#nc?.publish(ns, new Uint8Array(data));
+    if (!this.#nc) return;
+
+    const subject = this.#getSubject(namespace);
+    this.#nc.publish(subject, new Uint8Array(data));
   }
 
-  /**
-   * Cleans up all event listeners and marks the driver as inactive.
-   */
   destroy() {
+    super.destroy();
+    this.#emitter.clear();
+
     if (this.#nc) {
-      this.active = false;
       this.#statusIterator?.return?.();
       this.#statusIterator = null;
-      this.#emitter.clear();
       this.#subscriptions.forEach((sub) => sub.unsubscribe());
       this.#subscriptions.clear();
       this.#nc = null;
@@ -112,13 +130,14 @@ export class NatsDriver extends Driver {
   }
 
   /**
-   * Constructs a namespace string from an array of namespace segments.
+   * Constructs the full NATS subject name for a given namespace.
    *
-   * @param namespace Array of namespace segments.
-   * @returns The constructed namespace string.
+   * @param namespace The namespace to construct the subject for.
+   * @returns The full NATS subject name with the prefix applied.
    */
-  #getNS(namespace: string[]) {
-    return [this.#prefix, ...namespace].filter(Boolean).join('.');
+  #getSubject(namespace: string[]) {
+    const [event] = namespace.slice(-1);
+    return `${this.#prefix}${event}`;
   }
 
   /**
@@ -136,8 +155,9 @@ export class NatsDriver extends Driver {
       )
         return;
       this.#statusIterator = statusIterable[Symbol.asyncIterator]();
-      for await (const s of statusIterable as AsyncIterable<any>) {
-        if (!this.#nc) break;
+      while (this.#statusIterator) {
+        const { value: s, done } = await this.#statusIterator.next();
+        if (done || !this.#nc) break;
         if (s.type === 'reconnect') this.active = true;
         else if (s.type === 'disconnect') this.active = false;
         else if (s.type === 'error') this.emit('error', s.data);
@@ -148,4 +168,29 @@ export class NatsDriver extends Driver {
       this.#statusIterator = null;
     }
   }
+}
+
+/**
+ * Interface representing a NATS client instance.
+ *
+ * @internal
+ * @group Drivers
+ */
+export interface NatsConnection {
+  subscribe: (
+    subject: string,
+    options: { callback: (error: Error, msg: any) => void },
+  ) => NatsSubscription;
+  publish: (subject: string, data: Uint8Array) => void;
+  status: () => AsyncIterable<any>;
+}
+
+/**
+ * Interface representing a NATS subscription.
+ *
+ * @internal
+ * @group Drivers
+ */
+export interface NatsSubscription {
+  unsubscribe: () => void;
 }

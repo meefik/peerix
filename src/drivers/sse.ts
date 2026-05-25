@@ -37,11 +37,11 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * // route for outgoing messages
  * app.get('/api/sse', (req, res) => {
- *   const ns = req.query.ns;
- *   if (!ns) return res.status(400).end();
- *   const clients = subscribers.get(ns) || new Set();
+ *   const { event } = req.query;
+ *   if (!event) return res.status(400).end();
+ *   const clients = subscribers.get(event) || new Set();
  *   clients.add(res);
- *   subscribers.set(ns, clients);
+ *   subscribers.set(event, clients);
  *   // set headers to establish the SSE stream
  *   res.setHeader('Content-Type', 'text/event-stream');
  *   res.setHeader('Cache-Control', 'no-cache');
@@ -50,17 +50,17 @@ import { EventEmitter } from '../utils/emitter.js';
  *   // clean up if the browser closes the page or disconnects
  *   req.on('close', () => {
  *     clients.delete(res);
- *     if (!clients.size) subscribers.delete(ns);
+ *     if (!clients.size) subscribers.delete(event);
  *     res.end();
  *   });
  * });
  *
  * // route for incoming messages
  * app.post('/api/sse', (req, res) => {
- *   const ns = req.query.ns;
+ *   const { event } = req.query;
  *   const data = req.body || '';
- *   if (ns) {
- *     const clients = subscribers.get(ns);
+ *   if (event) {
+ *     const clients = subscribers.get(event);
  *     if (clients) {
  *       for (const client of clients) {
  *         client.write(`data: ${data}\n\n`);
@@ -92,136 +92,139 @@ export class SseDriver extends Driver {
     this.#emitter = new EventEmitter();
     this.#url = url;
     this.#withCredentials = withCredentials;
-    this.active = false;
     this.#eventSources = new Map();
   }
 
   async subscribe(namespace: string[], handler: (data: number[]) => void) {
-    const ns = this.#getNS(namespace);
-    const hasSubscribers = this.#emitter.has(ns);
-    this.#emitter.on(ns, handler);
+    const [event] = namespace.slice(-1);
+    const hasSubscribers = this.#emitter.has(event);
+    this.#emitter.on(event, handler);
     if (!hasSubscribers) {
-      try {
-        await this.#createEventSource(ns);
-      } catch (error) {
-        this.#emitter.off(ns, handler);
-        throw error;
-      }
+      await this.#createEventSource(event);
     }
   }
 
   async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
-    const ns = this.#getNS(namespace);
-    this.#emitter.off(ns, handler);
-    const hasSubscribers = this.#emitter.has(ns);
+    const [event] = namespace.slice(-1);
+    this.#emitter.off(event, handler);
+    const hasSubscribers = this.#emitter.has(event);
     if (!hasSubscribers) {
-      this.#closeEventSource(ns);
+      this.#closeEventSource(event);
     }
   }
 
   async dispatch(namespace: string[], data: number[]) {
-    const ns = this.#getNS(namespace);
-    await this.#send(ns, data);
+    const [event] = namespace.slice(-1);
+    await this.#send(event, data);
   }
 
-  /**
-   * Closes the connection and cleans up resources.
-   */
   destroy() {
-    for (const ns of this.#eventSources.keys()) {
-      this.#closeEventSource(ns);
+    super.destroy();
+    this.#emitter.clear();
+
+    for (const event of this.#eventSources.keys()) {
+      this.#closeEventSource(event);
     }
-    this.active = false;
   }
 
   /**
-   * Constructs a namespace string from an array of namespace segments.
-   *
-   * @param namespace Array of namespace segments.
-   * @returns The constructed namespace string.
-   */
-  #getNS(namespace: string[]): string {
-    return namespace.join(',');
-  }
-
-  /**
-   * Builds a request URL for the given namespace while preserving any existing
+   * Builds a request URL for the given event while preserving any existing
    * query parameters on the configured base URL.
    *
-   * @param ns The namespace string.
+   * @param event The event string.
    * @returns The fully qualified request URL.
    */
-  #makeUrl(ns: string): string {
+  #makeUrl(event: string): string {
     const url = new URL(this.#url, location.href);
-    url.searchParams.set('ns', ns);
+    url.searchParams.set('event', event);
     return url.toString();
   }
 
   /**
-   * Creates a new EventSource connection for the given namespace.
+   * Checks if all EventSource connections are open.
    *
-   * @param ns The namespace string to connect to.
+   * @returns True if all EventSource connections are open, false otherwise.
    */
-  async #createEventSource(ns: string) {
-    return new Promise<void>((resolve) => {
-      const eventSource = new EventSource(this.#makeUrl(ns), {
+  #isOpen(): boolean {
+    const eventSources = Array.from(this.#eventSources.values());
+    return (
+      eventSources.length > 0 &&
+      eventSources.every((es) => es.readyState === EventSource.OPEN)
+    );
+  }
+
+  /**
+   * Creates a new EventSource connection for the given event.
+   *
+   * @param event The event string to connect to.
+   */
+  async #createEventSource(event: string) {
+    let opened = false;
+    await new Promise<void>((resolve, reject) => {
+      const eventSource = new EventSource(this.#makeUrl(event), {
         withCredentials: this.#withCredentials,
       });
-      eventSource.onmessage = (event) => {
+      eventSource.onmessage = (e) => {
         try {
-          const data = atob(event.data)
+          const data = atob(e.data)
             .split('')
             .map((char) => char.charCodeAt(0));
-          this.#emitter.emit(ns, data);
+          this.#emitter.emit(event, data);
         } catch (error) {
           this.emit('error', error);
         }
       };
       eventSource.onerror = (error) => {
-        this.emit('error', error);
-        if (eventSource.readyState === EventSource.CLOSED) {
-          this.active = false;
+        if (!opened && eventSource.readyState === EventSource.CLOSED) {
+          reject(error);
+        } else {
+          this.emit('error', error);
         }
+        const open = this.#isOpen();
+        if (!open) this.active = false;
       };
       eventSource.onopen = () => {
-        this.active = true;
-        resolve();
+        if (!opened) resolve();
+        opened = true;
+        const open = this.#isOpen();
+        if (open) this.active = true;
       };
-      this.#eventSources.set(ns, eventSource);
+      this.#eventSources.set(event, eventSource);
     });
   }
 
   /**
-   * Closes the EventSource connection for the given namespace.
+   * Closes the EventSource connection for the given event.
    *
-   * @param ns The namespace string to close the connection for.
+   * @param event The event string to close the connection for.
    */
-  #closeEventSource(ns: string) {
-    const eventSource = this.#eventSources.get(ns);
+  #closeEventSource(event: string) {
+    const eventSource = this.#eventSources.get(event);
     if (eventSource) {
       eventSource.close();
-      this.#eventSources.delete(ns);
+      this.#eventSources.delete(event);
+      this.active = this.#isOpen();
     }
   }
 
   /**
    * Sends a request to the server to subscribe/unsubscribe or dispatch data.
    *
-   * @param ns The namespace string.
+   * @param event The event string.
    * @param data Optional data to send.
    */
-  async #send(ns: string, data?: number[]) {
+  async #send(event: string, data?: number[]) {
     const body = data
       ? btoa(data.reduce((acc, byte) => acc + String.fromCharCode(byte), ''))
       : '';
-    const res = await fetch(this.#makeUrl(ns), {
+    const res = await fetch(this.#makeUrl(event), {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       credentials: this.#withCredentials ? 'include' : 'omit',
       body,
     });
     if (!res.ok) {
-      throw new Error(`SSE backend error: ${res.statusText}`);
+      throw new Error(`SSE backend error: ${res.statusText} (${res.status})`);
     }
   }
 }
