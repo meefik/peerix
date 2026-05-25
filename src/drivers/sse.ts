@@ -10,7 +10,8 @@ import { EventEmitter } from '../utils/emitter.js';
  * updates from the server. To send messages to the server, it uses standard HTTP POST
  * requests. This protocol can be used as an alternative to WebSocket-based transport.
  *
- * > This driver requires a compatible server-side implementation to work.
+ * > This driver requires a [Mercure](https://mercure.rocks/) server or compatible
+ * > server-side implementation to work.
  *
  * @group Drivers
  *
@@ -18,30 +19,48 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * Client-side code (browser with SSE support):
  * ```javascript
+ * const publisherJwtKey = 'mercure-publisher-jwt-key';
  * const driver = new SseDriver({
- *   url: 'http://localhost:8080/api/sse',
- *   withCredentials: false
+ *   url: 'http://localhost:8080/.well-known/mercure',
+ *   publisher: {
+ *     headers: {
+ *       Authorization: `Bearer ${publisherJwtKey}`,
+ *     },
+ *   },
  * });
  * ```
  *
- * Server-side code (Node.js with Express and CORS modules):
+ * Running a local Mercure server for testing:
+ * ```sh
+ * docker run --rm -p 8080:80 \
+ *   -e SERVER_NAME=':80' \
+ *   -e MERCURE_PUBLISHER_JWT_KEY='!ChangeThisMercureHubJWTSecretKey!' \
+ *   -e MERCURE_SUBSCRIBER_JWT_KEY='!ChangeThisMercureHubJWTSecretKey!' \
+ *   dunglas/mercure:latest caddy run --config /etc/caddy/dev.Caddyfile
+ * ```
+ *
+ * Instead of using Mercure, you can use a Node.js server:
  * ```javascript
  * const express = require('express');
  * const cors = require('cors');
  *
  * const app = express();
- * app.use(express.text());
+ * app.use(express.urlencoded({ extended: true }));
  * app.use(cors({ origin: true, credentials: true }));
  *
- * const subscribers = new Map();
+ * const namespaces = new Map();
  *
- * // route for outgoing messages
- * app.get('/api/sse', (req, res) => {
- *   const { event } = req.query;
- *   if (!event) return res.status(400).end();
- *   const clients = subscribers.get(event) || new Set();
- *   clients.add(res);
- *   subscribers.set(event, clients);
+ * // router for outcoming messages
+ * app.get('/.well-known/mercure', (req, res) => {
+ *   const { topic } = req.query;
+ *   if (!topic) return res.status(400).end();
+ *   // support multiple topics in a single request
+ *   const topics = Array.isArray(topic) ? topic : [topic];
+ *   for (const t of topics) {
+ *     const clients = namespaces.get(t) || new Set();
+ *     namespaces.set(t, clients);
+ *     clients.add(res);
+ *   }
  *   // set headers to establish the SSE stream
  *   res.setHeader('Content-Type', 'text/event-stream');
  *   res.setHeader('Cache-Control', 'no-cache');
@@ -49,21 +68,28 @@ import { EventEmitter } from '../utils/emitter.js';
  *   res.flushHeaders();
  *   // clean up if the browser closes the page or disconnects
  *   req.on('close', () => {
- *     clients.delete(res);
- *     if (!clients.size) subscribers.delete(event);
+ *     for (const t of topics) {
+ *       const clients = namespaces.get(t);
+ *       if (clients) {
+ *         clients.delete(res);
+ *         if (!clients.size) namespaces.delete(t);
+ *       }
+ *     }
  *     res.end();
  *   });
  * });
  *
- * // route for incoming messages
- * app.post('/api/sse', (req, res) => {
- *   const { event } = req.query;
- *   const data = req.body || '';
- *   if (event) {
- *     const clients = subscribers.get(event);
- *     if (clients) {
- *       for (const client of clients) {
- *         client.write(`data: ${data}\n\n`);
+ * // router for incoming messages
+ * app.post('/.well-known/mercure', (req, res) => {
+ *   const { topic, data = '' } = req.body || {};
+ *   if (topic) {
+ *     const topics = Array.isArray(topic) ? topic : [topic];
+ *     for (const t of topics) {
+ *       const clients = namespaces.get(t);
+ *       if (clients) {
+ *         for (const client of clients) {
+ *           client.write(`data: ${data}\n\n`);
+ *         }
  *       }
  *     }
  *   }
@@ -77,66 +103,77 @@ export class SseDriver extends Driver {
   #emitter: EventEmitter<Record<string, [number[]]>>;
   #eventSources: Map<string, EventSource>;
   #url: string;
-  #withCredentials: boolean;
+  #subscriberOptions: EventSourceInit;
+  #publisherOptions: RequestInit;
 
   /**
    * Creates a new instance of the driver.
    *
    * @param options Optional configuration for the driver.
-   * @param options.url URL to connect to via SSE. Defaults to '/api/sse'.
-   * @param options.withCredentials Whether to include credentials in requests. Defaults to false.
+   * @param options.url URL to connect to via SSE. Defaults to '/.well-known/mercure'.
+   * @param options.subscriber Subscriber options for the EventSource instance.
+   * @param options.publisher Publisher options for the HTTP requests (fetch).
    */
-  constructor(options?: { url?: string; withCredentials?: boolean }) {
+  constructor(options?: {
+    url?: string;
+    subscriber: EventSourceInit;
+    publisher: RequestInit;
+  }) {
     super();
-    const { url = '/api/sse', withCredentials = false } = options || {};
+    const {
+      url = '/.well-known/mercure',
+      subscriber = {},
+      publisher = {},
+    } = options || {};
     this.#emitter = new EventEmitter();
     this.#url = url;
-    this.#withCredentials = withCredentials;
     this.#eventSources = new Map();
+    this.#subscriberOptions = subscriber;
+    this.#publisherOptions = publisher;
   }
 
   async subscribe(namespace: string[], handler: (data: number[]) => void) {
-    const [event] = namespace.slice(-1);
-    const hasSubscribers = this.#emitter.has(event);
-    this.#emitter.on(event, handler);
+    const [topic] = namespace.slice(-1);
+    const hasSubscribers = this.#emitter.has(topic);
+    this.#emitter.on(topic, handler);
     if (!hasSubscribers) {
-      await this.#createEventSource(event);
+      await this.#createEventSource(topic);
     }
   }
 
   async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
-    const [event] = namespace.slice(-1);
-    this.#emitter.off(event, handler);
-    const hasSubscribers = this.#emitter.has(event);
+    const [topic] = namespace.slice(-1);
+    this.#emitter.off(topic, handler);
+    const hasSubscribers = this.#emitter.has(topic);
     if (!hasSubscribers) {
-      this.#closeEventSource(event);
+      this.#closeEventSource(topic);
     }
   }
 
   async dispatch(namespace: string[], data: number[]) {
-    const [event] = namespace.slice(-1);
-    await this.#send(event, data);
+    const [topic] = namespace.slice(-1);
+    await this.#send(topic, data);
   }
 
   destroy() {
     super.destroy();
     this.#emitter.clear();
 
-    for (const event of this.#eventSources.keys()) {
-      this.#closeEventSource(event);
+    for (const topic of this.#eventSources.keys()) {
+      this.#closeEventSource(topic);
     }
   }
 
   /**
-   * Builds a request URL for the given event while preserving any existing
+   * Builds a request URL for the given topic while preserving any existing
    * query parameters on the configured base URL.
    *
-   * @param event The event string.
+   * @param topic The topic string.
    * @returns The fully qualified request URL.
    */
-  #makeUrl(event: string): string {
+  #makeUrl(topic: string): string {
     const url = new URL(this.#url, location.href);
-    url.searchParams.set('event', event);
+    url.searchParams.append('topic', topic);
     return url.toString();
   }
 
@@ -154,22 +191,23 @@ export class SseDriver extends Driver {
   }
 
   /**
-   * Creates a new EventSource connection for the given event.
+   * Creates a new EventSource connection for the given topic.
    *
-   * @param event The event string to connect to.
+   * @param topic The topic string to connect to.
    */
-  async #createEventSource(event: string) {
+  async #createEventSource(topic: string) {
     let opened = false;
     await new Promise<void>((resolve, reject) => {
-      const eventSource = new EventSource(this.#makeUrl(event), {
-        withCredentials: this.#withCredentials,
-      });
+      const eventSource = new EventSource(
+        this.#makeUrl(topic),
+        this.#subscriberOptions,
+      );
       eventSource.onmessage = (e) => {
         try {
           const data = atob(e.data)
             .split('')
             .map((char) => char.charCodeAt(0));
-          this.#emitter.emit(event, data);
+          this.#emitter.emit(topic, data);
         } catch (error) {
           this.emit('error', error);
         }
@@ -189,20 +227,20 @@ export class SseDriver extends Driver {
         const open = this.#isOpen();
         if (open) this.active = true;
       };
-      this.#eventSources.set(event, eventSource);
+      this.#eventSources.set(topic, eventSource);
     });
   }
 
   /**
-   * Closes the EventSource connection for the given event.
+   * Closes the EventSource connection for the given topic.
    *
-   * @param event The event string to close the connection for.
+   * @param topic The topic string to close the connection for.
    */
-  #closeEventSource(event: string) {
-    const eventSource = this.#eventSources.get(event);
+  #closeEventSource(topic: string) {
+    const eventSource = this.#eventSources.get(topic);
     if (eventSource) {
       eventSource.close();
-      this.#eventSources.delete(event);
+      this.#eventSources.delete(topic);
       this.active = this.#isOpen();
     }
   }
@@ -210,18 +248,25 @@ export class SseDriver extends Driver {
   /**
    * Sends a request to the server to subscribe/unsubscribe or dispatch data.
    *
-   * @param event The event string.
+   * @param topic The topic string.
    * @param data Optional data to send.
    */
-  async #send(event: string, data?: number[]) {
-    const body = data
-      ? btoa(data.reduce((acc, byte) => acc + String.fromCharCode(byte), ''))
-      : '';
-    const res = await fetch(this.#makeUrl(event), {
+  async #send(topic: string, data?: number[]) {
+    const res = await fetch(this.#makeUrl(topic), {
+      ...this.#publisherOptions,
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      credentials: this.#withCredentials ? 'include' : 'omit',
-      body,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...this.#publisherOptions?.headers,
+      },
+      body: new URLSearchParams({
+        topic,
+        data: data
+          ? btoa(
+              data.reduce((acc, byte) => acc + String.fromCharCode(byte), ''),
+            )
+          : '',
+      }),
     });
     if (!res.ok) {
       throw new Error(`SSE backend error: ${res.statusText} (${res.status})`);

@@ -9,6 +9,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add `MqttDriver` for signaling using MQTT over WebSockets.
+- Add `CentrifugeDriver` for signaling using a Centrifuge-based backend.
+- Add `ackTimeout` option to `SocketIoDriver` to specify the timeout for acknowledgments from the server.
+- Add example code snippets showing how to run some backends locally for testing using Docker.
+
+### Changed
+
+- The `SseDriver` uses a Mercure-compatible endpoint by default (`/.well-known/mercure`).
+- The `Driver` class sets the `active` accessor to `false` by default.
+- The `room` property is escaped when namespace hashing is disabled.
+- Most drivers use peer or room identifiers as event names instead of concatenating them, which simplifies implementation and shortens event names.
+- Some drivers use empty prefixes by default, so if you want to use a prefix, you need to specify one in the options.
+- Some drivers with a `prefix` property add an additional string to the beginning of the event name without any separators, so if you want to separate the prefix from the event name, you need to include a separator in the prefix.
+
 ## [0.3.0] - 2024-05-23
 
 ### Added
