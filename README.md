@@ -2,7 +2,7 @@
 
 Peerix is a peer-to-peer media and data-sharing JavaScript library. Peerix uses WebRTC for peer-to-peer communication and relies on a signaling mechanism to facilitate peer discovery and connection management. The library abstracts away the complexities of WebRTC and provides a minimal API for developers to create real-time applications with media streaming and data-sharing capabilities.
 
-Read the full documentation and API reference on the official website:
+Read the full documentation and API reference on the official websites:
 
 - 📚 [Documentation](https://peerix.dev/docs)
 - 📑 [API Reference](https://api.peerix.dev)
@@ -243,18 +243,30 @@ You can subscribe to either group or specific events using the `:event` suffix.
 
 ## Signaling Drivers
 
+Signaling is a crucial part of establishing peer-to-peer connections in WebRTC. It involves the exchange of messages between peers to negotiate connection parameters, exchange ICE candidates, and manage the connection lifecycle. Peerix provides a flexible signaling mechanism that allows you to choose from several built-in drivers or implement your own custom driver.
+
+Peerix uses several techniques to secure and minimize the number and size of signaling messages required to establish and maintain peer connections while negotiating multiple media streams and data channels:
+
+- Each peer connection negotiates a data channel for signaling after the initial connection is established, eliminating the need for a signaling server for the lifetime of the connection.
+- Uses a binary format instead of JSON for signaling messages, minimizing message overhead.
+- Reduces the frequency of candidate exchanges and the number of signaling messages by debouncing ICE candidates.
+- Uses compression to reduce the size of signaling messages, further lowering overhead and load on the signaling server.
+- Provides built-in namespace hashing and E2EE for signaling messages to protect sensitive information during transmission.
+
 Peerix supports multiple signaling drivers for peer discovery and negotiation purposes. You can choose the driver that best fits your application's needs:
 
 - `MemoryDriver`: A simple in-memory driver for testing and development. It allows several peer instances to discover each other within one browser page.
 - `BroadcastChannelDriver`: Uses [BroadcastChannel API](https://developer.mozilla.org/docs/Web/API/BroadcastChannel) for communication between tabs in the same browser.
-- `SseDriver`: Uses [Server-Sent Events (SSE)](https://developer.mozilla.org/docs/Web/API/Server-sent_events) for communication between peers through an SSE-compatible server.
 - `NatsDriver`: Uses [NATS](https://nats.io/) messaging system for communication between peers across different browsers and devices over the internet.
-- `SocketIoDriver`: Uses [Socket.IO](https://socket.io/) client for communication between peers through a Socket.IO server.
+- `MqttDriver`: Uses [MQTT](https://mqtt.org/) protocol for communication between peers through an MQTT broker.
+- `CentrifugeDriver`: Uses [Centrifuge](https://centrifugal.dev/) real-time messaging server for communication between peers.
+- `SseDriver`: Uses [Server-Sent Events (SSE)](https://developer.mozilla.org/docs/Web/API/Server-sent_events) and POST requests for communication between peers through a [Mercure](https://mercure.rocks/) compatible server.
 - `SupabaseDriver`: Uses [Supabase](https://supabase.com/) database and real-time features for communication between peers.
+- `SocketIoDriver`: Uses [Socket.IO](https://socket.io/) client for communication between peers through a Socket.IO server.
 
-If no driver is provided when creating a `Peer`, Peerix uses an in-memory `MemoryDriver` by default, which is useful for single-page development and quick tests. For multi-tab testing, use `BroadcastChannelDriver`. For production server-side signaling, use `SocketIoDriver`, `SseDriver`, or your own custom driver; for distributed signaling, use `NatsDriver`.
+If no driver is provided when creating a `Peer`, Peerix uses an in-memory `MemoryDriver` by default, which is useful for single-page development and quick tests. For multi-tab testing, use `BroadcastChannelDriver`. For production server-side signaling, use `SocketIoDriver`, `SseDriver`, or your own custom driver; for distributed signaling, use `NatsDriver`, `MqttDriver`, or `CentrifugeDriver`.
 
-You can also implement your own custom signaling driver by extending the `Driver` class and implementing the required methods:
+You can implement your own custom signaling driver by extending the `Driver` class and implementing the required methods:
 
 ```js
 import { Driver } from 'peerix';
@@ -274,9 +286,9 @@ class MyDriver extends Driver {
 
 This driver interface allows you to integrate Peerix with any signaling mechanism you prefer.
 
-> NATS is a high-performance messaging system that enables efficient signaling between peers from the browser.
+If you do not want to create your own signaling server, you may prefer to use one of the built-in drivers. For example, you can use the NATS driver. Using NATS allows you to use Peerix without any server-side code because all signaling is handled through NATS servers directly from the browser.
 
-If you do not want to create your own signaling server, you can use the NATS driver with a public NATS server or set up your own NATS server for better performance and reliability. Using NATS allows you to use Peerix without any server-side code because all signaling is handled through NATS servers directly from the browser.
+Here's how you can set up the NATS driver:
 
 ```js
 import { NatsDriver } from 'peerix';
@@ -289,18 +301,10 @@ const nc = await wsconnect({
 });
 
 // create a new driver instance
-const driver = new NatsDriver({ nc, prefix: 'peerix' });
+const driver = new NatsDriver({ nc });
 ```
 
-You should install the `@nats-io/nats-core` package to use the NATS Driver, as it provides a WebSocket client for connecting to NATS servers from the browser.
-
-Peerix uses several techniques to secure and minimize the number and size of signaling messages required to establish and maintain peer connections, such as negotiating multiple media streams and data channels:
-
-- Each peer connection negotiates a data channel for signaling after the initial connection is established, eliminating the need for a signaling server for the lifetime of the connection.
-- Uses a binary format instead of JSON for signaling messages, minimizing message overhead.
-- Reduces the frequency of candidate exchanges and the number of signaling messages by debouncing ICE candidates.
-- Uses compression to reduce the size of signaling messages, further lowering overhead and load on the signaling server.
-- Provides built-in namespace hashing and E2EE for signaling messages to protect sensitive information during transmission.
+You should install the [`@nats-io/nats-core`](https://www.npmjs.com/package/@nats-io/nats-core) package to use the NATS Driver.
 
 ## ICE Servers
 
@@ -308,7 +312,7 @@ ICE (Interactive Connectivity Establishment) is a framework used in WebRTC to fi
 
 > Use TURN servers for better connectivity in restrictive network environments.
 
-Peerix allows you to specify ICE servers for better connectivity and performance, especially in restrictive network environments. Use the `iceServers` option when creating the `Peer` instance to provide custom STUN and TURN servers:
+Peerix allows you to specify ICE servers for better connectivity and performance, especially in restrictive network environments. Use the `iceServers` option when creating the `Peer` instance to provide a list of STUN and TURN servers:
 
 ```js
 // create the Peer instance with custom ICE servers
