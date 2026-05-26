@@ -50,7 +50,7 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * const namespaces = new Map();
  *
- * // router for outcoming messages
+ * // route for outgoing messages (subscribe/stream)
  * app.get('/.well-known/mercure', (req, res) => {
  *   const { topic } = req.query;
  *   if (!topic) return res.status(400).end();
@@ -79,7 +79,7 @@ import { EventEmitter } from '../utils/emitter.js';
  *   });
  * });
  *
- * // router for incoming messages
+ * // route for incoming messages (publish)
  * app.post('/.well-known/mercure', (req, res) => {
  *   const { topic, data = '' } = req.body || {};
  *   if (topic) {

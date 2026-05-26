@@ -28,8 +28,8 @@ import { EventEmitter } from '../utils/emitter.js';
  * Running a Centrifugo server locally for testing:
  * ```sh
  * docker run --rm --ulimit nofile=65536:65536 -p 8000:8000 \
- *   -e 'CENTRIFUGO_CLIENT_ALLOWED_ORIGINS=*' \
- *   -e 'CENTRIFUGO_CLIENT_INSECURE=1' \
+ *   -e CENTRIFUGO_CLIENT_ALLOWED_ORIGINS='*' \
+ *   -e CENTRIFUGO_CLIENT_INSECURE=true \
  *   centrifugo/centrifugo centrifugo
  * ```
  */

@@ -38,17 +38,17 @@ import { EventEmitter } from '../utils/emitter.js';
  * io.on('connection', (socket) => {
  *   socket.on('peerix:subscribe', (namespace, callback) => {
  *     socket.join(namespace);
- *     callback();
+ *     if (callback) callback();
  *   });
  *
  *   socket.on('peerix:unsubscribe', (namespace, callback) => {
  *     socket.leave(namespace);
- *     callback();
+ *     if (callback) callback();
  *   });
  *
  *   socket.on('peerix:dispatch', (namespace, data, callback) => {
  *     socket.broadcast.to(namespace).emit('peerix:message', namespace, data);
- *     callback();
+ *     if (callback) callback();
  *   });
  * });
  * ```
