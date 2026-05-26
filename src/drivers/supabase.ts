@@ -68,7 +68,7 @@ export class SupabaseDriver extends Driver {
     this.#emitter.on(event, handler);
 
     try {
-      await this.#subscribeToChannel(channelName);
+      this.#subscribeToChannel(channelName);
     } catch (error) {
       this.#emitter.off(event, handler);
       throw error;
@@ -82,7 +82,7 @@ export class SupabaseDriver extends Driver {
     const [event] = namespace.slice(-1);
     this.#emitter.off(event, handler);
 
-    await this.#unsubscribeFromChannel(channelName);
+    this.#unsubscribeFromChannel(channelName);
   }
 
   async dispatch(namespace: string[], data: number[]) {
@@ -90,6 +90,7 @@ export class SupabaseDriver extends Driver {
 
     const [channelName] = namespace;
     const [event] = namespace.slice(-1);
+
     await this.#sendToChannel(channelName, event, data);
   }
 
@@ -99,7 +100,6 @@ export class SupabaseDriver extends Driver {
 
     if (this.#supabase) {
       for (const channel of this.#channels.values()) {
-        channel.unsubscribe().catch(() => {});
         this.#supabase.removeChannel(channel);
       }
       this.#channels.clear();
@@ -110,45 +110,47 @@ export class SupabaseDriver extends Driver {
   /**
    * Subscribes to the Supabase channel for receiving broadcast messages.
    */
-  async #subscribeToChannel(channelName: string) {
-    await new Promise<void>((resolve, reject) => {
-      const channel = this.#getChannel(channelName);
-      if (!this.#supabase || channel) {
-        return resolve();
-      }
-      try {
-        const channel = this.#supabase.channel(`${this.#prefix}${channelName}`);
-        channel.on('broadcast', { event: 'message' }, this.#onBroadcast);
-        channel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') resolve();
-          else {
-            this.#channels.delete(channelName);
-            reject(
-              new Error(`Failed to subscribe to Supabase channel: ${status}`),
-            );
-          }
-        });
-        this.#channels.set(channelName, channel);
-      } catch (err) {
-        reject(err);
+  #subscribeToChannel(channelName: string) {
+    let channel = this.#channels.get(channelName);
+    if (!this.#supabase || channel) return;
+
+    channel = this.#supabase.channel(`${this.#prefix}${channelName}`);
+    channel.on('broadcast', { event: 'message' }, this.#onBroadcast);
+    channel.subscribe((status) => {
+      const ready = this.#isAllChannelsReady();
+      if (status === 'SUBSCRIBED') {
+        if (ready) this.active = true;
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        const error = new Error(`Supabase channel error: ${status}`);
+        this.emit('error', error);
+        if (!ready) this.active = false;
+      } else if (status === 'CLOSED') {
+        if (!ready) this.active = false;
       }
     });
+    this.#channels.set(channelName, channel);
   }
 
   /**
    * Unsubscribes from the Supabase channel used to receive broadcast messages.
    */
-  async #unsubscribeFromChannel(channelName: string) {
-    const channel = this.#getChannel(channelName);
+  #unsubscribeFromChannel(channelName: string) {
+    const channel = this.#channels.get(channelName);
     if (!this.#supabase || !channel) return;
 
-    await channel.unsubscribe();
     this.#supabase.removeChannel(channel);
     this.#channels.delete(channelName);
   }
 
+  /**
+   * Sends a message to the specified Supabase channel to be broadcasted to other clients.
+   *
+   * @param channelName The name of the channel to send the message to.
+   * @param event The event name to emit.
+   * @param data The data payload to send with the event.
+   */
   async #sendToChannel(channelName: string, event: string, data: number[]) {
-    const channel = this.#getChannel(channelName);
+    const channel = this.#channels.get(channelName);
     if (!this.#supabase || !channel) return;
 
     await channel.send({
@@ -159,13 +161,15 @@ export class SupabaseDriver extends Driver {
   }
 
   /**
-   * Retrieves the Supabase channel for the given channel name.
-   *
-   * @param channelName The name of the channel to retrieve.
-   * @returns The Supabase channel if it exists.
+   * Checks if all subscribed channels are in the 'joined' state.
    */
-  #getChannel(channelName: string): SupabaseChannel | void {
-    return this.#channels.get(`${this.#prefix}${channelName}`);
+  #isAllChannelsReady() {
+    let ready = false;
+    for (const channel of this.#channels.values()) {
+      if (channel.state !== 'joined') return false;
+      ready = true;
+    }
+    return ready;
   }
 }
 
