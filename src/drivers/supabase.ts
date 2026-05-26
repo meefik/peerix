@@ -85,7 +85,7 @@ export class SupabaseDriver extends Driver {
     this.#unsubscribeFromChannel(channelName);
   }
 
-  async dispatch(namespace: string[], data: number[]) {
+  async publish(namespace: string[], data: number[]) {
     if (!this.#supabase) return;
 
     const [channelName] = namespace;

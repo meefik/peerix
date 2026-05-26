@@ -109,7 +109,7 @@ export class NatsDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], data: number[]) {
+  async publish(namespace: string[], data: number[]) {
     if (!this.#nc) return;
 
     const subject = this.#getSubject(namespace);

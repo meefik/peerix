@@ -5,7 +5,7 @@ import { EventEmitter } from '../utils/emitter';
  *
  * Drivers are responsible for sending and receiving signaling messages
  * between peers. They should implement the subscribe, unsubscribe, and
- * dispatch methods to handle message routing based on namespaces.
+ * publish methods to handle message routing based on namespaces.
  *
  * A namespace is an array of strings representing the hierarchical path
  * for routing messages between peers. It looks like this:
@@ -33,8 +33,8 @@ import { EventEmitter } from '../utils/emitter';
  *     // unsubscribe the handler from messages for the given namespace
  *   }
  *
- *   async dispatch(namespace, payload) {
- *     // dispatch a message to the given namespace
+ *   async publish(namespace, payload) {
+ *     // publish a message to the given namespace
  *   }
  * }
  * ```
@@ -121,12 +121,12 @@ export class Driver {
   }
 
   /**
-   * Dispatches a signaling message to the specified namespace.
+   * Publishes a signaling message to the specified namespace.
    *
-   * @param namespace The namespace to dispatch the message to.
-   * @param data The message data to dispatch.
+   * @param namespace The namespace to publish the message to.
+   * @param data The message data to publish.
    */
-  async dispatch(namespace: string[], data: number[]) {
+  async publish(namespace: string[], data: number[]) {
     // Base implementation is intentionally empty.
   }
 

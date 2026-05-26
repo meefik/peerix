@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Rename `dispatch` method to `publish` in the `Driver` interface for better clarity and consistency with common messaging terminology.
+- Rename `publish` and `unpublish` methods in the `Peer` and `RemotePeer` classes to `share` and `unshare` respectively to avoid confusion with the `publish` method in the `Driver` interface.
 - The `SseDriver` uses a Mercure-compatible endpoint by default (`/.well-known/mercure`).
 - The `Driver` class sets the `active` accessor to `false` by default.
 - The `room` property is escaped when namespace hashing is disabled.

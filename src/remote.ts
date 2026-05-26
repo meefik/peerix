@@ -259,22 +259,22 @@ export class RemotePeer {
   }
 
   /**
-   * Publishes a new media stream to the current remote peer or updates an existing one.
+   * Shares a new media stream to the current remote peer or updates an existing one.
    *
-   * If you pass a MediaStream instance directly, it will be published under
+   * If you pass a MediaStream instance directly, it will be shared under
    * a label equal to the stream id. Otherwise, you can specify an explicit
    * label in the options object. If a stream with the same label already
    * exists, it will be updated and its tracks will be added/removed as needed
    * to minimize renegotiations.
    *
-   * If the stream is published with the `managed` option, its tracks will be
-   * automatically stopped when the stream is unpublished or replaced with
+   * If the stream is shared with the `managed` option, its tracks will be
+   * automatically stopped when the stream is unshared or replaced with
    * a new stream.
    *
    * @param options Stream descriptor or MediaStream instance.
-   * @returns The published MediaStream instance if successful, or undefined.
+   * @returns The shared MediaStream instance if successful, or undefined.
    */
-  async publish(
+  async share(
     options: MediaStream | StreamOptions,
   ): Promise<MediaStream | void> {
     if (options instanceof MediaStream) {
@@ -311,7 +311,7 @@ export class RemotePeer {
 
     const newStreamOptions = { label, stream: newStream, ...opts };
 
-    log('remote:publish', { id: this.id, ...newStreamOptions });
+    log('remote:share', { id: this.id, ...newStreamOptions });
 
     this.#streams.set(label, newStreamOptions);
 
@@ -321,19 +321,19 @@ export class RemotePeer {
   }
 
   /**
-   * Stops publishing a previously published media stream to the current remote peer.
+   * Stops sharing a previously shared media stream to the current remote peer.
    *
-   * If you pass a MediaStream instance directly, it will be unpublished based
+   * If you pass a MediaStream instance directly, it will be unshared based
    * on its id as label. Otherwise, you can specify the label in the options
    * object or pass it directly as a string.
    *
-   * If the stream was published with the `managed` option, its tracks will be
+   * If the stream was shared with the `managed` option, its tracks will be
    * stopped automatically.
    *
    * @param options A stream label, MediaStream instance, or an object containing a label.
-   * @returns The unpublished MediaStream instance, or undefined.
+   * @returns The unshared MediaStream instance, or undefined.
    */
-  async unpublish(
+  async unshare(
     options: MediaStream | string | { label?: string },
   ): Promise<MediaStream | void> {
     if (options instanceof MediaStream) {
@@ -346,7 +346,7 @@ export class RemotePeer {
     const oldStreamOptions = this.#streams.get(label);
     const { stream, managed } = oldStreamOptions || {};
 
-    log('remote:unpublish', { id: this.id, label, stream });
+    log('remote:unshare', { id: this.id, label, stream });
 
     this.#streams.delete(label);
 

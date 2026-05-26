@@ -150,7 +150,7 @@ export class SseDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], data: number[]) {
+  async publish(namespace: string[], data: number[]) {
     const [topic] = namespace.slice(-1);
     await this.#send(topic, data);
   }
@@ -246,7 +246,7 @@ export class SseDriver extends Driver {
   }
 
   /**
-   * Sends a request to the server to subscribe/unsubscribe or dispatch data.
+   * Sends a request to the server to subscribe/unsubscribe or publish data.
    *
    * @param topic The topic string.
    * @param data Optional data to send.

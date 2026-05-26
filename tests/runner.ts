@@ -8,8 +8,8 @@ type PeerCall =
   | 'close'
   | 'send'
   | 'join'
-  | 'publish'
-  | 'unpublish'
+  | 'share'
+  | 'unshare'
   | 'leave';
 
 type CallStep = {
@@ -162,7 +162,7 @@ export class TestRunner {
   private normalizeCallArgs(step: CallStep): any[] {
     const args = [...(step.args ?? [])];
 
-    if (step.call === 'publish') {
+    if (step.call === 'share') {
       const [options] = args;
       if (options.stream instanceof MediaStream === false) {
         options.stream = this.createSyntheticMediaStream(options.stream);

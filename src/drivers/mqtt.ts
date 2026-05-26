@@ -130,7 +130,7 @@ export class MqttDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], data: number[]) {
+  async publish(namespace: string[], data: number[]) {
     if (!this.#client) return;
 
     const topic = this.#getTopic(namespace);

@@ -138,7 +138,7 @@ export class CentrifugeDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], data: number[]) {
+  async publish(namespace: string[], data: number[]) {
     if (!this.#centrifuge) return;
 
     const channel = this.#getChannelName(namespace);

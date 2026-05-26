@@ -190,12 +190,12 @@ export default [
       },
       {
         peer: '1',
-        call: 'publish',
+        call: 'share',
         args: [{ label: 'camera', stream: { video: true, audio: true } }],
       },
       {
         peer: '2',
-        call: 'publish',
+        call: 'share',
         args: [{ label: 'camera', stream: { video: true, audio: true } }],
       },
       {
@@ -256,8 +256,8 @@ export default [
           label: 'camera',
         },
       },
-      { peer: '1', call: 'unpublish', args: [{ label: 'camera' }] },
-      { peer: '2', call: 'unpublish', args: [{ label: 'camera' }] },
+      { peer: '1', call: 'unshare', args: [{ label: 'camera' }] },
+      { peer: '2', call: 'unshare', args: [{ label: 'camera' }] },
       {
         peer: '2',
         wait: 'track:remove',

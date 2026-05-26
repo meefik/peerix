@@ -42,7 +42,7 @@ export class MemoryDriver extends Driver {
     this.#emitter.off(event, handler);
   }
 
-  async dispatch(namespace: string[], data: number[]) {
+  async publish(namespace: string[], data: number[]) {
     const [event] = namespace.slice(-1);
     this.#emitter.emit(event, data);
   }

@@ -88,8 +88,8 @@
       <label>
         <legend>Stream</legend>
         <input id="stream-label" placeholder="Stream label" value="default" />
-        <button data-action="publish">Publish</button>
-        <button data-action="unpublish">Unpublish</button>
+        <button data-action="share">Share</button>
+        <button data-action="unshare">Unshare</button>
         <label>
           <input id="audio-enabled" type="checkbox" checked />
           Audio
@@ -203,24 +203,24 @@
           if (channel) peer.send(message, { label: channel });
           else peer.send(message);
         },
-        publish: async () => {
+        share: async () => {
           const stream = createSyntheticMediaStream({
             video: document.getElementById('video-enabled').checked,
             audio: document.getElementById('audio-enabled').checked,
           });
           const label =
             document.getElementById('stream-label').value || 'default';
-          const newStream = await peer.publish({
+          const newStream = await peer.share({
             label,
             stream,
             managed: true,
           });
           if (newStream) toggleMediaElement(newStream, true);
         },
-        unpublish: async () => {
+        unshare: async () => {
           const label =
             document.getElementById('stream-label').value || 'default';
-          const oldStream = await peer.unpublish({ label });
+          const oldStream = await peer.unshare({ label });
           if (oldStream) toggleMediaElement(oldStream, true);
         },
       };

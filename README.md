@@ -51,15 +51,8 @@ const peer = new Peer({ driver });
 
 // listen for peer connection state changes
 peer.on('connection', (e) => {
-  const { remote } = e;
-  console.log(
-    'State changed for peer:',
-    remote.id,
-    'with metadata:',
-    remote.metadata,
-    'state:',
-    remote.state,
-  );
+  const { remote, state } = e;
+  console.log(`Peer "${remote.id}" state changed to "${state}"`);
 });
 
 // listen for peer errors
@@ -87,39 +80,22 @@ Work with data channels to exchange messages with other peers:
 ```js
 // listen for open channel event
 peer.on('channel:open', (e) => {
-  const { remote, channel } = e;
-  console.log(
-    'Channel opened with peer:',
-    remote.id,
-    'channel:',
-    channel.label,
-  );
-  // send a message to the connected peer
-  channel.send('Hello, peer!');
+  const { remote, label } = e;
+  console.log(`Channel "${label}" opened with peer "${remote.id}"`);
+  // send a message to the remote peer
+  remote.send('Hello, peer!', { label });
 });
 
 // listen for close channel event
 peer.on('channel:close', (e) => {
-  const { remote, channel } = e;
-  console.log(
-    'Channel closed with peer:',
-    remote.id,
-    'channel:',
-    channel.label,
-  );
+  const { remote, label } = e;
+  console.log(`Channel "${label}" closed with peer "${remote.id}"`);
 });
 
 // listen for incoming messages
 peer.on('channel:message', (e) => {
-  const { remote, channel, data } = e;
-  console.log(
-    'Received message from peer:',
-    remote.id,
-    'channel:',
-    channel.label,
-    'data:',
-    data,
-  );
+  const { remote, data, label } = e;
+  console.log(`Message from peer "${remote.id}" on channel "${label}":`, data);
 });
 
 // open a data channel with a specific label
@@ -137,29 +113,19 @@ peer.send('Hello, peers!', { label: 'chat' });
 Work with media streams to share audio and video with other peers:
 
 ```js
-// listen for a remote peer publishing a stream
+// listen for a remote peer sharing a stream
 peer.on('stream:add', (e) => {
   const { remote, stream, label } = e;
   console.log(
-    'Peer:',
-    remote.id,
-    'published a stream with label:',
-    label,
-    'stream state:',
-    stream.active,
+    `Peer "${remote.id}" shared stream "${stream.id}" with label "${label}"`,
   );
 });
 
-// listen for a remote peer unpublishing a stream
+// listen for a remote peer unsharing a stream
 peer.on('stream:remove', (e) => {
   const { remote, stream, label } = e;
   console.log(
-    'Peer:',
-    remote.id,
-    'unpublished a stream with label:',
-    label,
-    'stream state:',
-    stream.active,
+    `Peer "${remote.id}" unshared stream "${stream.id}" with label "${label}"`,
   );
 });
 
@@ -170,10 +136,10 @@ const stream = await navigator.mediaDevices.getUserMedia({
 });
 
 // start sharing the stream with the room
-peer.publish({ label: 'camera', stream });
+peer.share({ label: 'camera', stream });
 
-// later, if you no longer want to share the stream, you can unpublish it
-// peer.unpublish({ label: 'camera' });
+// later, if you no longer want to share the stream, you can unshare it
+// peer.unshare({ label: 'camera' });
 ```
 
 > The stream label can be any string and should be unique for each media stream.
@@ -185,14 +151,7 @@ In addition to stream-level events, you can also listen for track-level events t
 peer.on('track:add', (e) => {
   const { remote, stream, track, label } = e;
   console.log(
-    'Peer:',
-    remote.id,
-    'published a track:',
-    track.id,
-    'in stream:',
-    stream.id,
-    'with label:',
-    label,
+    `Peer "${remote.id}" added track "${track.id}" to stream "${stream.id}" with label "${label}"`,
   );
 });
 
@@ -200,19 +159,12 @@ peer.on('track:add', (e) => {
 peer.on('track:remove', (e) => {
   const { remote, stream, track, label } = e;
   console.log(
-    'Peer:',
-    remote.id,
-    'unpublished a track:',
-    track.id,
-    'from stream:',
-    stream.id,
-    'with label:',
-    label,
+    `Peer "${remote.id}" removed track "${track.id}" from stream "${stream.id}" with label "${label}"`,
   );
 });
 ```
 
-You can republish a new stream with the same label to update the media being shared with other peers:
+You can reshare a new stream with the same label to update the media being shared with other peers:
 
 ```js
 // get a new media stream from the user's camera without microphone
@@ -221,13 +173,13 @@ const newStream = await navigator.mediaDevices.getUserMedia({
   audio: false,
 });
 
-// republish the new stream with the same label to update the media
-peer.publish({ label: 'camera', stream: newStream });
+// reshare the new stream with the same label to update the media
+peer.share({ label: 'camera', stream: newStream });
 ```
 
 In this case, the tracks from the old stream will be removed and replaced with the tracks from the new stream for all connected peers and new peers that join the room. On the remote peers, you will receive a `track:remove` event for the old tracks and a `track:add` event for the new tracks. This allows you to easily switch between different media sources or update the media being shared without having to manage individual tracks manually.
 
-> Peerix automatically resolves all collisions and race conditions that may occur when multiple peers publish streams or open data channels at the same time.
+> Peerix automatically resolves all collisions and race conditions that may occur when multiple peers share streams or open data channels at the same time.
 
 Peerix emits various lifecycle events that allow you to track the state of peer connections, media streams, and data channels. You can listen for these events to manage your application's behavior based on the connection state and media availability.
 
@@ -235,7 +187,7 @@ Lifecycle events include:
 
 - `connection[:new,:connecting,:connected,:disconnected,:failed,:closed]`: a peer's connection state changes.
 - `channel[:new,:open,:close,:message,:error]`: a data channel's state changes or it receives a message.
-- `stream[:add,:remove]`: a remote peer publishes or unpublishes a media stream.
+- `stream[:add,:remove]`: a remote peer shares or unshares a media stream.
 - `track[:add,:remove]`: a track is added or removed from a media stream by a remote peer.
 - `error`: an error occurs with a peer connection, media stream, data channel, or signaling.
 
@@ -278,8 +230,8 @@ class MyDriver extends Driver {
   async unsubscribe(namespace, handler) {
     // implement unsubscription logic for the given namespace and handler
   }
-  async dispatch(namespace, message) {
-    // implement dispatch logic for the given namespace and message
+  async publish(namespace, message) {
+    // implement publish logic for the given namespace and message
   }
 }
 ```

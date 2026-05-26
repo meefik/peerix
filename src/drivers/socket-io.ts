@@ -8,7 +8,7 @@ import { EventEmitter } from '../utils/emitter.js';
  * between clients via your own WebSocket server.
  *
  * Expected Socket.IO events:
- * - Client -> Server: `prefix:subscribe`, `prefix:unsubscribe`, `prefix:dispatch`
+ * - Client -> Server: `prefix:subscribe`, `prefix:unsubscribe`, `prefix:publish`
  * - Server -> Client: `prefix:message`
  *
  * > This driver requires the [`socket.io-client`](https://www.npmjs.com/package/socket.io-client)
@@ -46,7 +46,7 @@ import { EventEmitter } from '../utils/emitter.js';
  *     if (callback) callback();
  *   });
  *
- *   socket.on('peerix:dispatch', (namespace, data, callback) => {
+ *   socket.on('peerix:publish', (namespace, data, callback) => {
  *     socket.broadcast.to(namespace).emit('peerix:message', namespace, data);
  *     if (callback) callback();
  *   });
@@ -158,11 +158,11 @@ export class SocketIoDriver extends Driver {
     }
   }
 
-  async dispatch(namespace: string[], data: number[]) {
+  async publish(namespace: string[], data: number[]) {
     if (!this.#socket) return;
 
     const [event] = namespace.slice(-1);
-    await this.#socketEmit('dispatch', event, data);
+    await this.#socketEmit('publish', event, data);
   }
 
   destroy() {

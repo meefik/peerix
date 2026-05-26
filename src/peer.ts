@@ -36,7 +36,7 @@ const SIGNAL_OFFER = 3;
 const SIGNAL_ANSWER = 4;
 const SIGNAL_CANDIDATE = 5;
 
-// Delay in milliseconds to apply before dispatching ICE candidates
+// Delay in milliseconds to apply before sending ICE candidates
 // to batch them and minimize renegotiations
 const ICE_CANDIDATE_DEBOUNCE_MS = 50;
 
@@ -52,21 +52,22 @@ const ICE_CANDIDATE_DEBOUNCE_MS = 50;
  *
  * // listen for connection state changes
  * peer.on('connection', (e) => {
- *   const { remote } = e;
- *   console.log(`Peer ${remote.id} connection state has changed:`, remote.state);
+ *   const { remote, state } = e;
+ *   console.log(`Peer "${remote.id}" state changed to "${state}"`);
  * });
  *
  * // listen for open channel event
  * peer.on('channel:open', (e) => {
- *   const { remote, channel } = e;
- *   // send a message to the connected peer
- *   channel.send('Hello, peer!');
+ *   const { remote, label } = e;
+ *   console.log(`Channel "${label}" opened with peer "${remote.id}"`);
+ *   // send a message to the remote peer
+ *   remote.send('Hello, peer!', { label });
  * });
  *
  * // listen for incoming messages
  * peer.on('channel:message', (e) => {
- *   const { remote, channel, data } = e;
- *   console.log(`Received message from ${remote.id} on channel ${channel.label}:`, data);
+ *   const { remote, data, label } = e;
+ *   console.log(`Message from peer "${remote.id}" on channel "${label}":`, data);
  * });
  *
  * // open a data channel
@@ -155,7 +156,7 @@ export class Peer {
     this.#sharedKeys = new Map();
     this.#signalHandler = this.#handleSignal.bind(this);
     this.#signalActive = () => {
-      void this.#dispatchSignal({
+      void this.#publishSignal({
         type: SIGNAL_ANNOUNCE,
         namespace: [this.room],
       });
@@ -213,7 +214,7 @@ export class Peer {
 
     this.active = true;
 
-    void this.#dispatchSignal({
+    void this.#publishSignal({
       type: SIGNAL_ANNOUNCE,
       namespace: [this.room],
     });
@@ -251,17 +252,17 @@ export class Peer {
   }
 
   /**
-   * Publishes a new media stream or updates an existing one for all remote peers
+   * Shares a new media stream or updates an existing one for all remote peers
    * including new ones that join later.
    *
-   * If you pass a MediaStream instance directly, it will be published under
+   * If you pass a MediaStream instance directly, it will be shared under
    * a label equal to the stream id. Otherwise, you can specify an explicit
    * label in the options object. If a stream with the same label already
    * exists, it will be updated and its tracks will be added/removed as needed
    * to minimize renegotiations.
    *
-   * If the stream is published with the `managed` option, its tracks will be
-   * automatically stopped when the stream is unpublished or replaced with
+   * If the stream is shared with the `managed` option, its tracks will be
+   * automatically stopped when the stream is unshared or replaced with
    * a new stream.
    *
    * @example
@@ -269,14 +270,14 @@ export class Peer {
    * // get a media stream from the user's camera and microphone
    * const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
    *
-   * // publish a media stream with an explicit label
-   * peer.publish({ label: 'camera', stream, managed: true });
+   * // share a media stream with an explicit label
+   * peer.share({ label: 'camera', stream, managed: true });
    * ```
    *
    * @param options Stream descriptor or MediaStream instance.
-   * @returns The published MediaStream instance if successful, or undefined.
+   * @returns The shared MediaStream instance if successful, or undefined.
    */
-  async publish(
+  async share(
     options: MediaStream | StreamOptions,
   ): Promise<MediaStream | void> {
     if (options instanceof MediaStream) {
@@ -308,38 +309,38 @@ export class Peer {
 
     const newStreamOptions = { label, stream: newStream, ...opts };
 
-    log('peer:publish', { id: this.id, ...newStreamOptions });
+    log('peer:share', { id: this.id, ...newStreamOptions });
 
     this.streams.set(label, newStreamOptions);
 
     for (const remote of this.connections.values()) {
-      await remote.publish(newStreamOptions);
+      await remote.share(newStreamOptions);
     }
 
     return newStream;
   }
 
   /**
-   * Stops publishing a previously published media stream with the given label
+   * Stops sharing a previously shared media stream with the given label
    * and removes it from all remote peers.
    *
-   * If you pass a MediaStream instance directly, it will be unpublished using
+   * If you pass a MediaStream instance directly, it will be unshared using
    * its id as the label. Otherwise, you can specify the label in the options
    * object or pass it directly as a string.
    *
-   * If the stream was published with the `managed` option, its tracks will be
+   * If the stream was shared with the `managed` option, its tracks will be
    * stopped automatically.
    *
    * @example
    * ```javascript
-   * // unpublish a media stream with an explicit label
-   * peer.unpublish({ label: 'camera' });
+   * // unshare a media stream with an explicit label
+   * peer.unshare({ label: 'camera' });
    * ```
    *
    * @param options A stream label, MediaStream instance, or an object containing a label.
-   * @returns The unpublished MediaStream instance, or undefined.
+   * @returns The unshared MediaStream instance, or undefined.
    */
-  async unpublish(
+  async unshare(
     options: MediaStream | string | { label?: string },
   ): Promise<MediaStream | void> {
     if (options instanceof MediaStream) {
@@ -352,7 +353,7 @@ export class Peer {
     const oldStreamOptions = this.streams.get(label);
     const { stream, managed } = oldStreamOptions || {};
 
-    log('peer:unpublish', { id: this.id, label, stream });
+    log('peer:unshare', { id: this.id, label, stream });
 
     this.streams.delete(label);
 
@@ -367,7 +368,7 @@ export class Peer {
     }
 
     for (const remote of this.connections.values()) {
-      await remote.unpublish({ label });
+      await remote.unshare({ label });
     }
 
     return stream;
@@ -585,8 +586,8 @@ export class Peer {
         answer: SIGNAL_ANSWER,
         candidate: SIGNAL_CANDIDATE,
       };
-      const dispatch = (name: keyof typeof types, message: any[]) =>
-        void this.#dispatchSignal({
+      const publish = (name: keyof typeof types, message: any[]) =>
+        void this.#publishSignal({
           type: types[name],
           namespace: [this.room, id],
           message,
@@ -596,18 +597,18 @@ export class Peer {
         clearTimeout(iceCandidateDebounceTimer);
         iceCandidateQueue.push(data as RTCIceCandidateInit);
         iceCandidateDebounceTimer = setTimeout(() => {
-          dispatch(name, iceCandidateQueue.splice(0, iceCandidateQueue.length));
+          publish(name, iceCandidateQueue.splice(0, iceCandidateQueue.length));
         }, ICE_CANDIDATE_DEBOUNCE_MS);
       } else if (name === 'offer') {
-        dispatch(name, [data, this.metadata]);
+        publish(name, [data, this.metadata]);
       } else if (name === 'answer') {
-        dispatch(name, [data]);
+        publish(name, [data]);
       }
     });
 
     remote.on('connection:failed', () => {
       // try to reconnect to the same peer
-      void this.#dispatchSignal({
+      void this.#publishSignal({
         type: SIGNAL_INVOKE,
         namespace: [this.room, id],
         message: [this.metadata],
@@ -691,15 +692,15 @@ export class Peer {
   /**
    * Dispatches a signaling message to the given namespace with optional jitter.
    *
-   * @param options Dispatch options for the signaling message.
+   * @param options Publish options for the signaling message.
    * @param options.type The type of the signaling message.
-   * @param options.room The room name to dispatch the message to.
-   * @param options.to The peer ID to dispatch the message to.
+   * @param options.room The room name to publish the message to.
+   * @param options.to The peer ID to publish the message to.
    * @param options.message Signaling message payload.
    * @param options.encryptionKey Optional encryption key used for encrypting the message.
-   * @param options.jitter Optional maximum random delay in milliseconds to apply before dispatching the message.
+   * @param options.jitter Optional maximum random delay in milliseconds to apply before publishing the message.
    */
-  async #dispatchSignal(options: {
+  async #publishSignal(options: {
     type: number;
     namespace: string[];
     message?: any[];
@@ -716,14 +717,14 @@ export class Peer {
 
       await delay(Math.random() * jitter);
 
-      log('signal:dispatch', {
+      log('signal:publish', {
         id: this.id,
         type,
         namespace: escaped,
         message,
       });
 
-      await this.#driver.dispatch(escaped, Array.from(buffer));
+      await this.#driver.publish(escaped, Array.from(buffer));
     } catch (err) {
       const error = new PeerixError(err, 'SIGNALING_ERROR');
       this.emit('error', { id: this.id, name: 'error', error });
@@ -733,7 +734,7 @@ export class Peer {
   }
 
   /**
-   * Handles an incoming message dispatched by the driver.
+   * Handles an incoming message published by the driver.
    *
    * Processes signaling message to establish, negotiate, and tear down
    * peer connections.
@@ -751,7 +752,7 @@ export class Peer {
 
       // handle new peer announcement
       if (type === SIGNAL_ANNOUNCE) {
-        void this.#dispatchSignal({
+        void this.#publishSignal({
           type: SIGNAL_INVOKE,
           namespace: [this.room, id],
           message: [this.metadata],
@@ -966,12 +967,12 @@ export interface StreamOptions {
    */
   label?: string;
   /**
-   * Media stream to publish.
+   * Media stream to share.
    */
   stream: MediaStream;
   /**
    * Whether the peer should manage the lifecycle of the stream's tracks.
-   * If true, tracks will be stopped when the stream is unpublished or replaced.
+   * If true, tracks will be stopped when the stream is unshared or replaced.
    */
   managed?: boolean;
   /**
@@ -1165,7 +1166,7 @@ export interface PeerChannelEvent {
 }
 
 /**
- * Emitted when a remote peer publishes or unpublishes a media stream.
+ * Emitted when a remote peer shares or unshares a media stream.
  *
  * @group Peers
  */
@@ -1183,7 +1184,7 @@ export interface PeerStreamEvent {
 }
 
 /**
- * Emitted when a remote peer adds or removes a media track to a published stream.
+ * Emitted when a remote peer adds or removes a media track to a shared stream.
  *
  * @group Peers
  */
@@ -1240,15 +1241,15 @@ export interface PeerEvents {
   error: [PeerErrorEvent];
   /** Emitted when stream events occur. */
   stream: [PeerStreamEvent];
-  /** Emitted when a remote peer publishes a media stream. */
+  /** Emitted when a remote peer shares a media stream. */
   'stream:add': [PeerStreamEvent];
-  /** Emitted when a remote peer unpublishes a media stream. */
+  /** Emitted when a remote peer unshares a media stream. */
   'stream:remove': [PeerStreamEvent];
   /** Emitted when track events occur. */
   track: [PeerTrackEvent];
-  /** Emitted when a remote peer adds a media track to a published stream. */
+  /** Emitted when a remote peer adds a media track to a shared stream. */
   'track:add': [PeerTrackEvent];
-  /** Emitted when a remote peer removes a media track from a published stream. */
+  /** Emitted when a remote peer removes a media track from a shared stream. */
   'track:remove': [PeerTrackEvent];
   /** Emitted when channel events occur. */
   channel: [PeerChannelEvent];
