@@ -16,19 +16,11 @@ import {
   importPublicKey,
   exportPublicKey,
 } from './utils/encryption.js';
+import { encode, decode } from './utils/protobuf.js';
 
 // All peers without a driver will share the same in-memory signaling bus
 const defaultDriver = new MemoryDriver();
 
-// Signal format:
-// [type (1 byte), flags (1 byte), publicKey (33 bytes), payload (variable)]
-const TYPE_LENGTH = 1;
-const FLAGS_LENGTH = 1;
-const CRYPTOKEY_LENGTH = 33;
-const HEADER_LENGTH = TYPE_LENGTH + FLAGS_LENGTH + CRYPTOKEY_LENGTH;
-// Flag bitmasks
-const COMPRESSION_ENABLED = 1 << 0;
-const ENCRYPTION_ENABLED = 1 << 1;
 // Signal types
 const SIGNAL_ANNOUNCE = 1;
 const SIGNAL_INVOKE = 2;
@@ -36,9 +28,13 @@ const SIGNAL_OFFER = 3;
 const SIGNAL_ANSWER = 4;
 const SIGNAL_CANDIDATE = 5;
 
-// Delay in milliseconds to apply before sending ICE candidates
-// to batch them and minimize renegotiations
-const ICE_CANDIDATE_DEBOUNCE_MS = 50;
+// Protobuf schema for signaling messages
+const signalSchema: Record<string, { id: number; type: 'uint32' | 'bytes' }> = {
+  type: { id: 1, type: 'uint32' },
+  flags: { id: 2, type: 'uint32' },
+  rawId: { id: 3, type: 'bytes' },
+  payload: { id: 4, type: 'bytes' },
+};
 
 /**
  * Manages WebRTC peer connections, signaling, media streams, and data channels.
@@ -99,6 +95,7 @@ export class Peer {
   #driver: Driver;
   #iceServers: IceServer[];
   #iceTransportPolicy: IceTransportPolicy;
+  #iceCandidateDebounce: number;
   #connectionTimeout: number;
   #namespaceHashing: boolean;
   #signalingCompression: boolean;
@@ -131,6 +128,7 @@ export class Peer {
       driver,
       iceServers = [],
       iceTransportPolicy = 'all',
+      iceCandidateDebounce = 50,
       connectionTimeout = 15,
       namespaceHashing = true,
       signalingCompression = true,
@@ -147,6 +145,7 @@ export class Peer {
     this.#driver = driver || defaultDriver;
     this.#iceServers = iceServers;
     this.#iceTransportPolicy = iceTransportPolicy;
+    this.#iceCandidateDebounce = iceCandidateDebounce;
     this.#connectionTimeout = connectionTimeout;
     this.#emitter = new EventEmitter(this);
     this.#candidateQueue = new IceCandidateQueue();
@@ -194,8 +193,9 @@ export class Peer {
       const publicKey = await exportPublicKey(this.#keyPair.publicKey);
       this.id = bytesToBase62(publicKey);
     } else if (!this.id) {
+      const PUBLIC_KEY_LENGTH = 33;
       const randomKey = crypto.getRandomValues(
-        new Uint8Array(CRYPTOKEY_LENGTH),
+        new Uint8Array(PUBLIC_KEY_LENGTH),
       );
       this.id = bytesToBase62(randomKey);
     }
@@ -598,7 +598,7 @@ export class Peer {
         iceCandidateQueue.push(data as RTCIceCandidateInit);
         iceCandidateDebounceTimer = setTimeout(() => {
           publish(name, iceCandidateQueue.splice(0, iceCandidateQueue.length));
-        }, ICE_CANDIDATE_DEBOUNCE_MS);
+        }, this.#iceCandidateDebounce);
       } else if (name === 'offer') {
         publish(name, [data, this.metadata]);
       } else if (name === 'answer') {
@@ -745,7 +745,7 @@ export class Peer {
     if (!this.active) return;
 
     try {
-      const [type, id, message] = await this.#decodeSignal(data);
+      const { id, type, message } = await this.#decodeSignal(data);
       if (!id) return;
 
       log('signal:receive', { id: this.id, type, from: id, message });
@@ -835,38 +835,34 @@ export class Peer {
    * @returns The encoded signaling message.
    */
   async #encodeSignal(type: number, message: any, encryptionKey?: CryptoKey) {
-    let flags = 0;
     let payload: Uint8Array = message
       ? new TextEncoder().encode(JSON.stringify(message))
       : new Uint8Array();
 
+    let compressed = false;
+    let encrypted = false;
+
     if (payload.byteLength > 0) {
       if (this.#signalingCompression) {
-        const compressed = await compressMessage(payload);
-        if (compressed.byteLength < payload.byteLength) {
-          payload = compressed;
-          flags |= COMPRESSION_ENABLED;
+        const compressedMessage = await compressMessage(payload);
+        if (compressedMessage.byteLength < payload.byteLength) {
+          payload = compressedMessage;
+          compressed = true;
         }
       }
 
       if (this.#signalingEncryption) {
         if (!encryptionKey) throw new Error('Encryption key not found');
         payload = await encryptMessage(payload, encryptionKey);
-        flags |= ENCRYPTION_ENABLED;
+        encrypted = true;
       }
     }
 
-    const publicKey = base62ToBytes(this.id);
+    const rawId = base62ToBytes(this.id);
+    const flags = (compressed ? 1 : 0) | (encrypted ? 2 : 0);
 
-    const buffer = new Uint8Array(HEADER_LENGTH + payload.byteLength);
-    let offset = 0;
-    buffer.set([type], offset);
-    offset += TYPE_LENGTH;
-    buffer.set([flags], offset);
-    offset += FLAGS_LENGTH;
-    buffer.set(publicKey, offset);
-    offset += CRYPTOKEY_LENGTH;
-    buffer.set(payload, offset);
+    const buffer = encode({ type, flags, rawId, payload }, signalSchema);
+    if (!buffer) throw new Error('Failed to encode signal');
 
     return buffer;
   }
@@ -879,22 +875,25 @@ export class Peer {
    */
   async #decodeSignal(data: number[]) {
     const buffer = new Uint8Array(data);
-    if (buffer.byteLength < HEADER_LENGTH) return [];
 
-    let offset = 0;
-    const type = buffer[offset];
-    offset += TYPE_LENGTH;
-    const flags = buffer[offset];
-    offset += FLAGS_LENGTH;
-    const publicKey = buffer.slice(offset, offset + CRYPTOKEY_LENGTH);
-    offset += CRYPTOKEY_LENGTH;
+    const decoded = decode(buffer, signalSchema);
+    if (!decoded) return {};
 
-    const id = bytesToBase62(publicKey);
-    if (!id || this.id === id) return [];
+    const { type, flags, rawId, payload } = decoded as {
+      type: number;
+      flags: number;
+      rawId: Uint8Array;
+      payload: Uint8Array;
+    };
+    const id = bytesToBase62(rawId);
+    if (!id || this.id === id) return {};
+
+    const compressed = (flags & 1) !== 0;
+    // const encrypted = (flags & 2) !== 0;
 
     let encryptionKey = this.#sharedKeys.get(id);
     if (!encryptionKey && this.#signalingEncryption) {
-      const rawPublicKey = await importPublicKey(publicKey);
+      const rawPublicKey = await importPublicKey(rawId);
       encryptionKey = await generateDerivedKey(
         this.#keyPair!.privateKey,
         rawPublicKey,
@@ -902,22 +901,21 @@ export class Peer {
       this.#sharedKeys.set(id, encryptionKey);
     }
 
-    let payload: Uint8Array = buffer.slice(offset);
+    let decodedPayload = payload;
     if (payload.byteLength > 0) {
       if (encryptionKey) {
-        payload = await decryptMessage(payload, encryptionKey);
+        decodedPayload = await decryptMessage(payload, encryptionKey);
       }
-
-      if (flags & COMPRESSION_ENABLED) {
-        payload = await decompressMessage(payload);
+      if (compressed) {
+        decodedPayload = await decompressMessage(decodedPayload);
       }
     }
 
-    const message = payload.byteLength
-      ? JSON.parse(new TextDecoder().decode(payload))
+    const message = decodedPayload.byteLength
+      ? JSON.parse(new TextDecoder().decode(decodedPayload))
       : [];
 
-    return [type, id, message];
+    return { id, type, message };
   }
 }
 
@@ -1061,6 +1059,13 @@ export interface PeerOptions {
    * otherwise all candidates will be considered.
    */
   iceTransportPolicy?: IceTransportPolicy;
+  /**
+   * Debounce time in milliseconds for batching ICE candidates before sending
+   * them through signaling to minimize the number of messages. If set to 0,
+   * candidates will be sent immediately.
+   * By default, it is set to 50 ms.
+   */
+  iceCandidateDebounce?: number;
   /**
    * Connection timeout in seconds.
    * By default, it is set to 15 seconds. Use 0 to disable the timeout.
