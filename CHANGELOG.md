@@ -9,13 +9,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-05-28
 
 ### Added
 
 - Add `MqttDriver` for signaling using MQTT over WebSockets.
 - Add `CentrifugeDriver` for signaling using a Centrifuge-based backend.
 - Add `ackTimeout` option to `SocketIoDriver` to specify the timeout for acknowledgments from the server.
+- Add `iceCandidateDebounce` option to `Peer` to specify the debounce time for sending ICE candidates via signaling.
 - Add example code snippets showing how to run some backends locally for testing using Docker.
 
 ### Changed
@@ -28,8 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Most drivers use peer or room identifiers as event names instead of concatenating them, which simplifies implementation and shortens event names.
 - Some drivers use empty prefixes by default, so if you want to use a prefix, you need to specify one in the options.
 - Some drivers with a `prefix` property add an additional string to the beginning of the event name without any separators, so if you want to separate the prefix from the event name, you need to include a separator in the prefix.
+- Use a Protobuf-like format for signaling messages instead of a custom binary format.
 
-## [0.3.0] - 2024-05-23
+## [0.3.0] - 2026-05-23
 
 ### Added
 
@@ -45,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rename 'signalingHashing' to 'namespaceHashing' for clarity.
 - The license has been changed from GPL-3.0 to Apache-2.0 to allow more permissive use of the library in both open-source and commercial projects.
 
-## [0.2.0] - 2024-05-13
+## [0.2.0] - 2026-05-13
 
 ### Added
 
@@ -60,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refactor the driver interface to use plain arrays instead of typed arrays for improved serialization.
 - Enable namespace hashing by default to improve privacy and avoid issues with unsupported characters in namespaces.
 
-## [0.1.0] - 2024-05-06
+## [0.1.0] - 2026-05-06
 
 ### Added
 

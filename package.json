@@ -1,6 +1,6 @@
 {
   "name": "peerix",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A library for creating peer-to-peer WebRTC applications with custom signaling drivers and add-ons.",
   "author": "Peerix <info@peerix.dev>",
   "license": "Apache-2.0",
@@ -29,7 +29,7 @@
     "dev": "vite dev",
     "build": "vite build && tsc --emitDeclarationOnly",
     "test": "playwright test",
-    "docs": "typedoc && cat docs/globals.md > docs/llms.txt && cat docs/README.md docs/**/*.md > docs/llms-full.txt"
+    "docs": "typedoc && cat docs/globals.md > docs/llms.txt && cat docs/README.md docs/**/*.md | grep -v '^\\[\\*\\*' > docs/llms-full.txt"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
