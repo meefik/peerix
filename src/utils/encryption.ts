@@ -18,6 +18,52 @@ export async function sha256(str: string): Promise<string> {
 }
 
 /**
+ * Encrypts plaintext bytes with AES-GCM and prefixes the random IV.
+ *
+ * @param decrypted The plaintext bytes.
+ * @param sharedKey The derived AES-GCM key.
+ * @returns The encrypted payload as IV (12 bytes) followed by ciphertext.
+ */
+export async function encrypt(
+  decrypted: Uint8Array,
+  sharedKey: CryptoKey,
+): Promise<Uint8Array> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      sharedKey,
+      new Uint8Array(decrypted),
+    ),
+  );
+  const encrypted = new Uint8Array(iv.byteLength + ciphertext.byteLength);
+  encrypted.set(iv, 0);
+  encrypted.set(ciphertext, iv.byteLength);
+  return encrypted;
+}
+
+/**
+ * Decrypts an AES-GCM payload where the first 12 bytes are the IV.
+ *
+ * @param encrypted The encrypted payload as IV + ciphertext.
+ * @param sharedKey The derived AES-GCM key.
+ * @returns The decrypted plaintext bytes.
+ */
+export async function decrypt(
+  encrypted: Uint8Array,
+  sharedKey: CryptoKey,
+): Promise<Uint8Array> {
+  const iv = encrypted.slice(0, 12);
+  const ct = new Uint8Array(encrypted.slice(12));
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    sharedKey,
+    ct,
+  );
+  return new Uint8Array(decrypted);
+}
+
+/**
  * Generates an ephemeral ECDH key pair on the P-256 curve.
  *
  * @returns The generated key pair.
@@ -79,52 +125,6 @@ export async function importPublicKey(key: Uint8Array): Promise<CryptoKey> {
     false,
     [],
   );
-}
-
-/**
- * Encrypts plaintext bytes with AES-GCM and prefixes the random IV.
- *
- * @param decrypted The plaintext bytes.
- * @param sharedKey The derived AES-GCM key.
- * @returns The encrypted payload as IV (12 bytes) followed by ciphertext.
- */
-export async function encryptMessage(
-  decrypted: Uint8Array,
-  sharedKey: CryptoKey,
-): Promise<Uint8Array> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = new Uint8Array(
-    await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      sharedKey,
-      new Uint8Array(decrypted),
-    ),
-  );
-  const encrypted = new Uint8Array(iv.byteLength + ciphertext.byteLength);
-  encrypted.set(iv, 0);
-  encrypted.set(ciphertext, iv.byteLength);
-  return encrypted;
-}
-
-/**
- * Decrypts an AES-GCM payload where the first 12 bytes are the IV.
- *
- * @param encrypted The encrypted payload as IV + ciphertext.
- * @param sharedKey The derived AES-GCM key.
- * @returns The decrypted plaintext bytes.
- */
-export async function decryptMessage(
-  encrypted: Uint8Array,
-  sharedKey: CryptoKey,
-): Promise<Uint8Array> {
-  const iv = encrypted.slice(0, 12);
-  const ct = new Uint8Array(encrypted.slice(12));
-  const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    sharedKey,
-    ct,
-  );
-  return new Uint8Array(decrypted);
 }
 
 /**

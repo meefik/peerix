@@ -7,10 +7,8 @@
  * @returns The compressed bytes, or the original bytes when compression is
  * not supported or fails.
  */
-export async function compressMessage(
-  uncompressed: Uint8Array,
-): Promise<Uint8Array> {
-  if (!('CompressionStream' in window)) return uncompressed;
+export async function compress(uncompressed: Uint8Array): Promise<Uint8Array> {
+  if (!('CompressionStream' in globalThis)) return uncompressed;
   try {
     const stream = new Blob([new Uint8Array(uncompressed)]).stream();
     const compressedStream = stream.pipeThrough(
@@ -32,10 +30,8 @@ export async function compressMessage(
  * @returns The decompressed bytes, or the original bytes when decompression
  * is not supported or fails.
  */
-export async function decompressMessage(
-  compressed: Uint8Array,
-): Promise<Uint8Array> {
-  if (!('DecompressionStream' in window)) return compressed;
+export async function decompress(compressed: Uint8Array): Promise<Uint8Array> {
+  if (!('DecompressionStream' in globalThis)) return compressed;
   try {
     const stream = new Blob([new Uint8Array(compressed)]).stream();
     const decompressedStream = stream.pipeThrough(

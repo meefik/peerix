@@ -134,7 +134,7 @@ function isEnabled(ns: string, allow: RegExp[], deny: RegExp[]): boolean {
 
 function readDebugSetting(): string {
   try {
-    const { localStorage } = window || {};
+    const { localStorage } = globalThis || {};
     if (!localStorage) return '';
     return localStorage.getItem('debug') || '';
   } catch (e) {

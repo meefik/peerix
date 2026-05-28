@@ -6,17 +6,17 @@ import { IceCandidateQueue } from './ice.js';
 import { PeerixError } from './error.js';
 import { base62ToBytes, bytesToBase62, delay } from './utils/helpers.js';
 import { EventEmitter } from './utils/emitter.js';
-import { compressMessage, decompressMessage } from './utils/compression.js';
+import { encode, decode } from './utils/protobuf.js';
+import { compress, decompress } from './utils/compression.js';
 import {
   sha256,
-  encryptMessage,
-  decryptMessage,
+  encrypt,
+  decrypt,
   generateKeyPair,
   generateDerivedKey,
   importPublicKey,
   exportPublicKey,
 } from './utils/encryption.js';
-import { encode, decode } from './utils/protobuf.js';
 
 // All peers without a driver will share the same in-memory signaling bus
 const defaultDriver = new MemoryDriver();
@@ -844,7 +844,7 @@ export class Peer {
 
     if (payload.byteLength > 0) {
       if (this.#signalingCompression) {
-        const compressedMessage = await compressMessage(payload);
+        const compressedMessage = await compress(payload);
         if (compressedMessage.byteLength < payload.byteLength) {
           payload = compressedMessage;
           compressed = true;
@@ -853,7 +853,7 @@ export class Peer {
 
       if (this.#signalingEncryption) {
         if (!encryptionKey) throw new Error('Encryption key not found');
-        payload = await encryptMessage(payload, encryptionKey);
+        payload = await encrypt(payload, encryptionKey);
         encrypted = true;
       }
     }
@@ -889,7 +889,7 @@ export class Peer {
     if (!id || this.id === id) return {};
 
     const compressed = (flags & 1) !== 0;
-    // const encrypted = (flags & 2) !== 0;
+    const encrypted = (flags & 2) !== 0;
 
     let encryptionKey = this.#sharedKeys.get(id);
     if (!encryptionKey && this.#signalingEncryption) {
@@ -904,10 +904,11 @@ export class Peer {
     let decodedPayload = payload;
     if (payload.byteLength > 0) {
       if (encryptionKey) {
-        decodedPayload = await decryptMessage(payload, encryptionKey);
+        if (!encrypted) throw new Error('Payload is not encrypted');
+        decodedPayload = await decrypt(payload, encryptionKey);
       }
       if (compressed) {
-        decodedPayload = await decompressMessage(decodedPayload);
+        decodedPayload = await decompress(decodedPayload);
       }
     }
 

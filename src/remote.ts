@@ -723,7 +723,9 @@ export class RemotePeer {
         log('remote:sendoffer', { id: this.id, description: offer, labels });
 
         this.#manager.send('signal', offer, labels);
-      } else this.emit('signal', { id: this.id, name: 'offer', data: offer });
+      } else {
+        this.emit('signal', { id: this.id, name: 'offer', data: offer });
+      }
     } catch (err) {
       const error = new PeerixError(err, 'NEGOTIATION_ERROR');
       this.emit('error', { id: this.id, name: 'error', error });
