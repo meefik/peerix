@@ -4,7 +4,7 @@ const CHARSET =
 /**
  * Returns a promise that resolves after a specified delay.
  *
- * @param ms - The delay in milliseconds (default is 0).
+ * @param ms The delay in milliseconds (default is 0).
  */
 export function delay(ms: number = 0): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, Math.floor(ms)));
@@ -96,6 +96,8 @@ export function base62ToBytes(str: string): Uint8Array {
 
   // remove high-order zeros (which are trailing zeros in little-endian)
   while (bytesLE.length > 1 && bytesLE[bytesLE.length - 1] === 0) bytesLE.pop();
+
+  if (bytesLE.length === 0) return new Uint8Array([0]);
 
   // convert to big-endian Uint8Array
   const out = new Uint8Array(bytesLE.length);

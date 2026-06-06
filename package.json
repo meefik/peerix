@@ -27,14 +27,18 @@
   ],
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build && tsc --emitDeclarationOnly",
-    "test": "playwright test",
+    "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
+    "test:unit": "node --import tsx --test 'src/**/*.test.ts'",
+    "test:e2e": "playwright test",
+    "test": "npm run test:unit && npm run test:e2e",
     "docs": "typedoc && cat docs/globals.md > docs/llms.txt && cat docs/README.md docs/**/*.md | grep -v '^\\[\\*\\*' > docs/llms-full.txt"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
+    "@types/node": "^25.9.2",
+    "tsx": "^4.22.4",
     "typedoc": "^0.28.19",
-    "typedoc-plugin-markdown": "^4.11.0",
-    "vite": "^8.0.14"
+    "typedoc-plugin-markdown": "^4.12.0",
+    "vite": "^8.0.16"
   }
 }

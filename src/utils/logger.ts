@@ -39,11 +39,14 @@ export default async function log(namespace: string, ...args: any) {
     const res = typeof arg === 'function' ? await arg() : arg;
     data.push(stringify(res));
   }
-  console.log(`[${ns}]`, ...data);
+  const { console } = globalThis || {};
+  console?.log(`[${ns}]`, ...data);
 }
 
 function stringify(value: any): string {
   try {
+    const { MediaStream, MediaStreamTrack, RTCDataChannel } = globalThis || {};
+
     return JSON.stringify(value, (k, v) => {
       if (v instanceof Error) {
         return { name: v.name, message: v.message };
@@ -60,7 +63,7 @@ function stringify(value: any): string {
       if (v instanceof Blob) {
         return { type: v.type, size: v.size };
       }
-      if (v instanceof MediaStream) {
+      if (MediaStream && v instanceof MediaStream) {
         return {
           id: v.id,
           active: v.active,
@@ -73,7 +76,7 @@ function stringify(value: any): string {
           })),
         };
       }
-      if (v instanceof MediaStreamTrack) {
+      if (MediaStreamTrack && v instanceof MediaStreamTrack) {
         return {
           id: v.id,
           kind: v.kind,
@@ -82,8 +85,13 @@ function stringify(value: any): string {
           readyState: v.readyState,
         };
       }
-      if (v instanceof RTCDataChannel) {
-        return { id: v.id, label: v.label, readyState: v.readyState };
+      if (RTCDataChannel && v instanceof RTCDataChannel) {
+        return {
+          id: v.id,
+          label: v.label,
+          protocol: v.protocol,
+          readyState: v.readyState,
+        };
       }
       if (typeof v?.toObject === 'function') {
         return v.toObject();
@@ -135,8 +143,7 @@ function isEnabled(ns: string, allow: RegExp[], deny: RegExp[]): boolean {
 function readDebugSetting(): string {
   try {
     const { localStorage } = globalThis || {};
-    if (!localStorage) return '';
-    return localStorage.getItem('debug') || '';
+    return localStorage?.getItem('debug') || '';
   } catch (e) {
     return '';
   }

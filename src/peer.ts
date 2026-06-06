@@ -2,7 +2,7 @@ import type { Driver } from './drivers/driver.js';
 import log from './utils/logger.js';
 import { RemotePeer } from './remote.js';
 import { MemoryDriver } from './drivers/memory.js';
-import { IceCandidateQueue } from './ice.js';
+import { IceCandidateQueue } from './utils/ice.js';
 import { PeerixError } from './error.js';
 import { base62ToBytes, bytesToBase62, delay } from './utils/helpers.js';
 import { EventEmitter } from './utils/emitter.js';
@@ -577,7 +577,7 @@ export class Peer {
     });
 
     const iceCandidateQueue: RTCIceCandidateInit[] = [];
-    let iceCandidateDebounceTimer: number | undefined;
+    let iceCandidateDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
     remote.on('signal', (e) => {
       const { name, data } = e;
