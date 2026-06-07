@@ -52,4 +52,10 @@ export class BroadcastChannelDriver extends Driver {
     const [event] = namespace.slice(-1);
     this.#bc.postMessage([event, data]);
   }
+
+  destroy() {
+    super.destroy();
+    this.#emitter.clear();
+    this.#bc.close();
+  }
 }

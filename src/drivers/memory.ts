@@ -46,4 +46,9 @@ export class MemoryDriver extends Driver {
     const [event] = namespace.slice(-1);
     this.#emitter.emit(event, data);
   }
+
+  destroy() {
+    super.destroy();
+    this.#emitter.clear();
+  }
 }

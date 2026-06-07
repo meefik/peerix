@@ -1,4 +1,4 @@
-import { EventEmitter } from '../utils/emitter';
+import { EventEmitter } from '../utils/emitter.js';
 
 /**
  * Base class for signaling drivers.
