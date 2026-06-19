@@ -1,5 +1,5 @@
-import type { Peer } from '../peer.js';
-import { EventEmitter } from '../utils/emitter.js';
+import type { Peer } from "../peer.js";
+import { EventEmitter } from "../utils/emitter.js";
 
 /**
  * Base class for Peerix addons.
@@ -25,7 +25,7 @@ export class Addon {
    * @param event Event name or list of event names.
    * @param handler Event handler.
    */
-  on(event: string, handler: (...args: any[]) => void) {
+  on(event: string, handler: (...args: any[]) => void): void {
     this.#emitter.on(event, handler);
   }
 
@@ -35,7 +35,7 @@ export class Addon {
    * @param event Event name or list of event names.
    * @param handler Event handler.
    */
-  once(event: string, handler: (...args: any[]) => void) {
+  once(event: string, handler: (...args: any[]) => void): void {
     this.#emitter.once(event, handler);
   }
 
@@ -45,7 +45,7 @@ export class Addon {
    * @param event Event name or list of event names.
    * @param handler Optional event handler to remove. If not provided, all handlers for the event(s) will be removed.
    */
-  off(event: string, handler?: (...args: any[]) => void) {
+  off(event: string, handler?: (...args: any[]) => void): void {
     this.#emitter.off(event, handler);
   }
 
@@ -55,7 +55,7 @@ export class Addon {
    * @param event Event name or list of event names.
    * @param args Arguments to pass to the event handlers.
    */
-  emit(event: string, ...args: any[]) {
+  emit(event: string, ...args: any[]): void {
     this.#emitter.emit(event, ...args);
   }
 
@@ -65,7 +65,7 @@ export class Addon {
    *
    * @param peer The Peer instance to attach to.
    */
-  async attach(peer: Peer) {
+  async attach(peer: Peer): Promise<void> {
     // Base implementation is intentionally empty.
   }
 
@@ -75,7 +75,7 @@ export class Addon {
    *
    * @param peer The Peer instance to detach from.
    */
-  async detach(peer: Peer) {
+  async detach(peer: Peer): Promise<void> {
     // Base implementation is intentionally empty.
   }
 }

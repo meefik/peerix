@@ -1,5 +1,5 @@
-import { Driver } from './driver.js';
-import { EventEmitter } from '../utils/emitter.js';
+import { Driver } from "./driver.js";
+import { EventEmitter } from "../utils/emitter.js";
 
 /**
  * BroadcastChannel-based signaling driver for intra-origin communication.
@@ -15,7 +15,7 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * @example
  * ```javascript
- * const driver = new BroadcastChannelDriver('peerix');
+ * const driver = new BroadcastChannelDriver("peerix");
  * ```
  */
 export class BroadcastChannelDriver extends Driver {
@@ -25,9 +25,9 @@ export class BroadcastChannelDriver extends Driver {
   /**
    * Creates a new instance of the driver.
    *
-   * @param channelName BroadcastChannel name (defaults to 'peerix').
+   * @param channelName BroadcastChannel name (defaults to "peerix").
    */
-  constructor(channelName: string = 'peerix') {
+  constructor(channelName: string = "peerix") {
     super();
     this.#emitter = new EventEmitter();
     this.#bc = new BroadcastChannel(channelName);
@@ -38,22 +38,28 @@ export class BroadcastChannelDriver extends Driver {
     this.active = true;
   }
 
-  async subscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async subscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     const [event] = namespace.slice(-1);
     this.#emitter.on(event, handler);
   }
 
-  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async unsubscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     const [event] = namespace.slice(-1);
     this.#emitter.off(event, handler);
   }
 
-  async publish(namespace: string[], data: number[]) {
+  override async publish(namespace: string[], data: number[]): Promise<void> {
     const [event] = namespace.slice(-1);
     this.#bc.postMessage([event, data]);
   }
 
-  destroy() {
+  override destroy(): void {
     super.destroy();
     this.#emitter.clear();
     this.#bc.close();

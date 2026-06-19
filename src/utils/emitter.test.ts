@@ -1,10 +1,11 @@
-import { suite, test } from 'node:test';
-import assert from 'node:assert/strict';
-import { setTimeout as wait } from 'node:timers/promises';
-import { EventEmitter } from './emitter.js';
+import { suite, test } from "node:test";
+import assert from "node:assert/strict";
+import { setTimeout as wait } from "node:timers/promises";
+import { EventEmitter } from "./emitter.js";
 
-suite('utils/emitter', async () => {
-  test('should subscribe and emit with handler arguments', async () => {
+suite("utils/emitter", async () => {
+  test("should subscribe and emit with handler arguments", async () => {
+    // Arrange
     type Events = {
       message: [number, string];
     };
@@ -12,20 +13,23 @@ suite('utils/emitter', async () => {
     const emitter = new EventEmitter<Events>();
     const calls: Array<[number, string]> = [];
 
-    emitter.on('message', (id, text) => {
+    emitter.on("message", (id, text) => {
       calls.push([id, text]);
     });
 
-    emitter.emit('message', 1, 'hello');
+    // Act
+    emitter.emit("message", 1, "hello");
 
+    // Assert
     assert.equal(calls.length, 0);
 
     await wait(0);
 
-    assert.deepEqual(calls, [[1, 'hello']]);
+    assert.deepEqual(calls, [[1, "hello"]]);
   });
 
-  test('should call once handlers only one time', async () => {
+  test("should call once handlers only one time", async () => {
+    // Arrange
     type Events = {
       ready: [];
     };
@@ -33,20 +37,23 @@ suite('utils/emitter', async () => {
     const emitter = new EventEmitter<Events>();
     let callCount = 0;
 
-    emitter.once('ready', () => {
+    emitter.once("ready", () => {
       callCount += 1;
     });
 
-    emitter.emit('ready');
-    emitter.emit('ready');
+    // Act
+    emitter.emit("ready");
+    emitter.emit("ready");
 
     await wait(0);
 
+    // Assert
     assert.equal(callCount, 1);
-    assert.equal(emitter.has('ready'), false);
+    assert.equal(emitter.has("ready"), false);
   });
 
-  test('should remove only the specified handler with off', async () => {
+  test("should remove only the specified handler with off", async () => {
+    // Arrange
     type Events = {
       update: [number];
     };
@@ -63,19 +70,23 @@ suite('utils/emitter', async () => {
       rightCalls += 1;
     };
 
-    emitter.on('update', leftHandler);
-    emitter.on('update', rightHandler);
-    emitter.off('update', leftHandler);
-    emitter.emit('update', 42);
+    emitter.on("update", leftHandler);
+    emitter.on("update", rightHandler);
+
+    // Act
+    emitter.off("update", leftHandler);
+    emitter.emit("update", 42);
 
     await wait(0);
 
+    // Assert
     assert.equal(leftCalls, 0);
     assert.equal(rightCalls, 1);
-    assert.equal(emitter.has('update'), true);
+    assert.equal(emitter.has("update"), true);
   });
 
-  test('should remove all handlers for an event when off is called without handler', async () => {
+  test("should remove all handlers for an event when off is called without handler", async () => {
+    // Arrange
     type Events = {
       sync: [];
     };
@@ -83,29 +94,32 @@ suite('utils/emitter', async () => {
     const emitter = new EventEmitter<Events>();
     let callCount = 0;
 
-    emitter.on('sync', () => {
+    emitter.on("sync", () => {
       callCount += 1;
     });
-    emitter.on('sync', () => {
+    emitter.on("sync", () => {
       callCount += 1;
     });
 
-    emitter.off('sync');
-    emitter.emit('sync');
+    // Act
+    emitter.off("sync");
+    emitter.emit("sync");
 
     await wait(0);
 
+    // Assert
     assert.equal(callCount, 0);
-    assert.equal(emitter.has('sync'), false);
+    assert.equal(emitter.has("sync"), false);
   });
 
-  test('should support arrays of events and custom context with delay', async () => {
+  test("should support arrays of events and custom context with delay", async () => {
+    // Arrange
     type Events = {
       alpha: [string];
       beta: [string];
     };
 
-    const context = { tag: 'ctx' };
+    const context = { tag: "ctx" };
     const emitter = new EventEmitter<Events>(context, { delay: 10 });
     const seen: string[] = [];
 
@@ -113,13 +127,16 @@ suite('utils/emitter', async () => {
       seen.push(`${this.tag}:${value}`);
     }
 
-    emitter.on(['alpha', 'beta'], handler);
-    emitter.emit(['alpha', 'beta'], 'ok');
+    emitter.on(["alpha", "beta"], handler);
 
+    // Act
+    emitter.emit(["alpha", "beta"], "ok");
+
+    // Assert
     assert.equal(seen.length, 0);
 
     await wait(25);
 
-    assert.deepEqual(seen.sort(), ['ctx:ok', 'ctx:ok']);
+    assert.deepEqual(seen.sort(), ["ctx:ok", "ctx:ok"]);
   });
 });

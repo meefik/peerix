@@ -1,5 +1,5 @@
-import { Driver } from './driver.js';
-import { EventEmitter } from '../utils/emitter.js';
+import { Driver } from "./driver.js";
+import { EventEmitter } from "../utils/emitter.js";
 
 /**
  * Centrifuge-based signaling driver.
@@ -15,10 +15,10 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * @example
  * ```javascript
- * import { Centrifuge } from 'centrifuge';
+ * import { Centrifuge } from "centrifuge";
  *
  * // connect to a Centrifuge server
- * const centrifuge = new Centrifuge('ws://localhost:8000/connection/websocket');
+ * const centrifuge = new Centrifuge("ws://localhost:8000/connection/websocket");
  * centrifuge.connect();
  *
  * // create a new driver instance
@@ -28,7 +28,7 @@ import { EventEmitter } from '../utils/emitter.js';
  * Running a Centrifugo server locally for testing:
  * ```sh
  * docker run --rm --ulimit nofile=65536:65536 -p 8000:8000 \
- *   -e CENTRIFUGO_CLIENT_ALLOWED_ORIGINS='*' \
+ *   -e CENTRIFUGO_CLIENT_ALLOWED_ORIGINS="*" \
  *   -e CENTRIFUGO_CLIENT_INSECURE=true \
  *   centrifugo/centrifugo centrifugo
  * ```
@@ -51,18 +51,18 @@ export class CentrifugeDriver extends Driver {
    */
   constructor(options: { centrifuge: CentrifugeClient; prefix?: string }) {
     super();
-    const { centrifuge, prefix = '' } = options || {};
+    const { centrifuge, prefix = "" } = options || {};
 
     if (
       !centrifuge ||
-      typeof centrifuge.on !== 'function' ||
-      typeof centrifuge.off !== 'function' ||
-      typeof centrifuge.newSubscription !== 'function' ||
-      typeof centrifuge.removeSubscription !== 'function' ||
-      typeof centrifuge.publish !== 'function'
+      typeof centrifuge.on !== "function" ||
+      typeof centrifuge.off !== "function" ||
+      typeof centrifuge.newSubscription !== "function" ||
+      typeof centrifuge.removeSubscription !== "function" ||
+      typeof centrifuge.publish !== "function"
     ) {
       throw new TypeError(
-        'CentrifugeDriver requires a valid Centrifuge client',
+        "CentrifugeDriver requires a valid Centrifuge client",
       );
     }
 
@@ -80,17 +80,20 @@ export class CentrifugeDriver extends Driver {
     };
 
     this.#onError = (error: unknown) => {
-      this.emit('error', error);
+      this.emit("error", error);
     };
 
-    this.#centrifuge.on('connected', this.#onConnect);
-    this.#centrifuge.on('disconnected', this.#onDisconnect);
-    this.#centrifuge.on('error', this.#onError);
+    this.#centrifuge.on("connected", this.#onConnect);
+    this.#centrifuge.on("disconnected", this.#onDisconnect);
+    this.#centrifuge.on("error", this.#onError);
 
-    this.active = this.#centrifuge.state === 'connected';
+    this.active = this.#centrifuge.state === "connected";
   }
 
-  async subscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async subscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     if (!this.#centrifuge) return;
 
     const channel = this.#getChannelName(namespace);
@@ -105,12 +108,12 @@ export class CentrifugeDriver extends Driver {
           this.#centrifuge.newSubscription(channel);
         this.#subscriptions.set(channel, sub);
 
-        sub.on('publication', (ctx: any) => {
+        sub.on("publication", (ctx: any) => {
           const data = ctx?.data;
           if (data) this.#emitter.emit(channel, data);
         });
-        sub.on('error', (error: unknown) => {
-          this.emit('error', error);
+        sub.on("error", (error: unknown) => {
+          this.emit("error", error);
         });
         sub.subscribe();
       } catch (error) {
@@ -123,7 +126,10 @@ export class CentrifugeDriver extends Driver {
     }
   }
 
-  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async unsubscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     if (!this.#centrifuge) return;
 
     const channel = this.#getChannelName(namespace);
@@ -138,21 +144,21 @@ export class CentrifugeDriver extends Driver {
     }
   }
 
-  async publish(namespace: string[], data: number[]) {
+  override async publish(namespace: string[], data: number[]): Promise<void> {
     if (!this.#centrifuge) return;
 
     const channel = this.#getChannelName(namespace);
     await this.#centrifuge.publish(channel, data);
   }
 
-  destroy() {
+  override destroy(): void {
     super.destroy();
     this.#emitter.clear();
 
     if (this.#centrifuge) {
-      this.#centrifuge.off('connected', this.#onConnect);
-      this.#centrifuge.off('disconnected', this.#onDisconnect);
-      this.#centrifuge.off('error', this.#onError);
+      this.#centrifuge.off("connected", this.#onConnect);
+      this.#centrifuge.off("disconnected", this.#onDisconnect);
+      this.#centrifuge.off("error", this.#onError);
       for (const [channel, sub] of this.#subscriptions.entries()) {
         sub.unsubscribe();
         sub.removeAllListeners();
@@ -169,7 +175,7 @@ export class CentrifugeDriver extends Driver {
    * @param namespace The base namespace for the channel.
    * @returns The full channel name with prefix applied.
    */
-  #getChannelName(namespace: string[]) {
+  #getChannelName(namespace: string[]): string {
     const [event] = namespace.slice(-1);
     return `${this.#prefix}${event}`;
   }

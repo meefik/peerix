@@ -1,1 +1,1 @@
-export * from './addon.js';
+export * from "./addon.js";

@@ -1,4 +1,7 @@
-import { bytesToBase62 } from './helpers.js';
+import { bytesToBase62 } from "./base62.js";
+
+// Public key length in bytes
+export const PUBLIC_KEY_LENGTH = 33;
 
 // Cached curve parameters
 let A: bigint | undefined;
@@ -13,7 +16,7 @@ let P: bigint | undefined;
  */
 export async function sha256(str: string): Promise<string> {
   const data = new TextEncoder().encode(str);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   return bytesToBase62(new Uint8Array(hashBuffer));
 }
 
@@ -31,7 +34,7 @@ export async function encrypt(
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = new Uint8Array(
     await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
+      { name: "AES-GCM", iv },
       sharedKey,
       new Uint8Array(decrypted),
     ),
@@ -56,7 +59,7 @@ export async function decrypt(
   const iv = encrypted.slice(0, 12);
   const ct = new Uint8Array(encrypted.slice(12));
   const decrypted = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
+    { name: "AES-GCM", iv },
     sharedKey,
     ct,
   );
@@ -70,9 +73,9 @@ export async function decrypt(
  */
 export async function generateKeyPair(): Promise<CryptoKeyPair> {
   const keyPair = await crypto.subtle.generateKey(
-    { name: 'ECDH', namedCurve: 'P-256' },
+    { name: "ECDH", namedCurve: "P-256" },
     false,
-    ['deriveKey'],
+    ["deriveKey"],
   );
   return keyPair;
 }
@@ -89,11 +92,11 @@ export async function generateDerivedKey(
   publicKey: CryptoKey,
 ): Promise<CryptoKey> {
   const derivedKey = await crypto.subtle.deriveKey(
-    { name: 'ECDH', public: publicKey },
+    { name: "ECDH", public: publicKey },
     privateKey,
-    { name: 'AES-GCM', length: 256 },
+    { name: "AES-GCM", length: 256 },
     false,
-    ['encrypt', 'decrypt'],
+    ["encrypt", "decrypt"],
   );
   return derivedKey;
 }
@@ -105,7 +108,7 @@ export async function generateDerivedKey(
  * @returns The 33-byte compressed public key.
  */
 export async function exportPublicKey(key: CryptoKey): Promise<Uint8Array> {
-  const rawKey = await crypto.subtle.exportKey('raw', key);
+  const rawKey = await crypto.subtle.exportKey("raw", key);
   return compressPublicKey(rawKey);
 }
 
@@ -119,9 +122,9 @@ export async function exportPublicKey(key: CryptoKey): Promise<Uint8Array> {
 export async function importPublicKey(key: Uint8Array): Promise<CryptoKey> {
   const rawKey = decompressPublicKey(key);
   return await crypto.subtle.importKey(
-    'raw',
+    "raw",
     new Uint8Array(rawKey),
-    { name: 'ECDH', namedCurve: 'P-256' },
+    { name: "ECDH", namedCurve: "P-256" },
     false,
     [],
   );
@@ -158,36 +161,43 @@ function compressPublicKey(rawKey: ArrayBuffer): Uint8Array {
  */
 function decompressPublicKey(compressedKey: Uint8Array): Uint8Array {
   if (compressedKey.length !== 33) {
-    throw new Error('Compressed public key must be exactly 33 bytes');
+    throw new Error("Compressed public key must be exactly 33 bytes");
   }
   const prefix = compressedKey[0];
   if (prefix !== 0x02 && prefix !== 0x03) {
-    throw new Error('Invalid compressed public key prefix');
+    throw new Error("Invalid compressed public key prefix");
   }
   const xBytes = compressedKey.slice(1);
   const x = BigInt(
-    '0x' +
+    "0x" +
       Array.from(xBytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join(''),
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join(""),
   );
 
   // P-256 Curve Constants (cached locally)
   const p =
     P ??
     BigInt(
-      '0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff',
+      "0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff",
     );
   const b =
     B ??
     BigInt(
-      '0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b',
+      "0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b",
     );
   const a = A ?? p - 3n; // In P-256, a is always -3
   // Cache them for subsequent calls
   P = p;
   B = b;
   A = a;
+
+  // Validate x is within the field range
+  if (x >= p) {
+    throw new Error(
+      "Invalid compressed public key: x coordinate is not on the curve",
+    );
+  }
 
   // 1. Solve for y^2 = x^3 + ax + b
   const x3 = (x * x * x) % p;
@@ -198,6 +208,13 @@ function decompressPublicKey(compressedKey: Uint8Array): Uint8Array {
   // For P-256, sqrt(n) = n^((P+1)/4) mod P
   const exp = (p + 1n) / 4n;
   let y = expMod(y2, exp, p);
+
+  // Validate that y2 is a quadratic residue (y * y ≡ y2 mod p)
+  if ((y * y) % p !== y2) {
+    throw new Error(
+      "Invalid compressed public key: x coordinate is not on the curve",
+    );
+  }
 
   // 3. Check parity: if prefix 0x02, y must be even. If 0x03, y must be odd.
   const isEven = y % 2n === 0n;
@@ -239,7 +256,7 @@ function expMod(base: bigint, exp: bigint, mod: bigint): bigint {
  * @returns The 32-byte big-endian representation.
  */
 function bigIntToUint8Array(bn: bigint): Uint8Array {
-  let hex = bn.toString(16).padStart(64, '0');
+  let hex = bn.toString(16).padStart(64, "0");
   let len = hex.length / 2;
   let u8 = new Uint8Array(len);
   for (let i = 0; i < len; i++) {

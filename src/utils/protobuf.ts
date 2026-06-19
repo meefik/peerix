@@ -4,12 +4,12 @@
  *
  * @example
  * const schema = {
- *   field1: { id: 1, type: 'bool' },
- *   field2: { id: 2, type: 'int32' },
- *   field3: { id: 3, type: 'uint32' },
- *   field4: { id: 4, type: 'float' },
- *   field5: { id: 5, type: 'string' },
- *   field6: { id: 6, type: 'bytes' },
+ *   field1: { id: 1, type: "bool" },
+ *   field2: { id: 2, type: "int32" },
+ *   field3: { id: 3, type: "uint32" },
+ *   field4: { id: 4, type: "float" },
+ *   field5: { id: 5, type: "string" },
+ *   field6: { id: 6, type: "bytes" },
  * };
  *
  * const obj = {
@@ -17,7 +17,7 @@
  *   field2: -42,
  *   field3: 123456,
  *   field4: 3.14,
- *   field5: 'Hello, World!',
+ *   field5: "Hello, World!",
  *   field6: new Uint8Array([1, 2, 3]),
  * };
  * const encoded = encode(obj, schema);
@@ -26,7 +26,7 @@
  * console.log(decoded); // decoded is deeply equal to obj
  */
 
-type FieldType = 'bool' | 'int32' | 'uint32' | 'float' | 'string' | 'bytes';
+type FieldType = "bool" | "int32" | "uint32" | "float" | "string" | "bytes";
 type SchemaField = { id: number; type: FieldType };
 type Schema = Record<string, SchemaField>;
 type WireType = 0 | 2 | 5;
@@ -48,16 +48,16 @@ const UINT32_MAX = 0xffffffff;
 const MAX_FIELD_ID = 536870911;
 
 const isInt32 = (v: unknown): v is number =>
-  typeof v === 'number' &&
+  typeof v === "number" &&
   Number.isInteger(v) &&
   v >= INT32_MIN &&
   v <= INT32_MAX;
 
 const isUint32 = (v: unknown): v is number =>
-  typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= UINT32_MAX;
+  typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= UINT32_MAX;
 
 const isFiniteNumber = (v: unknown): v is number =>
-  typeof v === 'number' && Number.isFinite(v);
+  typeof v === "number" && Number.isFinite(v);
 
 const isSafeFiniteFloat32 = (v: unknown): v is number =>
   isFiniteNumber(v) && Number.isFinite(Math.fround(v));
@@ -140,7 +140,7 @@ function appendBytes(target: number[], source: number[] | Uint8Array): void {
 const CODECS: Record<FieldType, Codec> = {
   bool: {
     wire: 0,
-    encode: (v) => (typeof v === 'boolean' ? encodeVarint(v ? 1 : 0) : null),
+    encode: (v) => (typeof v === "boolean" ? encodeVarint(v ? 1 : 0) : null),
     decode: (buffer, index) => {
       const decoded = decodeVarint(buffer, index);
       if (!decoded || (decoded.value !== 0 && decoded.value !== 1)) return null;
@@ -170,7 +170,7 @@ const CODECS: Record<FieldType, Codec> = {
   string: {
     wire: 2,
     encode: (v, enc) => {
-      if (typeof v !== 'string') return null;
+      if (typeof v !== "string") return null;
       const bytes = enc.encode(v);
       const out = encodeVarint(bytes.length);
       appendBytes(out, bytes);
@@ -227,8 +227,8 @@ function skipUnknownField(
 }
 
 /** Encodes an object using the provided schema. */
-export function encode(
-  obj: Record<string, unknown>,
+export function encode<T extends object>(
+  obj: T,
   schema: Schema,
 ): Uint8Array | null {
   const out: number[] = [];
@@ -239,7 +239,7 @@ export function encode(
     if (!isValidFieldId(field.id) || fieldIds.has(field.id)) return null;
     fieldIds.add(field.id);
 
-    const value = obj[name];
+    const value = (obj as Record<string, unknown>)[name];
     if (value === undefined || value === null) continue;
 
     const codec = CODECS[field.type as FieldType];
@@ -256,10 +256,10 @@ export function encode(
 }
 
 /** Decodes a buffer using the provided schema. */
-export function decode(
+export function decode<T extends object>(
   buffer: Uint8Array,
   schema: Schema,
-): Record<string, unknown> | null {
+): T | null {
   const result: Record<string, unknown> = {};
   const fieldsById = new Map<number, { name: string; type: FieldType }>();
   const textDecoder = new TextDecoder();
@@ -298,5 +298,5 @@ export function decode(
     index = decoded.index;
   }
 
-  return result;
+  return result as T;
 }

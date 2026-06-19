@@ -1,4 +1,4 @@
-import { EventEmitter } from '../utils/emitter.js';
+import { EventEmitter } from "../utils/emitter.js";
 
 /**
  * Base class for signaling drivers.
@@ -9,7 +9,7 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * A namespace is an array of strings representing the hierarchical path
  * for routing messages between peers. It looks like this:
- * `['room-id', 'peer-id']`.
+ * `["room-id", "peer-id"]`.
  *
  * Drivers typically use a string event name instead of an array. Since
  * each part of the namespace is globally unique, drivers can simply use
@@ -44,7 +44,7 @@ export class Driver {
   #emitter: EventEmitter<DriverEvents>;
 
   /** Indicates whether the driver is currently active. */
-  get active() {
+  get active(): boolean {
     return this.#active;
   }
 
@@ -52,7 +52,7 @@ export class Driver {
   set active(value: boolean) {
     if (this.#active !== value) {
       this.#active = value;
-      this.emit(value ? 'active' : 'inactive');
+      this.emit(value ? "active" : "inactive");
     }
   }
 
@@ -73,7 +73,7 @@ export class Driver {
   on<K extends keyof DriverEvents>(
     event: K,
     handler: (...args: DriverEvents[K]) => void,
-  ) {
+  ): void {
     this.#emitter.on(event, handler);
   }
 
@@ -86,7 +86,7 @@ export class Driver {
   off<K extends keyof DriverEvents>(
     event: K,
     handler: (...args: DriverEvents[K]) => void,
-  ) {
+  ): void {
     this.#emitter.off(event, handler);
   }
 
@@ -96,7 +96,7 @@ export class Driver {
    * @param event The event name.
    * @param args The data to pass to event handlers.
    */
-  emit<K extends keyof DriverEvents>(event: K, ...args: DriverEvents[K]) {
+  emit<K extends keyof DriverEvents>(event: K, ...args: DriverEvents[K]): void {
     this.#emitter.emit(event, ...args);
   }
 
@@ -106,7 +106,10 @@ export class Driver {
    * @param namespace The namespace to subscribe to.
    * @param handler The handler function to call when a message is received.
    */
-  async subscribe(namespace: string[], handler: (data: number[]) => void) {
+  async subscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     // Base implementation is intentionally empty.
   }
 
@@ -116,7 +119,10 @@ export class Driver {
    * @param namespace The namespace to unsubscribe from.
    * @param handler The handler function to remove.
    */
-  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
+  async unsubscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     // Base implementation is intentionally empty.
   }
 
@@ -126,14 +132,14 @@ export class Driver {
    * @param namespace The namespace to publish the message to.
    * @param data The message data to publish.
    */
-  async publish(namespace: string[], data: number[]) {
+  async publish(namespace: string[], data: number[]): Promise<void> {
     // Base implementation is intentionally empty.
   }
 
   /**
    * Destroys the driver instance, cleaning up any resources.
    */
-  destroy() {
+  destroy(): void {
     this.#emitter.clear();
     this.active = false;
   }

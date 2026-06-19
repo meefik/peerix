@@ -1,5 +1,5 @@
-import { Driver } from './driver.js';
-import { EventEmitter } from '../utils/emitter.js';
+import { Driver } from "./driver.js";
+import { EventEmitter } from "../utils/emitter.js";
 
 /**
  * MQTT-based signaling driver.
@@ -15,10 +15,10 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * @example
  * ```javascript
- * import { connect } from 'mqtt';
+ * import { connect } from "mqtt";
  *
  * // connect to an MQTT server (e.g., the local server)
- * const client = connect('ws://localhost:9001/mqtt');
+ * const client = connect("ws://localhost:9001/mqtt");
  *
  * // create a new driver instance
  * const driver = new MqttDriver({ client });
@@ -56,17 +56,17 @@ export class MqttDriver extends Driver {
    */
   constructor(options: { client: MqttClient; prefix?: string }) {
     super();
-    const { client, prefix = '' } = options || {};
+    const { client, prefix = "" } = options || {};
 
     if (
       !client ||
-      typeof client.on !== 'function' ||
-      typeof client.off !== 'function' ||
-      typeof client.subscribe !== 'function' ||
-      typeof client.unsubscribe !== 'function' ||
-      typeof client.publish !== 'function'
+      typeof client.on !== "function" ||
+      typeof client.off !== "function" ||
+      typeof client.subscribe !== "function" ||
+      typeof client.unsubscribe !== "function" ||
+      typeof client.publish !== "function"
     ) {
-      throw new TypeError('MqttDriver requires a valid MQTT client');
+      throw new TypeError("MqttDriver requires a valid MQTT client");
     }
 
     this.#client = client;
@@ -86,23 +86,26 @@ export class MqttDriver extends Driver {
     };
 
     this.#onError = (error: unknown) => {
-      this.emit('error', error);
+      this.emit("error", error);
     };
 
     this.#onMessage = (topic, payload) => {
       this.#emitter.emit(topic, Array.from(payload));
     };
 
-    this.#client.on('connect', this.#onConnect);
-    this.#client.on('offline', this.#onDisconnect);
-    this.#client.on('end', this.#onDisconnect);
-    this.#client.on('error', this.#onError);
-    this.#client.on('message', this.#onMessage);
+    this.#client.on("connect", this.#onConnect);
+    this.#client.on("offline", this.#onDisconnect);
+    this.#client.on("end", this.#onDisconnect);
+    this.#client.on("error", this.#onError);
+    this.#client.on("message", this.#onMessage);
 
     this.active = !!this.#client.connected;
   }
 
-  async subscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async subscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     if (!this.#client) return;
 
     const topic = this.#getTopic(namespace);
@@ -119,7 +122,10 @@ export class MqttDriver extends Driver {
     }
   }
 
-  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async unsubscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     if (!this.#client) return;
 
     const topic = this.#getTopic(namespace);
@@ -130,25 +136,25 @@ export class MqttDriver extends Driver {
     }
   }
 
-  async publish(namespace: string[], data: number[]) {
+  override async publish(namespace: string[], data: number[]): Promise<void> {
     if (!this.#client) return;
 
     const topic = this.#getTopic(namespace);
     await this.#mqttPublish(topic, new Uint8Array(data));
   }
 
-  destroy() {
+  override destroy(): void {
     super.destroy();
 
     const topics = Array.from(this.#emitter.keys());
     this.#emitter.clear();
 
     if (this.#client) {
-      this.#client.off('connect', this.#onConnect);
-      this.#client.off('offline', this.#onDisconnect);
-      this.#client.off('end', this.#onDisconnect);
-      this.#client.off('error', this.#onError);
-      this.#client.off('message', this.#onMessage);
+      this.#client.off("connect", this.#onConnect);
+      this.#client.off("offline", this.#onDisconnect);
+      this.#client.off("end", this.#onDisconnect);
+      this.#client.off("error", this.#onError);
+      this.#client.off("message", this.#onMessage);
       for (const topic of topics) {
         this.#mqttUnsubscribe(topic).catch(() => {});
       }
@@ -162,7 +168,7 @@ export class MqttDriver extends Driver {
    * @param namespace The namespace to generate the topic for.
    * @returns The full MQTT topic name with the prefix applied.
    */
-  #getTopic(namespace: string[]) {
+  #getTopic(namespace: string[]): string {
     const [event] = namespace.slice(-1);
     return `${this.#prefix}${event}`;
   }
@@ -172,7 +178,7 @@ export class MqttDriver extends Driver {
    * internal emitter. Sets `active` to true on success, emits `error` and
    * sets `active` to false on failure.
    */
-  async #restoreSubscriptions() {
+  async #restoreSubscriptions(): Promise<void> {
     try {
       await Promise.all(
         Array.from(this.#emitter.keys()).map((topic) =>
@@ -181,7 +187,7 @@ export class MqttDriver extends Driver {
       );
       this.active = true;
     } catch (error) {
-      this.emit('error', error);
+      this.emit("error", error);
       this.active = false;
     }
   }

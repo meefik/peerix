@@ -1,5 +1,5 @@
-import { Driver } from './driver.js';
-import { EventEmitter } from '../utils/emitter.js';
+import { Driver } from "./driver.js";
+import { EventEmitter } from "../utils/emitter.js";
 
 /**
  * In-memory signaling driver for intra-process communication.
@@ -32,22 +32,28 @@ export class MemoryDriver extends Driver {
     this.active = true;
   }
 
-  async subscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async subscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     const [event] = namespace.slice(-1);
     this.#emitter.on(event, handler);
   }
 
-  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async unsubscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     const [event] = namespace.slice(-1);
     this.#emitter.off(event, handler);
   }
 
-  async publish(namespace: string[], data: number[]) {
+  override async publish(namespace: string[], data: number[]): Promise<void> {
     const [event] = namespace.slice(-1);
     this.#emitter.emit(event, data);
   }
 
-  destroy() {
+  override destroy(): void {
     super.destroy();
     this.#emitter.clear();
   }

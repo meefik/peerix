@@ -70,8 +70,8 @@
     </template>
 
     <script type="module">
-      import { TestRunner } from './runner.js';
-      import scenario from './scenario.js';
+      import { TestRunner } from "./runner.js";
+      import scenario from "./scenario.js";
 
       for (const testCase of scenario) {
         renderTest({
@@ -79,55 +79,55 @@
           title: testCase.title,
           runTest: async () => {
             console.log(`Running test: [${testCase.id}] ${testCase.title}`);
-            const runner = new TestRunner({ debug: 'peerix:*' });
+            const runner = new TestRunner({ debug: "peerix:*" });
             await runner.run(testCase);
           },
         });
       }
 
       function renderTest({ id, title, status, duration, details, runTest }) {
-        const template = document.getElementById('test-row-template');
+        const template = document.getElementById("test-row-template");
         const clone = template.content.cloneNode(true);
         const testId = id;
-        const row = clone.querySelector('tr');
-        const statusCell = clone.querySelector('.test-status');
-        const durationCell = clone.querySelector('.test-duration');
-        const detailsCell = clone.querySelector('.test-details');
-        const runBtn = clone.querySelector('.run-btn');
+        const row = clone.querySelector("tr");
+        const statusCell = clone.querySelector(".test-status");
+        const durationCell = clone.querySelector(".test-duration");
+        const detailsCell = clone.querySelector(".test-details");
+        const runBtn = clone.querySelector(".run-btn");
 
         row.classList.add(`test-${testId}`);
-        clone.querySelector('.test-number').textContent = testId;
-        clone.querySelector('.test-name').textContent = title;
-        statusCell.textContent = '-';
-        durationCell.textContent = '-';
-        detailsCell.textContent = '-';
+        clone.querySelector(".test-number").textContent = testId;
+        clone.querySelector(".test-name").textContent = title;
+        statusCell.textContent = "-";
+        durationCell.textContent = "-";
+        detailsCell.textContent = "-";
 
-        runBtn.addEventListener('click', async () => {
+        runBtn.addEventListener("click", async () => {
           runBtn.disabled = true;
           const startTime = performance.now();
           try {
-            statusCell.textContent = 'Running...';
+            statusCell.textContent = "Running...";
             await runTest();
             const duration = ((performance.now() - startTime) / 1000).toFixed(
               2,
             );
-            statusCell.textContent = '✓ Passed';
-            statusCell.style.color = 'green';
+            statusCell.textContent = "✓ Passed";
+            statusCell.style.color = "green";
             durationCell.textContent = `${duration}s`;
           } catch (error) {
             const duration = ((performance.now() - startTime) / 1000).toFixed(
               2,
             );
-            statusCell.textContent = '✗ Failed';
-            statusCell.style.color = 'red';
+            statusCell.textContent = "✗ Failed";
+            statusCell.style.color = "red";
             durationCell.textContent = `${duration}s`;
-            detailsCell.textContent = error.message || 'Error';
+            detailsCell.textContent = error.message || "Error";
           } finally {
             runBtn.disabled = false;
           }
         });
 
-        const body = document.getElementById('tests-body');
+        const body = document.getElementById("tests-body");
         const existingRow = body.querySelector(`.test-${testId}`);
         if (existingRow) {
           body.replaceChild(clone, existingRow);

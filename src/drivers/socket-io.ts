@@ -1,5 +1,5 @@
-import { Driver } from './driver.js';
-import { EventEmitter } from '../utils/emitter.js';
+import { Driver } from "./driver.js";
+import { EventEmitter } from "../utils/emitter.js";
 
 /**
  * Socket.IO-based signaling driver.
@@ -21,33 +21,33 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * Client-side code (browser with Socket.IO client):
  * ```javascript
- * import { io } from 'socket.io-client';
+ * import { io } from "socket.io-client";
  *
  * // connect to a Socket.IO server (e.g. at localhost:8080)
- * const socket = io('http://localhost:8080');
+ * const socket = io("http://localhost:8080");
  *
  * // create a new driver instance
- * const driver = new SocketIoDriver({ socket, prefix: 'peerix:' });
+ * const driver = new SocketIoDriver({ socket, prefix: "peerix:" });
  * ```
  *
  * Server-side code (Node.js with Socket.IO):
  * ```javascript
- * const { Server } = require('socket.io');
- * const io = new Server(8080, { cors: { origin: '*' } });
+ * const { Server } = require("socket.io");
+ * const io = new Server(8080, { cors: { origin: "*" } });
  *
- * io.on('connection', (socket) => {
- *   socket.on('peerix:subscribe', (namespace, callback) => {
+ * io.on("connection", (socket) => {
+ *   socket.on("peerix:subscribe", (namespace, callback) => {
  *     socket.join(namespace);
  *     if (callback) callback();
  *   });
  *
- *   socket.on('peerix:unsubscribe', (namespace, callback) => {
+ *   socket.on("peerix:unsubscribe", (namespace, callback) => {
  *     socket.leave(namespace);
  *     if (callback) callback();
  *   });
  *
- *   socket.on('peerix:publish', (namespace, data, callback) => {
- *     socket.broadcast.to(namespace).emit('peerix:message', namespace, data);
+ *   socket.on("peerix:publish", (namespace, data, callback) => {
+ *     socket.broadcast.to(namespace).emit("peerix:message", namespace, data);
  *     if (callback) callback();
  *   });
  * });
@@ -77,16 +77,16 @@ export class SocketIoDriver extends Driver {
     ackTimeout?: number;
   }) {
     super();
-    const { socket, prefix = '', ackTimeout = 10000 } = options || {};
+    const { socket, prefix = "", ackTimeout = 10000 } = options || {};
 
     if (
       !socket ||
-      typeof socket.on !== 'function' ||
-      typeof socket.off !== 'function' ||
-      typeof socket.emit !== 'function' ||
-      typeof socket.timeout !== 'function'
+      typeof socket.on !== "function" ||
+      typeof socket.off !== "function" ||
+      typeof socket.emit !== "function" ||
+      typeof socket.timeout !== "function"
     ) {
-      throw new TypeError('SocketIoDriver requires a valid Socket.IO client');
+      throw new TypeError("SocketIoDriver requires a valid Socket.IO client");
     }
 
     this.#socket = socket;
@@ -99,12 +99,12 @@ export class SocketIoDriver extends Driver {
       try {
         await Promise.all(
           Array.from(this.#emitter.keys()).map((event) =>
-            this.#socketEmit('subscribe', event),
+            this.#socketEmit("subscribe", event),
           ),
         );
         this.active = true;
       } catch (error) {
-        this.emit('error', error);
+        this.emit("error", error);
         this.active = false;
       }
     };
@@ -114,23 +114,26 @@ export class SocketIoDriver extends Driver {
     };
 
     this.#onError = (error: unknown) => {
-      this.emit('error', error);
+      this.emit("error", error);
     };
 
     this.#onMessage = (namespace, data) => {
       this.#emitter.emit(namespace, data);
     };
 
-    this.#socket.on('connect', this.#onConnect);
-    this.#socket.on('disconnect', this.#onDisconnect);
-    this.#socket.on('connect_error', this.#onError);
-    this.#socket.on('error', this.#onError);
+    this.#socket.on("connect", this.#onConnect);
+    this.#socket.on("disconnect", this.#onDisconnect);
+    this.#socket.on("connect_error", this.#onError);
+    this.#socket.on("error", this.#onError);
     this.#socket.on(`${this.#prefix}message`, this.#onMessage);
 
     this.active = !!this.#socket.connected;
   }
 
-  async subscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async subscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     if (!this.#socket) return;
 
     const [event] = namespace.slice(-1);
@@ -139,7 +142,7 @@ export class SocketIoDriver extends Driver {
 
     if (isFirstSubscription) {
       try {
-        await this.#socketEmit('subscribe', event);
+        await this.#socketEmit("subscribe", event);
       } catch (error) {
         this.#emitter.off(event, handler);
         throw error;
@@ -147,33 +150,36 @@ export class SocketIoDriver extends Driver {
     }
   }
 
-  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async unsubscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     if (!this.#socket) return;
 
     const [event] = namespace.slice(-1);
     this.#emitter.off(event, handler);
 
     if (!this.#emitter.has(event)) {
-      await this.#socketEmit('unsubscribe', event);
+      await this.#socketEmit("unsubscribe", event);
     }
   }
 
-  async publish(namespace: string[], data: number[]) {
+  override async publish(namespace: string[], data: number[]): Promise<void> {
     if (!this.#socket) return;
 
     const [event] = namespace.slice(-1);
-    await this.#socketEmit('publish', event, data);
+    await this.#socketEmit("publish", event, data);
   }
 
-  destroy() {
+  override destroy(): void {
     super.destroy();
     this.#emitter.clear();
 
     if (this.#socket) {
-      this.#socket.off('connect', this.#onConnect);
-      this.#socket.off('disconnect', this.#onDisconnect);
-      this.#socket.off('connect_error', this.#onError);
-      this.#socket.off('error', this.#onError);
+      this.#socket.off("connect", this.#onConnect);
+      this.#socket.off("disconnect", this.#onDisconnect);
+      this.#socket.off("connect_error", this.#onError);
+      this.#socket.off("error", this.#onError);
       this.#socket.off(`${this.#prefix}message`, this.#onMessage);
       this.#socket = null;
     }
@@ -185,7 +191,7 @@ export class SocketIoDriver extends Driver {
    * @param event The event name to emit.
    * @param args The arguments to send with the event.
    */
-  async #socketEmit(event: string, ...args: any[]) {
+  async #socketEmit(event: string, ...args: any[]): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       if (!this.#socket) return resolve();
       const socket =

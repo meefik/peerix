@@ -1,16 +1,16 @@
-import type { PeerEvents } from '../src/index.js';
-import { Peer } from '../src/index.js';
+import type { PeerEvents } from "../src/index.js";
+import { Peer } from "../src/index.js";
 
 type PeerEventName = keyof PeerEvents;
 
 type PeerCall =
-  | 'open'
-  | 'close'
-  | 'send'
-  | 'join'
-  | 'share'
-  | 'unshare'
-  | 'leave';
+  | "open"
+  | "close"
+  | "send"
+  | "join"
+  | "share"
+  | "unshare"
+  | "leave";
 
 type CallStep = {
   peer: string;
@@ -53,15 +53,15 @@ export class TestRunner {
   }
 
   private isCallStep(step: Step): step is CallStep {
-    return 'call' in step;
+    return "call" in step;
   }
 
   private isWaitStep(step: Step): step is WaitStep {
-    return 'wait' in step;
+    return "wait" in step;
   }
 
   private isRecord(value: unknown): value is Record<string, any> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
   private matchesExpected(actual: any, expected: any): boolean {
@@ -96,21 +96,21 @@ export class TestRunner {
     let draw = () => {};
 
     if (video) {
-      const canvas = document.createElement('canvas');
+      const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext("2d");
       if (!ctx) {
-        throw new Error('Failed to create canvas context');
+        throw new Error("Failed to create canvas context");
       }
 
       draw = () => {
-        ctx.fillStyle = 'black';
+        ctx.fillStyle = "black";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = 'lime';
+        ctx.fillStyle = "lime";
         ctx.font = `${Math.min(canvas.width, canvas.height) * 0.2}px monospace`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
         ctx.fillText(
           `${new Date().toLocaleTimeString()}`,
           canvas.width / 2,
@@ -128,7 +128,7 @@ export class TestRunner {
       const oscillator = audioCtx.createOscillator();
       const dst = audioCtx.createMediaStreamDestination();
 
-      oscillator.type = 'sine';
+      oscillator.type = "sine";
       oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
       oscillator.connect(dst);
       oscillator.start();
@@ -162,7 +162,7 @@ export class TestRunner {
   private normalizeCallArgs(step: CallStep): any[] {
     const args = [...(step.args ?? [])];
 
-    if (step.call === 'share') {
+    if (step.call === "share") {
       const [options] = args;
       if (options.stream instanceof MediaStream === false) {
         options.stream = this.createSyntheticMediaStream(options.stream);

@@ -1,16 +1,16 @@
-import { test } from '@playwright/test';
-import scenario from './scenario.js';
+import { test } from "@playwright/test";
+import scenario from "./scenario.js";
 
 // Enable debug logging from the page console
 // Set to 'peerix:*' to enable debug logging
-const { DEBUG = '' } = process.env;
+const { DEBUG = "" } = process.env;
 
 for (const testCase of scenario) {
   test(`[${testCase.id}] ${testCase.title}`, async ({ page }) => {
-    await page.goto('./tests/index.html');
+    await page.goto("./tests/index.html");
 
     if (DEBUG) {
-      page.on('console', (msg) => {
+      page.on("console", (msg) => {
         console.log(`CONSOLE: ${msg.text()}`);
       });
     }
@@ -22,7 +22,7 @@ for (const testCase of scenario) {
           const runner = new TestRunner({ debug });
           await runner.run(testCase as any);
         };
-        document.addEventListener('click', handler, {
+        document.addEventListener("click", handler, {
           once: true,
           capture: true,
         });
@@ -31,6 +31,6 @@ for (const testCase of scenario) {
     );
 
     // User gesture is required in some browsers
-    await page.click('body');
+    await page.click("body");
   });
 }

@@ -1,28 +1,31 @@
-import { suite, test } from 'node:test';
-import assert from 'node:assert/strict';
-import { encode, decode } from './protobuf.js';
+import { suite, test } from "node:test";
+import assert from "node:assert/strict";
+import { encode, decode } from "./protobuf.js";
 
-suite('utils/protobuf', async () => {
-  test('should roundtrip all supported field types', async () => {
+suite("utils/protobuf", async () => {
+  test("should roundtrip all supported field types", async () => {
+    // Arrange
     const schema = {
-      active: { id: 1, type: 'bool' as const },
-      offset: { id: 2, type: 'int32' as const },
-      count: { id: 3, type: 'uint32' as const },
-      ratio: { id: 4, type: 'float' as const },
-      label: { id: 5, type: 'string' as const },
-      payload: { id: 6, type: 'bytes' as const },
+      active: { id: 1, type: "bool" as const },
+      offset: { id: 2, type: "int32" as const },
+      count: { id: 3, type: "uint32" as const },
+      ratio: { id: 4, type: "float" as const },
+      label: { id: 5, type: "string" as const },
+      payload: { id: 6, type: "bytes" as const },
     };
     const value = {
       active: true,
       offset: -42,
       count: 123456,
       ratio: 3.1415926,
-      label: 'peerix',
+      label: "peerix",
       payload: new Uint8Array([1, 2, 3, 254]),
     };
 
+    // Act
     const encoded = encode(value, schema);
 
+    // Assert
     assert.ok(encoded instanceof Uint8Array);
     assert.deepEqual(decode(encoded, schema), {
       ...value,
@@ -30,29 +33,33 @@ suite('utils/protobuf', async () => {
     });
   });
 
-  test('should omit nullish fields during encoding', async () => {
+  test("should omit nullish fields during encoding", async () => {
+    // Arrange
     const schema = {
-      present: { id: 1, type: 'string' as const },
-      missing: { id: 2, type: 'uint32' as const },
-      nullable: { id: 3, type: 'bytes' as const },
+      present: { id: 1, type: "string" as const },
+      missing: { id: 2, type: "uint32" as const },
+      nullable: { id: 3, type: "bytes" as const },
     };
 
+    // Act
     const encoded = encode(
       {
-        present: 'value',
+        present: "value",
         missing: undefined,
         nullable: null,
       },
       schema,
     );
 
+    // Assert
     assert.ok(encoded instanceof Uint8Array);
-    assert.deepEqual(decode(encoded, schema), { present: 'value' });
+    assert.deepEqual(decode(encoded, schema), { present: "value" });
   });
 
-  test('should skip unknown fields while decoding', async () => {
+  test("should skip unknown fields while decoding", async () => {
+    // Arrange
     const schema = {
-      active: { id: 1, type: 'bool' as const },
+      active: { id: 1, type: "bool" as const },
     };
 
     const encoded = encode({ active: true }, schema);
@@ -70,32 +77,37 @@ suite('utils/protobuf', async () => {
       0x07,
     ]);
 
+    // Act & Assert
     assert.deepEqual(decode(withUnknown, schema), { active: true });
   });
 
-  test('should reject invalid schemas', async () => {
+  test("should reject invalid schemas", async () => {
+    // Arrange
     const duplicateIds = {
-      first: { id: 1, type: 'bool' as const },
-      second: { id: 1, type: 'uint32' as const },
+      first: { id: 1, type: "bool" as const },
+      second: { id: 1, type: "uint32" as const },
     };
     const invalidFieldId = {
-      zero: { id: 0, type: 'bool' as const },
+      zero: { id: 0, type: "bool" as const },
     };
 
+    // Act & Assert
     assert.equal(encode({ first: true, second: 1 }, duplicateIds), null);
     assert.equal(decode(new Uint8Array([0x08, 0x01]), duplicateIds), null);
     assert.equal(encode({ zero: true }, invalidFieldId), null);
     assert.equal(decode(new Uint8Array([0x08, 0x01]), invalidFieldId), null);
   });
 
-  test('should reject malformed or wire-mismatched payloads', async () => {
+  test("should reject malformed or wire-mismatched payloads", async () => {
+    // Arrange
     const stringSchema = {
-      label: { id: 1, type: 'string' as const },
+      label: { id: 1, type: "string" as const },
     };
     const boolSchema = {
-      active: { id: 1, type: 'bool' as const },
+      active: { id: 1, type: "bool" as const },
     };
 
+    // Act & Assert
     assert.equal(decode(new Uint8Array([0x08, 0x01]), stringSchema), null);
     assert.equal(
       decode(new Uint8Array([0x0a, 0x02, 0x61]), stringSchema),

@@ -4,12 +4,12 @@
  * @group Errors
  */
 export type ErrorCode =
-  | 'UNKNOWN_ERROR'
-  | 'SIGNALING_ERROR'
-  | 'NEGOTIATION_ERROR'
-  | 'ICECANDIDATE_ERROR'
-  | 'MEDIASTREAM_ERROR'
-  | 'DATACHANNEL_ERROR';
+  | "UNKNOWN_ERROR"
+  | "SIGNALING_ERROR"
+  | "NEGOTIATION_ERROR"
+  | "ICECANDIDATE_ERROR"
+  | "MEDIASTREAM_ERROR"
+  | "DATACHANNEL_ERROR";
 
 /**
  * Custom error class for Peerix-related errors.
@@ -18,7 +18,7 @@ export type ErrorCode =
  * @group Errors
  */
 export class PeerixError extends Error {
-  /** The name of the error, typically 'Error' or a specific error type. */
+  /** The name of the error, typically `Error` or a specific error type. */
   readonly name: string;
   /** The error message providing details about the error. */
   readonly message: string;
@@ -28,18 +28,18 @@ export class PeerixError extends Error {
   /**
    * Creates a new {@link PeerixError} instance.
    *
-   * @param error An object containing the error details: name, message.
+   * @param error An error object, string message, or any value to wrap.
    * @param code An error code for categorizing the error.
    */
-  constructor(error: any, code?: ErrorCode) {
+  constructor(error: unknown, code?: ErrorCode) {
     const { name, message } =
-      typeof error === 'object' && error !== null
-        ? error
+      typeof error === "object" && error !== null
+        ? (error as Error)
         : { message: String(error) };
     super(message);
-    this.name = name || 'Error';
-    this.message = message || 'Unknown error';
-    this.code = code || 'UNKNOWN_ERROR';
+    this.name = name || "Error";
+    this.message = message || "Unknown error";
+    this.code = code || "UNKNOWN_ERROR";
     // fix the prototype chain for built-in Error
     Object.setPrototypeOf(this, PeerixError.prototype);
   }

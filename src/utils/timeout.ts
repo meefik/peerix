@@ -1,5 +1,5 @@
 /**
- * A utility class for managing timeouts, allowing for easy starting and clearing of timeouts.
+ * A utility class for managing timeouts, allowing easy starting and clearing.
  */
 export class Timeout {
   #timer?: ReturnType<typeof setTimeout>;
@@ -22,15 +22,15 @@ export class Timeout {
    *
    * @param delay Optional delay in milliseconds before the timeout expires. If not provided, the initial delay is used.
    */
-  start(delay?: number) {
-    this.clear();
+  start(delay?: number): void {
+    clearTimeout(this.#timer);
     this.#timer = setTimeout(this.#callback, delay ?? this.#delay);
   }
 
   /**
    * Clears the timeout if it is currently active.
    */
-  clear() {
+  stop(): void {
     if (this.#timer) {
       clearTimeout(this.#timer);
       this.#timer = undefined;

@@ -37,7 +37,7 @@
       }
 
       .streams:empty::before {
-        content: 'No active streams';
+        content: "No active streams";
         color: gray;
         font-size: 0.9em;
       }
@@ -57,7 +57,7 @@
       }
 
       .logs:empty::before {
-        content: 'No events logged yet';
+        content: "No events logged yet";
         color: gray;
       }
     </style>
@@ -118,98 +118,99 @@
     </footer>
 
     <script type="module">
-      import { Peer, BroadcastChannelDriver } from '../src/index.js';
+      import { Peer, BroadcastChannelDriver } from "../src/index.js";
 
-      const driver = new BroadcastChannelDriver('peerix-demo');
+      const driver = new BroadcastChannelDriver("peerix-demo");
       const peer = new Peer({ driver });
 
       // Log peer events
-      peer.on('connection', (e) => {
+      peer.on("connection", (e) => {
         const { name, remote, state } = e;
         const details = [];
         if (remote) details.push(`remote: ${remote.id}`);
         if (state) details.push(`state: ${state}`);
         if (remote?.metadata) details.push(`metadata: ${remote.metadata}`);
-        log(`[${name}] ${details.join(', ')}`);
+        log(`[${name}] ${details.join(", ")}`);
       });
 
-      peer.on('channel', (e) => {
+      peer.on("channel", (e) => {
         const { name, remote, channel, data, error } = e;
         const details = [];
         if (remote) details.push(`remote: ${remote.id}`);
         if (channel) details.push(`channel: ${channel.label}`);
         if (data) details.push(`data: ${data}`);
         if (error) details.push(`error: ${error}`);
-        log(`[${name}] ${details.join(', ')}`);
+        log(`[${name}] ${details.join(", ")}`);
       });
 
-      peer.on('stream', (e) => {
+      peer.on("stream", (e) => {
         const { name, remote, stream, label } = e;
         const details = [];
         if (remote) details.push(`remote: ${remote.id}`);
         if (stream)
           details.push(
-            `stream: ${label} (${stream.active ? 'active' : 'inactive'})`,
+            `stream: ${label} (${stream.active ? "active" : "inactive"})`,
           );
-        log(`[${name}] ${details.join(', ')}`);
+        log(`[${name}] ${details.join(", ")}`);
       });
 
-      peer.on('track', (e) => {
+      peer.on("track", (e) => {
         const { name, remote, stream, track, label } = e;
         const details = [];
         if (remote) details.push(`remote: ${remote.id}`);
         if (stream)
           details.push(
-            `stream: ${label} (${stream.active ? 'active' : 'inactive'})`,
+            `stream: ${label} (${stream.active ? "active" : "inactive"})`,
           );
         if (track) details.push(`track: ${track.kind} (${track.readyState})`);
-        log(`[${name}] ${details.join(', ')}`);
+        log(`[${name}] ${details.join(", ")}`);
       });
 
-      peer.on('error', (e) => {
+      peer.on("error", (e) => {
         const { name, error } = e;
         log(`[${name}] ${error}`);
+        console.error(error);
       });
 
-      peer.on('track:add', (e) => {
+      peer.on("track:add", (e) => {
         toggleMediaElement(e.stream);
       });
 
-      peer.on('track:remove', (e) => {
+      peer.on("track:remove", (e) => {
         toggleMediaElement(e.stream);
       });
 
       // Action handlers
       const handlers = {
         join: () => {
-          const room = document.getElementById('room').value;
-          const metadata = document.getElementById('metadata').value;
+          const room = document.getElementById("room").value;
+          const metadata = document.getElementById("metadata").value;
           peer.join({ room, metadata });
         },
         leave: () => {
           peer.leave();
         },
         open: () => {
-          const channel = document.getElementById('channel').value;
+          const channel = document.getElementById("channel").value;
           peer.open({ label: channel });
         },
         close: () => {
-          const channel = document.getElementById('channel').value;
+          const channel = document.getElementById("channel").value;
           peer.close({ label: channel });
         },
         send: () => {
-          const message = document.getElementById('message').value;
-          const channel = document.getElementById('send-channel').value;
+          const message = document.getElementById("message").value;
+          const channel = document.getElementById("send-channel").value;
           if (channel) peer.send(message, { label: channel });
           else peer.send(message);
         },
         share: async () => {
           const stream = createSyntheticMediaStream({
-            video: document.getElementById('video-enabled').checked,
-            audio: document.getElementById('audio-enabled').checked,
+            video: document.getElementById("video-enabled").checked,
+            audio: document.getElementById("audio-enabled").checked,
           });
           const label =
-            document.getElementById('stream-label').value || 'default';
+            document.getElementById("stream-label").value || "default";
           const newStream = await peer.share({
             label,
             stream,
@@ -219,33 +220,33 @@
         },
         unshare: async () => {
           const label =
-            document.getElementById('stream-label').value || 'default';
+            document.getElementById("stream-label").value || "default";
           const oldStream = await peer.unshare({ label });
           if (oldStream) toggleMediaElement(oldStream, true);
         },
       };
 
       document
-        .querySelectorAll('[data-action]')
+        .querySelectorAll("[data-action]")
         .forEach((btn) =>
-          btn.addEventListener('click', () => handlers[btn.dataset.action]?.()),
+          btn.addEventListener("click", () => handlers[btn.dataset.action]?.()),
         );
 
-      document.getElementById('clear-logs').addEventListener('click', (e) => {
+      document.getElementById("clear-logs").addEventListener("click", (e) => {
         e.preventDefault();
-        logs.innerHTML = '';
+        logs.innerHTML = "";
       });
 
       function log(msg) {
-        const logs = document.getElementById('logs');
-        const el = document.createElement('div');
+        const logs = document.getElementById("logs");
+        const el = document.createElement("div");
         el.textContent = msg;
         logs.appendChild(el);
         logs.scrollTop = logs.scrollHeight;
       }
 
       function createMedia(stream, videoEnabled) {
-        const media = document.createElement(videoEnabled ? 'video' : 'audio');
+        const media = document.createElement(videoEnabled ? "video" : "audio");
         media.id = stream.id;
         media.autoplay = true;
         media.playsInline = true;
@@ -254,7 +255,7 @@
         return media;
       }
 
-      function toggleMediaElement(stream, local) {
+      function toggleMediaElement(stream, local = false) {
         const videoEnabled = stream.getVideoTracks().length > 0;
         let media = document.getElementById(stream.id);
 
@@ -263,14 +264,15 @@
         const shouldRecreate =
           !media ||
           (videoEnabled
-            ? media.tagName !== 'VIDEO'
-            : media.tagName !== 'AUDIO');
+            ? media.tagName !== "VIDEO"
+            : media.tagName !== "AUDIO");
         if (shouldRecreate) {
           media?.remove();
           media = createMedia(stream, videoEnabled);
+          media.muted = local;
           const container = local
-            ? document.getElementById('local-streams')
-            : document.getElementById('remote-streams');
+            ? document.getElementById("local-streams")
+            : document.getElementById("remote-streams");
           container.appendChild(media);
         }
       }
@@ -285,15 +287,15 @@
         const tracks = [];
         let draw;
         if (video) {
-          const canvas = document.createElement('canvas');
+          const canvas = document.createElement("canvas");
           Object.assign(canvas, { width, height });
-          const ctx = canvas.getContext('2d');
+          const ctx = canvas.getContext("2d");
           draw = () => {
-            ctx.fillStyle = 'black';
+            ctx.fillStyle = "black";
             ctx.fillRect(0, 0, width, height);
-            ctx.fillStyle = 'lime';
+            ctx.fillStyle = "lime";
             ctx.font = `${Math.min(width, height) * 0.2}px monospace`;
-            Object.assign(ctx, { textAlign: 'center', textBaseline: 'middle' });
+            Object.assign(ctx, { textAlign: "center", textBaseline: "middle" });
             ctx.fillText(
               new Date().toLocaleTimeString(),
               width / 2,

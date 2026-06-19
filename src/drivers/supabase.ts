@@ -1,5 +1,5 @@
-import { Driver } from './driver.js';
-import { EventEmitter } from '../utils/emitter.js';
+import { Driver } from "./driver.js";
+import { EventEmitter } from "../utils/emitter.js";
 
 /**
  * Supabase-based signaling driver.
@@ -14,10 +14,10 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * @example
  * ```javascript
- * import { createClient } from '@supabase/supabase-js';
+ * import { createClient } from "@supabase/supabase-js";
  *
  * // connect to a Supabase server
- * const supabase = createClient('your_project_url', 'your_supabase_api_key');
+ * const supabase = createClient("your_project_url", "your_supabase_api_key");
  *
  * // create a new driver instance
  * const driver = new SupabaseDriver({ supabase });
@@ -39,14 +39,14 @@ export class SupabaseDriver extends Driver {
    */
   constructor(options: { supabase: SupabaseClient; prefix?: string }) {
     super();
-    const { supabase, prefix = '' } = options || {};
+    const { supabase, prefix = "" } = options || {};
 
     if (
       !supabase ||
-      typeof supabase.channel !== 'function' ||
-      typeof supabase.removeChannel !== 'function'
+      typeof supabase.channel !== "function" ||
+      typeof supabase.removeChannel !== "function"
     ) {
-      throw new TypeError('SupabaseDriver requires a valid Supabase client');
+      throw new TypeError("SupabaseDriver requires a valid Supabase client");
     }
 
     this.#supabase = supabase;
@@ -60,7 +60,10 @@ export class SupabaseDriver extends Driver {
     };
   }
 
-  async subscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async subscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     if (!this.#supabase) return;
 
     const [channelName] = namespace;
@@ -75,7 +78,10 @@ export class SupabaseDriver extends Driver {
     }
   }
 
-  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async unsubscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     if (!this.#supabase) return;
 
     const [channelName] = namespace;
@@ -85,7 +91,7 @@ export class SupabaseDriver extends Driver {
     this.#unsubscribeFromChannel(channelName);
   }
 
-  async publish(namespace: string[], data: number[]) {
+  override async publish(namespace: string[], data: number[]): Promise<void> {
     if (!this.#supabase) return;
 
     const [channelName] = namespace;
@@ -94,7 +100,7 @@ export class SupabaseDriver extends Driver {
     await this.#sendToChannel(channelName, event, data);
   }
 
-  destroy() {
+  override destroy(): void {
     super.destroy();
     this.#emitter.clear();
 
@@ -110,21 +116,21 @@ export class SupabaseDriver extends Driver {
   /**
    * Subscribes to the Supabase channel for receiving broadcast messages.
    */
-  #subscribeToChannel(channelName: string) {
+  #subscribeToChannel(channelName: string): void {
     let channel = this.#channels.get(channelName);
     if (!this.#supabase || channel) return;
 
     channel = this.#supabase.channel(`${this.#prefix}${channelName}`);
-    channel.on('broadcast', { event: 'message' }, this.#onBroadcast);
+    channel.on("broadcast", { event: "message" }, this.#onBroadcast);
     channel.subscribe((status) => {
       const ready = this.#isAllChannelsReady();
-      if (status === 'SUBSCRIBED') {
+      if (status === "SUBSCRIBED") {
         if (ready) this.active = true;
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         const error = new Error(`Supabase channel error: ${status}`);
-        this.emit('error', error);
+        this.emit("error", error);
         if (!ready) this.active = false;
-      } else if (status === 'CLOSED') {
+      } else if (status === "CLOSED") {
         if (!ready) this.active = false;
       }
     });
@@ -134,7 +140,7 @@ export class SupabaseDriver extends Driver {
   /**
    * Unsubscribes from the Supabase channel used to receive broadcast messages.
    */
-  #unsubscribeFromChannel(channelName: string) {
+  #unsubscribeFromChannel(channelName: string): void {
     const channel = this.#channels.get(channelName);
     if (!this.#supabase || !channel) return;
 
@@ -149,24 +155,28 @@ export class SupabaseDriver extends Driver {
    * @param event The event name to emit.
    * @param data The data payload to send with the event.
    */
-  async #sendToChannel(channelName: string, event: string, data: number[]) {
+  async #sendToChannel(
+    channelName: string,
+    event: string,
+    data: number[],
+  ): Promise<void> {
     const channel = this.#channels.get(channelName);
     if (!this.#supabase || !channel) return;
 
     await channel.send({
-      type: 'broadcast',
-      event: 'message',
+      type: "broadcast",
+      event: "message",
       payload: [event, data],
     });
   }
 
   /**
-   * Checks if all subscribed channels are in the 'joined' state.
+   * Checks if all subscribed channels are in the "joined" state.
    */
-  #isAllChannelsReady() {
+  #isAllChannelsReady(): boolean {
     let ready = false;
     for (const channel of this.#channels.values()) {
-      if (channel.state !== 'joined') return false;
+      if (channel.state !== "joined") return false;
       ready = true;
     }
     return ready;

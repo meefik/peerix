@@ -33,7 +33,10 @@ export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<
    * @param event Event name or list of event names.
    * @param handler Event handler.
    */
-  on<K extends keyof T>(event: K | K[], handler: (...args: T[K]) => void) {
+  on<K extends keyof T>(
+    event: K | K[],
+    handler: (...args: T[K]) => void,
+  ): void {
     if (event && handler) {
       const events = Array.isArray(event) ? event : [event];
       for (const ev of events) {
@@ -51,7 +54,10 @@ export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<
    * @param event Event name or list of event names.
    * @param handler Event handler.
    */
-  once<K extends keyof T>(event: K | K[], handler: (...args: T[K]) => void) {
+  once<K extends keyof T>(
+    event: K | K[],
+    handler: (...args: T[K]) => void,
+  ): void {
     if (event && handler) {
       const events = Array.isArray(event) ? event : [event];
       for (const ev of events) {
@@ -69,7 +75,10 @@ export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<
    * @param event Event name or list of event names.
    * @param handler Optional event handler to remove. If not provided, all handlers for the event(s) will be removed.
    */
-  off<K extends keyof T>(event: K | K[], handler?: (...args: T[K]) => void) {
+  off<K extends keyof T>(
+    event: K | K[],
+    handler?: (...args: T[K]) => void,
+  ): void {
     if (event) {
       const events = Array.isArray(event) ? event : [event];
       for (const ev of events) {
@@ -94,7 +103,7 @@ export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<
    * @param event Event name or list of event names.
    * @param args Arguments to pass to the event handlers.
    */
-  emit<K extends keyof T>(event: K | K[], ...args: T[K]) {
+  emit<K extends keyof T>(event: K | K[], ...args: T[K]): void {
     if (event) {
       const events = Array.isArray(event) ? event : [event];
       const context = this.#context ?? this;
@@ -102,15 +111,16 @@ export class EventEmitter<T extends { [K in keyof T]: any[] }> extends Map<
       for (const ev of events) {
         const handlers = this.get(ev);
         if (!handlers) continue;
+
+        const onceHandlers = [];
+
         for (const [handler, once] of handlers.entries()) {
-          if (once) {
-            handlers.delete(handler);
-            if (!handlers.size) {
-              this.delete(ev);
-            }
-          }
+          if (once) onceHandlers.push(handler);
           setTimeout(() => handler.apply(context, args), delay);
         }
+
+        for (const handler of onceHandlers) handlers.delete(handler);
+        if (!handlers.size) this.delete(ev);
       }
     }
   }

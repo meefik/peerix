@@ -1,5 +1,5 @@
-import { Driver } from './driver.js';
-import { EventEmitter } from '../utils/emitter.js';
+import { Driver } from "./driver.js";
+import { EventEmitter } from "../utils/emitter.js";
 
 /**
  * NATS-based signaling driver.
@@ -14,10 +14,10 @@ import { EventEmitter } from '../utils/emitter.js';
  *
  * @example
  * ```javascript
- * import { wsconnect } from '@nats-io/nats-core';
+ * import { wsconnect } from "@nats-io/nats-core";
  *
  * // connect to a NATS server (e.g., the local server)
- * const nc = await wsconnect({ servers: ['ws://localhost:8080'], noEcho: true });
+ * const nc = await wsconnect({ servers: ["ws://localhost:8080"], noEcho: true });
  *
  * // create a new driver instance
  * const driver = new NatsDriver({ nc });
@@ -54,15 +54,15 @@ export class NatsDriver extends Driver {
    */
   constructor(options: { nc: NatsConnection; prefix?: string }) {
     super();
-    const { nc, prefix = '' } = options || {};
+    const { nc, prefix = "" } = options || {};
 
     if (
       !nc ||
-      typeof nc.subscribe !== 'function' ||
-      typeof nc.publish !== 'function' ||
-      typeof nc.status !== 'function'
+      typeof nc.subscribe !== "function" ||
+      typeof nc.publish !== "function" ||
+      typeof nc.status !== "function"
     ) {
-      throw new TypeError('NatsDriver requires a valid NATS connection');
+      throw new TypeError("NatsDriver requires a valid NATS connection");
     }
 
     this.#nc = nc;
@@ -74,7 +74,10 @@ export class NatsDriver extends Driver {
     this.active = true;
   }
 
-  async subscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async subscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     if (!this.#nc) return;
 
     const subject = this.#getSubject(namespace);
@@ -84,7 +87,7 @@ export class NatsDriver extends Driver {
       try {
         const sub = this.#nc.subscribe(subject, {
           callback: (error: Error, msg: any) => {
-            if (error) return this.emit('error', error);
+            if (error) return this.emit("error", error);
             this.#emitter.emit(subject, Array.from(msg?.data || []));
           },
         });
@@ -96,7 +99,10 @@ export class NatsDriver extends Driver {
     }
   }
 
-  async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
+  override async unsubscribe(
+    namespace: string[],
+    handler: (data: number[]) => void,
+  ): Promise<void> {
     if (!this.#nc) return;
 
     const subject = this.#getSubject(namespace);
@@ -109,14 +115,14 @@ export class NatsDriver extends Driver {
     }
   }
 
-  async publish(namespace: string[], data: number[]) {
+  override async publish(namespace: string[], data: number[]): Promise<void> {
     if (!this.#nc) return;
 
     const subject = this.#getSubject(namespace);
     this.#nc.publish(subject, new Uint8Array(data));
   }
 
-  destroy() {
+  override destroy(): void {
     super.destroy();
     this.#emitter.clear();
 
@@ -135,7 +141,7 @@ export class NatsDriver extends Driver {
    * @param namespace The namespace to construct the subject for.
    * @returns The full NATS subject name with the prefix applied.
    */
-  #getSubject(namespace: string[]) {
+  #getSubject(namespace: string[]): string {
     const [event] = namespace.slice(-1);
     return `${this.#prefix}${event}`;
   }
@@ -146,24 +152,24 @@ export class NatsDriver extends Driver {
    * The NATS client exposes an async-iterable status stream. We keep
    * a reference to the iterator so we can cancel it during `destroy()`.
    */
-  async #trackConnectionStatus() {
+  async #trackConnectionStatus(): Promise<void> {
     try {
       const statusIterable = this.#nc?.status?.();
       if (
         !statusIterable ||
-        typeof statusIterable[Symbol.asyncIterator] !== 'function'
+        typeof statusIterable[Symbol.asyncIterator] !== "function"
       )
         return;
       this.#statusIterator = statusIterable[Symbol.asyncIterator]();
       while (this.#statusIterator) {
         const { value: s, done } = await this.#statusIterator.next();
         if (done || !this.#nc) break;
-        if (s.type === 'reconnect') this.active = true;
-        else if (s.type === 'disconnect') this.active = false;
-        else if (s.type === 'error') this.emit('error', s.data);
+        if (s.type === "reconnect") this.active = true;
+        else if (s.type === "disconnect") this.active = false;
+        else if (s.type === "error") this.emit("error", s.data);
       }
     } catch (err) {
-      this.emit('error', err);
+      this.emit("error", err);
     } finally {
       this.#statusIterator = null;
     }

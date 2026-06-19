@@ -1,38 +1,49 @@
-import { suite, test } from 'node:test';
-import assert from 'node:assert/strict';
-import { base62ToBytes, bytesToBase62, delay } from './helpers.js';
+import { suite, test } from "node:test";
+import assert from "node:assert/strict";
+import { parseOptions } from "./helpers.js";
 
-async function streamToBytes(stream: ReadableStream): Promise<Uint8Array> {
-  const buffer = await new Response(stream).arrayBuffer();
-  return new Uint8Array(buffer);
-}
+suite("utils/helpers.parseOptions", async () => {
+  interface CustomOptions {
+    key?: string;
+  }
 
-suite('utils/helpers', async () => {
-  test('delay should wait for the specified time', async () => {
-    let t = Date.now();
-    await delay(50);
-    const capturedDelay = Math.floor(Date.now() - t);
+  test("should return a shallow copy when options is an object", async () => {
+    // Arrange
+    const input: CustomOptions = { key: "alpha" };
 
-    assert.ok(capturedDelay > 0 && capturedDelay < 100);
+    // Act
+    const result = parseOptions<CustomOptions>(input);
+
+    // Assert
+    assert.deepEqual(result, { key: "alpha" });
+    assert.notEqual(result, input);
   });
 
-  test('bytesToBase62 and base62ToBytes should roundtrip non-empty binary data', async () => {
-    const input = new Uint8Array([1, 2, 3, 4, 5, 250, 251, 252, 253, 254, 255]);
+  test("should return an empty object for primitive options when parser is not provided", async () => {
+    // Act
+    const result = parseOptions<CustomOptions>(1);
 
-    const encoded = bytesToBase62(input);
-    const decoded = base62ToBytes(encoded);
-
-    assert.equal(encoded.length > 0, true);
-    assert.deepEqual(decoded, input);
+    // Assert
+    assert.deepEqual(result, {});
   });
 
-  test('base62 conversion should handle empty, zero-only, and invalid input', async () => {
-    assert.equal(bytesToBase62(new Uint8Array()), '');
-    assert.equal(bytesToBase62(new Uint8Array([0, 0, 0])), '0');
-    assert.deepEqual(base62ToBytes(''), new Uint8Array());
-    assert.deepEqual(base62ToBytes('0'), new Uint8Array([0]));
-    assert.throws(() => base62ToBytes('!'), {
-      message: 'Invalid base62 character',
-    });
+  test("should return an empty object for undefined options", async () => {
+    // Act
+    const result = parseOptions<CustomOptions>(undefined, (options) => ({
+      key: String(options),
+    }));
+
+    // Assert
+    assert.deepEqual(result, {});
+  });
+
+  test("should use custom parser when options is a primitive and parser is provided", async () => {
+    // Act
+    const result = parseOptions<CustomOptions>(1, (options) => ({
+      key: String(options),
+    }));
+
+    // Assert
+    assert.deepEqual(result, { key: "1" });
   });
 });

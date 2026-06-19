@@ -1,4 +1,4 @@
-const PREFIX = 'peerix';
+const PREFIX = "peerix";
 
 let allow: RegExp[];
 let deny: RegExp[];
@@ -7,28 +7,31 @@ let deny: RegExp[];
  * Logger utility to create namespaced loggers.
  *
  * To enable logs in your browser:
- * `localStorage.debug = 'peerix:*'`
+ * `localStorage.debug = "peerix:*"`
  *
  * Possible patterns:
- * - '*'
- * - 'namespace:*'
- * - 'namespace:subnamespace'
- * - 'namespace:subnamespace*'
- * - '-namespace:excluded'
- * - 'multiple,patterns,-with:exclusions'
+ * - "*"
+ * - "namespace:*"
+ * - "namespace:subnamespace"
+ * - "namespace:subnamespace*"
+ * - "-namespace:excluded"
+ * - "multiple,patterns,-with:exclusions"
  *
  * Example usage:
  * ```javascript
- * import log from './utils/logger.js';
- * log('module:submodule', 'This is a debug message');
- * log('module:submodule', () => 'This is a message inside a function');
- * log('module:submodule', () => ({ error: new Error('Something went wrong') }));
+ * import log from "./utils/logger.js";
+ * log("module:submodule", "This is a debug message");
+ * log("module:submodule", () => "This is a message inside a function");
+ * log("module:submodule", () => ({ error: new Error("Something went wrong") }));
  * ```
  *
  * @param namespace The namespace for the logger.
- * @param args The data to log.
+ * @param args The arguments to log.
  */
-export default async function log(namespace: string, ...args: any) {
+export default async function log(
+  namespace: string,
+  ...args: any
+): Promise<void> {
   if (!allow || !deny) {
     [allow, deny] = compile(readDebugSetting());
   }
@@ -36,10 +39,10 @@ export default async function log(namespace: string, ...args: any) {
   if (!isEnabled(ns, allow, deny)) return;
   const data = [];
   for (const arg of args) {
-    const res = typeof arg === 'function' ? await arg() : arg;
+    const res = typeof arg === "function" ? await arg() : arg;
     data.push(stringify(res));
   }
-  const { console } = globalThis || {};
+  const { console } = globalThis;
   console?.log(`[${ns}]`, ...data);
 }
 
@@ -93,10 +96,10 @@ function stringify(value: any): string {
           readyState: v.readyState,
         };
       }
-      if (typeof v?.toObject === 'function') {
+      if (typeof v?.toObject === "function") {
         return v.toObject();
       }
-      if (typeof v?.toJSON === 'function') {
+      if (typeof v?.toJSON === "function") {
         return v.toJSON();
       }
       return v;
@@ -107,24 +110,24 @@ function stringify(value: any): string {
 }
 
 function escapeRegexPart(str: string): string {
-  return str.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  return str.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function patternToRegex(pattern: string): RegExp {
-  // split on '*' to escape other chars, then join with '.*'
-  const parts = pattern.split('*').map(escapeRegexPart);
-  return new RegExp(`^${parts.join('.*')}$`);
+  // split on "*" to escape other chars, then join with ".*"
+  const parts = pattern.split("*").map(escapeRegexPart);
+  return new RegExp(`^${parts.join(".*")}$`);
 }
 
 function compile(raw: string): [RegExp[], RegExp[]] {
   const allow: RegExp[] = [];
   const deny: RegExp[] = [];
   raw
-    .split(',')
+    .split(",")
     .map((s) => s.trim())
     .filter(Boolean)
     .forEach((p) => {
-      if (p.startsWith('-')) {
+      if (p.startsWith("-")) {
         const sub = p.slice(1);
         if (sub) deny.push(patternToRegex(sub));
       } else {
@@ -142,9 +145,9 @@ function isEnabled(ns: string, allow: RegExp[], deny: RegExp[]): boolean {
 
 function readDebugSetting(): string {
   try {
-    const { localStorage } = globalThis || {};
-    return localStorage?.getItem('debug') || '';
+    const { localStorage } = globalThis;
+    return localStorage?.getItem("debug") || "";
   } catch (e) {
-    return '';
+    return "";
   }
 }
