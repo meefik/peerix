@@ -1,5 +1,5 @@
-import { resolve } from 'node:path';
-import { defineConfig } from 'vite';
+import { resolve } from "node:path";
+import { defineConfig } from "vite";
 
 export default defineConfig(({ command }) => {
   return {
@@ -9,20 +9,20 @@ export default defineConfig(({ command }) => {
     },
     resolve: {
       alias: {
-        peerix: resolve(__dirname, './src/index.js'),
+        peerix: resolve(__dirname, "./src/index.js"),
       },
     },
     build: {
       lib: {
-        entry: 'src/index.ts',
-        name: 'peerix',
-        formats: ['umd', 'es'],
+        entry: "src/index.ts",
+        name: "peerix",
+        formats: ["umd", "es"],
         fileName: (format) => {
-          return format === 'umd' ? 'peerix.umd.js' : 'peerix.esm.js';
+          return format === "umd" ? "peerix.umd.js" : "peerix.esm.js";
         },
       },
-      target: 'es2020',
-      minify: command === 'build',
+      target: "es2020",
+      minify: command === "build",
       sourcemap: true,
     },
   };

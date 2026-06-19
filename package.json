@@ -27,7 +27,7 @@
   ],
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
+    "build": "vite build && tsc -p tsconfig.build.json --emitDeclarationOnly",
     "test:unit": "node --import tsx --test 'src/**/*.test.ts'",
     "test:e2e": "playwright test",
     "test": "npm run test:unit && npm run test:e2e",
@@ -39,6 +39,7 @@
     "tsx": "^4.22.4",
     "typedoc": "^0.28.19",
     "typedoc-plugin-markdown": "^4.12.0",
+    "typescript": "^6.0.3",
     "vite": "^8.0.16"
   }
 }

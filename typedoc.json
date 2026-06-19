@@ -11,12 +11,8 @@
   "headings": {
     "readme": false
   },
-  "entryPoints": [
-    "./src/index.ts"
-  ],
-  "plugin": [
-    "typedoc-plugin-markdown"
-  ],
+  "entryPoints": ["./src/index.ts"],
+  "plugin": ["typedoc-plugin-markdown"],
   "outputs": [
     {
       "name": "html",

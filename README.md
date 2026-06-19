@@ -41,7 +41,7 @@ npm install peerix
 Use the library in your JavaScript or TypeScript code to create peer-to-peer connections, exchange messages, and share media streams:
 
 ```js
-import { Peer, BroadcastChannelDriver } from 'peerix';
+import { Peer, BroadcastChannelDriver } from "peerix";
 
 // create a signaling driver
 const driver = new BroadcastChannelDriver();
@@ -50,20 +50,20 @@ const driver = new BroadcastChannelDriver();
 const peer = new Peer({ driver });
 
 // listen for peer connection state changes
-peer.on('connection', (e) => {
+peer.on("connection", (e) => {
   const { remote, state } = e;
   console.log(`Peer "${remote.id}" state changed to "${state}"`);
 });
 
 // listen for peer errors
-peer.on('error', (e) => {
+peer.on("error", (e) => {
   const { error } = e;
-  console.error('Peer error:', error);
+  console.error("Peer error:", error);
 });
 
 // join a room
 peer.join({
-  room: 'room-id',
+  room: "room-id",
   metadata: {
     /* optional metadata */
   },
@@ -79,30 +79,30 @@ Work with data channels to exchange messages with other peers:
 
 ```js
 // listen for open channel event
-peer.on('channel:open', (e) => {
+peer.on("channel:open", (e) => {
   const { remote, label } = e;
   console.log(`Channel "${label}" opened with peer "${remote.id}"`);
   // send a message to the remote peer
-  remote.send('Hello, peer!', { label });
+  remote.send("Hello, peer!", { label });
 });
 
 // listen for close channel event
-peer.on('channel:close', (e) => {
+peer.on("channel:close", (e) => {
   const { remote, label } = e;
   console.log(`Channel "${label}" closed with peer "${remote.id}"`);
 });
 
 // listen for incoming messages
-peer.on('channel:message', (e) => {
+peer.on("channel:message", (e) => {
   const { remote, data, label } = e;
   console.log(`Message from peer "${remote.id}" on channel "${label}":`, data);
 });
 
 // open a data channel with a specific label
-peer.open({ label: 'chat' });
+peer.open({ label: "chat" });
 
 // send a message to each connected peer via a specific data channel
-peer.send('Hello, peers!', { label: 'chat' });
+peer.send("Hello, peers!", { label: "chat" });
 
 // later, if you want to close the data channel
 // peer.close({ label: 'chat' });
@@ -114,7 +114,7 @@ Work with media streams to share audio and video with other peers:
 
 ```js
 // listen for a remote peer sharing a stream
-peer.on('stream:add', (e) => {
+peer.on("stream:add", (e) => {
   const { remote, stream, label } = e;
   console.log(
     `Peer "${remote.id}" shared stream "${stream.id}" with label "${label}"`,
@@ -122,7 +122,7 @@ peer.on('stream:add', (e) => {
 });
 
 // listen for a remote peer unsharing a stream
-peer.on('stream:remove', (e) => {
+peer.on("stream:remove", (e) => {
   const { remote, stream, label } = e;
   console.log(
     `Peer "${remote.id}" unshared stream "${stream.id}" with label "${label}"`,
@@ -136,7 +136,7 @@ const stream = await navigator.mediaDevices.getUserMedia({
 });
 
 // start sharing the stream with the room
-peer.share({ label: 'camera', stream });
+peer.share({ label: "camera", stream });
 
 // later, if you no longer want to share the stream, you can unshare it
 // peer.unshare({ label: 'camera' });
@@ -148,7 +148,7 @@ In addition to stream-level events, you can also listen for track-level events t
 
 ```js
 // listen for a remote peer adding a track to the stream
-peer.on('track:add', (e) => {
+peer.on("track:add", (e) => {
   const { remote, stream, track, label } = e;
   console.log(
     `Peer "${remote.id}" added track "${track.id}" to stream "${stream.id}" with label "${label}"`,
@@ -156,7 +156,7 @@ peer.on('track:add', (e) => {
 });
 
 // listen for a remote peer removing a track from the stream
-peer.on('track:remove', (e) => {
+peer.on("track:remove", (e) => {
   const { remote, stream, track, label } = e;
   console.log(
     `Peer "${remote.id}" removed track "${track.id}" from stream "${stream.id}" with label "${label}"`,
@@ -174,7 +174,7 @@ const newStream = await navigator.mediaDevices.getUserMedia({
 });
 
 // reshare the new stream with the same label to update the media
-peer.share({ label: 'camera', stream: newStream });
+peer.share({ label: "camera", stream: newStream });
 ```
 
 In this case, the tracks from the old stream will be removed and replaced with the tracks from the new stream for all connected peers and new peers that join the room. On the remote peers, you will receive a `track:remove` event for the old tracks and a `track:add` event for the new tracks. This allows you to easily switch between different media sources or update the media being shared without having to manage individual tracks manually.
@@ -221,7 +221,7 @@ If no driver is provided when creating a `Peer`, Peerix uses an in-memory `Memor
 You can implement your own custom signaling driver by extending the `Driver` class and implementing the required methods:
 
 ```js
-import { Driver } from 'peerix';
+import { Driver } from "peerix";
 
 class MyDriver extends Driver {
   async subscribe(namespace, handler) {
@@ -243,12 +243,12 @@ If you do not want to create your own signaling server, you may prefer to use on
 Here's how you can set up the NATS driver:
 
 ```js
-import { NatsDriver } from 'peerix';
-import { wsconnect } from '@nats-io/nats-core';
+import { NatsDriver } from "peerix";
+import { wsconnect } from "@nats-io/nats-core";
 
 // connect to a NATS server (e.g. the public demo server)
 const nc = await wsconnect({
-  servers: ['wss://demo.nats.io:8443'],
+  servers: ["wss://demo.nats.io:8443"],
   noEcho: true,
 });
 
@@ -274,12 +274,12 @@ const peer = new Peer({
   // specify custom ICE servers for better connectivity
   iceServers: [
     // public STUN server
-    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: "stun:stun.l.google.com:19302" },
     // custom TURN server (replace with your own server)
     {
-      urls: 'turn:turn.example.com:3478',
-      username: 'user',
-      credential: 'pass',
+      urls: "turn:turn.example.com:3478",
+      username: "user",
+      credential: "pass",
     },
   ],
 });
