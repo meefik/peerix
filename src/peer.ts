@@ -83,7 +83,6 @@ export class Peer {
     return this.#addons;
   }
 
-  /* Private fields */
   #active: boolean;
   #id: string;
   #room: string;
@@ -426,17 +425,17 @@ export class Peer {
   }
 
   /**
-   * Sends a message through data channels.
+   * Sends a message through a data channel to all connected remote peers.
    *
-   * If `options` is omitted, the message is sent to all open channels for every
-   * connected remote peer. If `options` is a string, it is treated as the channel label.
+   * If `options` is a string, it is treated as the channel label. If a label
+   * is not provided, it uses the `default` channel.
    *
    * The `send` method works only with open channels that have no protocol, are
-   * ordered, and match the specified label if provided.
+   * ordered (reliable), and match the specified label.
    *
    * @example
    * ```javascript
-   * // send a message to all channels
+   * // send a message to default channel
    * peer.send("Hello, all peers!");
    * // send a message to a specific channel
    * peer.send("Hello, chat channel!", { label: "chat" });
@@ -448,9 +447,12 @@ export class Peer {
   async send(message: unknown, options?: string | SendOptions): Promise<void> {
     if (!this.#active) return;
 
-    const { label, info } = parseOptions<SendOptions>(options, (value) => {
-      return { label: String(value) };
-    });
+    const { label = "default", info } = parseOptions<SendOptions>(
+      options,
+      (value) => {
+        return { label: String(value) };
+      },
+    );
 
     const numConnections = this.#connections.size;
     if (!numConnections) return;
@@ -780,7 +782,7 @@ export interface ChannelOptions {
  * @group Streams and Channels
  */
 export interface SendOptions {
-  /** Channel label. If omitted, sends to all channels. */
+  /** Channel label. If omitted, `default` is used. */
   label?: string;
   /** Optional additional information to send with the message. */
   info?: Record<string, unknown>;

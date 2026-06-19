@@ -56,7 +56,6 @@ export class RemotePeer {
     return this.#channels;
   }
 
-  /* Private fields */
   #id: string;
   #room: string;
   #metadata: unknown;
@@ -462,21 +461,24 @@ export class RemotePeer {
   }
 
   /**
-   * Sends a message through data channels.
+   * Sends a message through a data channel to all connected remote peers.
    *
-   * If `options` is omitted, the message is sent to all open channels for this
-   * remote peer. If `options` is a string, it is treated as the channel label.
+   * If `options` is a string, it is treated as the channel label. If a label
+   * is not provided, it uses the `default` channel.
    *
-   * The `send` method works only with open channels that have no protocol, are
-   * ordered, and match the specified label if provided.
+   * The `send` method works only with open channels that have no protocol specified,
+   * are ordered (reliable), and match the specified label.
    *
    * @param message Message payload to send.
    * @param options Send options or channel label.
    */
   async send(message: unknown, options?: string | SendOptions): Promise<void> {
-    const { label, info } = parseOptions<SendOptions>(options, (value) => {
-      return { label: String(value) };
-    });
+    const { label = "default", info } = parseOptions<SendOptions>(
+      options,
+      (value) => {
+        return { label: String(value) };
+      },
+    );
 
     log("remote:send", { id: this.#id, label, info, message });
 
@@ -485,15 +487,10 @@ export class RemotePeer {
       return;
     }
 
-    await Promise.allSettled(
-      Array.from(this.#dataChannels.values()).map(async (dc) => {
-        try {
-          return await dc.send(message, { info, label });
-        } catch (err) {
-          this.#emitPeerError(err, "DATACHANNEL_ERROR");
-        }
-      }),
-    );
+    const dc = this.#dataChannels.get(label);
+    if (dc) {
+      await dc.send(message, { info });
+    }
   }
 
   /**

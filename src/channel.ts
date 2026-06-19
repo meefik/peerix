@@ -95,21 +95,17 @@ export class DataChannel {
    * @param message The message to send.
    * @param options Optional parameters for sending the message
    * @param options.info Optional information associated with the message.
-   * @param options.label Optional label to verify the channel.
    * @returns A promise that resolves to true if the message was sent successfully.
    */
   async send(
     message: unknown,
-    options?: { info?: Record<string, unknown>; label?: string },
-  ): Promise<boolean> {
-    const { info, label } = options || {};
+    options?: { info?: Record<string, unknown> },
+  ): Promise<void> {
+    const { info } = options || {};
 
     // Verify the channel label if provided.
-    if (
-      this.#channel.readyState !== "open" ||
-      (label && label !== this.#channel.label)
-    ) {
-      return false;
+    if (this.#channel.readyState !== "open") {
+      throw new Error("Channel is not open");
     }
 
     // For unreliable channels or channels with custom protocols,
@@ -122,7 +118,7 @@ export class DataChannel {
         );
       }
       this.#channel.send(message as Parameters<RTCDataChannel["send"]>[0]);
-      return true;
+      return;
     }
 
     // Length of the info must be less than chunk size because the info
@@ -135,7 +131,7 @@ export class DataChannel {
 
     // Enqueue the message send operation to ensure it doesn't interleave
     // with other messages.
-    return this.#enqueueMessage<boolean>(async () => {
+    await this.#enqueueMessage(async () => {
       this.#messageId = (this.#messageId & MAX_MESSAGE_ID) + 1;
       const { stream, type } = dataToStream(message);
       const typeCode = MESSAGE_TYPE[type];
@@ -157,8 +153,6 @@ export class DataChannel {
         await this.#sendChunk(packet);
         firstChunk = false;
       }
-
-      return !firstChunk;
     });
   }
 
