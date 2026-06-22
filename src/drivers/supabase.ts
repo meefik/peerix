@@ -39,7 +39,7 @@ export class SupabaseDriver extends Driver {
    */
   constructor(options: { supabase: SupabaseClient; prefix?: string }) {
     super();
-    const { supabase, prefix = "" } = options || {};
+    const { supabase, prefix = "" } = options ?? {};
 
     if (
       !supabase ||

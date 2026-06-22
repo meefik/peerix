@@ -25,7 +25,7 @@ export class MemoryDriver extends Driver {
    */
   constructor(options?: { delay?: number }) {
     super();
-    const { delay = 0 } = options || {};
+    const { delay = 0 } = options ?? {};
     const randomizedDelay =
       delay > 0 ? Math.floor(delay * (0.75 + 0.5 * Math.random())) : 0;
     this.#emitter = new EventEmitter(null, { delay: randomizedDelay });

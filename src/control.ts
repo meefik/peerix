@@ -101,7 +101,7 @@ export class ControlChannel {
    * Decodes a protocol buffer byte array back into an event and message.
    */
   #decode(buffer: Uint8Array): { event: number; message: object } | null {
-    const { event, payload } = decode<Packet>(buffer, PACKET_SCHEMA) || {};
+    const { event, payload } = decode<Packet>(buffer, PACKET_SCHEMA) ?? {};
     if (typeof event === "number" && typeof payload !== "undefined") {
       const message = JSON.parse(new TextDecoder().decode(payload));
       return { event, message };

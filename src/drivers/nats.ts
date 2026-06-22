@@ -54,7 +54,7 @@ export class NatsDriver extends Driver {
    */
   constructor(options: { nc: NatsConnection; prefix?: string }) {
     super();
-    const { nc, prefix = "" } = options || {};
+    const { nc, prefix = "" } = options ?? {};
 
     if (
       !nc ||
@@ -88,7 +88,7 @@ export class NatsDriver extends Driver {
         const sub = this.#nc.subscribe(subject, {
           callback: (error: Error, msg: any) => {
             if (error) return this.emit("error", error);
-            this.#emitter.emit(subject, Array.from(msg?.data || []));
+            this.#emitter.emit(subject, Array.from(msg?.data ?? []));
           },
         });
         this.#subscriptions.set(subject, sub);

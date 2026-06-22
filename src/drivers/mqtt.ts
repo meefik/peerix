@@ -56,7 +56,7 @@ export class MqttDriver extends Driver {
    */
   constructor(options: { client: MqttClient; prefix?: string }) {
     super();
-    const { client, prefix = "" } = options || {};
+    const { client, prefix = "" } = options ?? {};
 
     if (
       !client ||

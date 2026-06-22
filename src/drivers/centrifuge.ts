@@ -51,7 +51,7 @@ export class CentrifugeDriver extends Driver {
    */
   constructor(options: { centrifuge: CentrifugeClient; prefix?: string }) {
     super();
-    const { centrifuge, prefix = "" } = options || {};
+    const { centrifuge, prefix = "" } = options ?? {};
 
     if (
       !centrifuge ||

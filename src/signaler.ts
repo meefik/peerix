@@ -553,7 +553,7 @@ export class Signaler {
         const [...candidates] = message as RTCIceCandidateInit[];
         const remote = this.#getRemotePeer(id);
 
-        const description = remote?.connection.remoteDescription || undefined;
+        const description = remote?.connection.remoteDescription ?? undefined;
 
         for (const candidate of candidates) {
           const queued = this.#candidateQueue.push(id, candidate, description);

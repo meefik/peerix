@@ -124,7 +124,7 @@ export class SseDriver extends Driver {
       url = "/.well-known/mercure",
       subscriber = {},
       publisher = {},
-    } = options || {};
+    } = options ?? {};
     this.#emitter = new EventEmitter();
     this.#url = url;
     this.#eventSources = new Map();

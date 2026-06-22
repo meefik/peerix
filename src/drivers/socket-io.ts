@@ -77,7 +77,7 @@ export class SocketIoDriver extends Driver {
     ackTimeout?: number;
   }) {
     super();
-    const { socket, prefix = "", ackTimeout = 10000 } = options || {};
+    const { socket, prefix = "", ackTimeout = 10000 } = options ?? {};
 
     if (
       !socket ||
