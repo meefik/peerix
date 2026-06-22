@@ -14,7 +14,7 @@ const DRAIN_TIMEOUT = 10 * 1000;
 /** Maximum 16-bit unsigned integer used for message IDs (wraps around). */
 const MAX_MESSAGE_ID = 0xffff;
 /** Maximum number of concurrent messages that can be sent. */
-const MAX_CONCURRENT_MESSAGES = 1024;
+const MAX_CONCURRENT_MESSAGES = 100;
 
 /** Map from human-readable type names to their numeric identifiers. */
 const MESSAGE_TYPE = {
@@ -31,8 +31,8 @@ const PACKET_SCHEMA: Record<
   { id: number; type: "uint32" | "bytes" | "bool" }
 > = {
   id: { id: 1, type: "uint32" },
-  index: { id: 3, type: "uint32" },
-  type: { id: 2, type: "uint32" },
+  index: { id: 2, type: "uint32" },
+  type: { id: 3, type: "uint32" },
   abort: { id: 4, type: "bool" },
   done: { id: 5, type: "bool" },
   info: { id: 6, type: "bytes" },
@@ -60,17 +60,20 @@ export class DataChannel {
   /**
    * Creates a new DataChannel instance.
    *
-   * @param channel The WebRTC data channel to transfer data over.
-   * @param callback Callback functions to handle propagating events.
+   * @param options.peerId The unique identifier of the remote peer.
+   * @param options.channel The WebRTC data channel to transfer data over.
+   * @param options.callback Callback functions to handle propagating events.
    */
-  constructor(options: {
-    peer: string;
+  constructor({
+    peerId,
+    channel,
+    callback,
+  }: {
+    peerId: string;
     channel: RTCDataChannel;
     callback: DataChannelCallback;
   }) {
-    const { peer, channel, callback } = options;
-
-    this.#peerId = peer;
+    this.#peerId = peerId;
     this.#channel = channel;
     this.#callback = callback;
 
@@ -100,12 +103,21 @@ export class DataChannel {
    * Sends a message through the RTCDataChannel.
    *
    * @param message The message to send.
-   * @param info Metadata associated with the message.
+   * @param options Send options including metadata and abort signal.
    * @returns A ReadableStream that resolves when the message is sent.
    */
-  send(message: unknown, info?: Record<string, unknown>): ReadableStream {
+  send(
+    message: unknown,
+    options?: { info?: Record<string, unknown>; signal?: AbortSignal },
+  ): ReadableStream<{
+    id: string;
+    label: string;
+    current: number;
+    total: number;
+    done: boolean;
+  }> {
     let canceled = false;
-    let ctrl: ReadableStreamDefaultController | undefined;
+    let ctrl!: ReadableStreamDefaultController;
     const progress = new ReadableStream({
       start(c) {
         ctrl = c;
@@ -114,11 +126,18 @@ export class DataChannel {
         canceled = true;
       },
     });
-    if (!ctrl) {
-      throw new Error("Failed to create progress stream");
+
+    const { info, signal } = options ?? {};
+
+    // Fail immediately if the signal is already aborted.
+    if (signal?.aborted) {
+      ctrl.error(
+        signal.reason ?? new DOMException("Send aborted", "AbortError"),
+      );
+      return progress;
     }
 
-    // Unreliable channels or channels with custom protocols is not supported.
+    // Unreliable channels or channels with custom protocols are not supported.
     const isSupported = !this.#channel.protocol && this.#channel.ordered;
     if (!isSupported) {
       const err = new Error("Channel is not supported");
@@ -129,16 +148,24 @@ export class DataChannel {
     // Length of the info must be less than chunk size because the info
     // is sent in the first packet, alongside the message data.
     const infoBuffer = this.#encodeJSON(info);
-    const infoLength = infoBuffer?.byteLength || 0;
+    const infoLength = infoBuffer?.byteLength ?? 0;
     if (infoLength >= CHUNK_SIZE) {
       const err = new Error("Metadata is too large");
       ctrl.error(err);
       return progress;
     }
 
+    // Wire up abort signal to cancel the send operation.
+    const onAbort = () => {
+      canceled = true;
+    };
+    if (signal) {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+
     // Enqueue the message send operation to ensure it doesn't interleave
     // with other messages.
-    this.#enqueueMessage(async () => {
+    void this.#enqueueMessage(async () => {
       let dataStream;
       let failed = false;
       try {
@@ -146,10 +173,17 @@ export class DataChannel {
           throw new Error("Channel is not open");
         }
 
-        this.#messageId = (this.#messageId & MAX_MESSAGE_ID) + 1;
+        if (signal?.aborted) {
+          throw signal.reason ?? new DOMException("Send aborted", "AbortError");
+        }
+
+        this.#messageId = (this.#messageId % MAX_MESSAGE_ID) + 1;
         const { stream, type, size: total } = dataToStream(message);
         dataStream = stream;
         const typeCode = MESSAGE_TYPE[type];
+        const label = this.#channel.label;
+        const peerId = this.#peerId;
+        const messageId = this.#messageId;
         let current = 0;
 
         for await (const { index, chunk, done } of streamToChunks(
@@ -158,15 +192,16 @@ export class DataChannel {
           infoLength,
         )) {
           if (canceled) {
-            throw new Error("Send canceled");
+            this.#sendAbort(messageId);
+            throw new DOMException("Send aborted", "AbortError");
           }
 
-          const isFrstChunk = index === 0;
+          const isFirstChunk = index === 0;
           const packet: Packet = {
-            id: this.#messageId,
+            id: messageId,
             index,
-            type: isFrstChunk ? typeCode : undefined,
-            info: isFrstChunk && infoBuffer ? infoBuffer : undefined,
+            type: isFirstChunk ? typeCode : undefined,
+            info: isFirstChunk && infoBuffer ? infoBuffer : undefined,
             chunk,
             done,
           };
@@ -175,18 +210,13 @@ export class DataChannel {
 
           current += chunk.byteLength;
           if (done) current = total;
-          ctrl?.enqueue({
-            id: this.#peerId,
-            label: this.#channel.label,
-            current,
-            total,
-            done,
-          });
+          ctrl?.enqueue({ id: peerId, label, current, total, done });
         }
       } catch (err) {
         failed = true;
         ctrl?.error(err);
       } finally {
+        signal?.removeEventListener("abort", onAbort);
         dataStream?.cancel();
         if (!failed) ctrl?.close();
       }
@@ -219,7 +249,8 @@ export class DataChannel {
   #enqueueMessage<T>(task: () => Promise<T>): Promise<T> {
     const prev = this.#outgoingQueue;
     const run = prev.then(() => task());
-    this.#outgoingQueue = run.catch(() => {});
+    // Swallow errors because tasks handle them independently.
+    this.#outgoingQueue = run.catch((err) => {});
     return run;
   }
 
@@ -326,9 +357,9 @@ export class DataChannel {
     type: number,
     infoBytes?: Uint8Array,
   ): MessageController {
-    let streamCtrl: ReadableStreamDefaultController<Uint8Array> | undefined;
     const messageId = this.#getMessageId(id);
 
+    let streamCtrl!: ReadableStreamDefaultController<Uint8Array>;
     const stream = new ReadableStream({
       start: (ctrl) => {
         streamCtrl = ctrl;
@@ -338,10 +369,6 @@ export class DataChannel {
         this.#sendAbort(id);
       },
     });
-
-    if (!streamCtrl) {
-      throw new Error("Failed to initialize data stream");
-    }
 
     // Evict the oldest controller when the incoming queue exceeds its limit.
     if (this.#incomingQueue.size >= MAX_CONCURRENT_MESSAGES) {
@@ -483,10 +510,9 @@ export class DataChannel {
         return;
       }
 
-      const packet: Packet | null = decode(
-        new Uint8Array(payload),
-        PACKET_SCHEMA,
-      );
+      const data =
+        payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+      const packet: Packet | null = decode(data, PACKET_SCHEMA);
       if (!packet) {
         throw new Error("Failed to decode message");
       }

@@ -315,6 +315,15 @@ export class RemotePeer {
    * automatically stopped when the stream is unshared or replaced with
    * a new stream.
    *
+   * @example
+   * ```javascript
+   * // get a media stream from the user's camera and microphone
+   * const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+   *
+   * // share a media stream with an explicit label
+   * remote.share({ label: "camera", stream, managed: true });
+   * ```
+   *
    * @param options Stream descriptor or MediaStream instance.
    * @returns The shared MediaStream instance if successful, or undefined.
    */
@@ -336,7 +345,7 @@ export class RemotePeer {
     }
 
     const { stream: newStream = new MediaStream(), managed } =
-      this.#streamOptions.get(label) || {};
+      this.#streamOptions.get(label) ?? {};
 
     const addedTracks: MediaStreamTrack[] = [];
     const removedTracks: MediaStreamTrack[] = [];
@@ -383,6 +392,12 @@ export class RemotePeer {
    * If the stream was shared with the `managed` option, its tracks will be
    * stopped automatically.
    *
+   * @example
+   * ```javascript
+   * // unshare a media stream with an explicit label
+   * remote.unshare({ label: "camera" });
+   * ```
+   *
    * @param options A stream label, MediaStream instance, or an object containing a label.
    * @returns The unshared MediaStream instance, or undefined.
    */
@@ -398,7 +413,7 @@ export class RemotePeer {
     });
 
     const oldStreamOptions = this.#streamOptions.get(label);
-    const { stream, managed } = oldStreamOptions || {};
+    const { stream, managed } = oldStreamOptions ?? {};
 
     log("remote:unshare", { id: this.#id, label, stream });
 
@@ -428,6 +443,12 @@ export class RemotePeer {
    * or only on one side. In any case, only one channel will be created for
    * each label. You can send data through the channel in both directions.
    *
+   * @example
+   * ```javascript
+   * // open a channel with label "chat"
+   * remote.open({ label: "chat" });
+   * ```
+   *
    * @param options Channel options or channel label.
    */
   async open(options: string | ChannelOptions): Promise<void> {
@@ -445,6 +466,12 @@ export class RemotePeer {
 
   /**
    * Closes a previously opened data channel to the current remote peer.
+   *
+   * @example
+   * ```javascript
+   * // close the channel with label "chat"
+   * remote.close({ label: "chat" });
+   * ```
    *
    * @param options Channel label or object containing `label`.
    */
@@ -470,6 +497,16 @@ export class RemotePeer {
    * The `send` method works only with open channels that have no protocol specified,
    * are ordered (reliable), and match the specified label.
    *
+   * @example
+   * ```javascript
+   * // send a message to default channel
+   * remote.send("Hello, peer!");
+   * // send a message to a specific channel
+   * remote.send("Hello, chat channel!", { label: "chat" });
+   * // send a message with a 10-second timeout
+   * remote.send(data, { signal: AbortSignal.timeout(10000) });
+   * ```
+   *
    * @param message Message payload to send.
    * @param options Send options or channel label.
    * @returns A ReadableStream of transfer progress status.
@@ -478,12 +515,13 @@ export class RemotePeer {
     message: unknown,
     options?: string | SendOptions,
   ): ReadableStream<TransferProgress> {
-    const { label = "default", info } = parseOptions<SendOptions>(
-      options,
-      (value) => {
-        return { label: String(value) };
-      },
-    );
+    const {
+      label = "default",
+      info,
+      signal,
+    } = parseOptions<SendOptions>(options, (value) => {
+      return { label: String(value) };
+    });
 
     const dc = this.#dataChannels.get(label);
     if (!dc) {
@@ -498,7 +536,7 @@ export class RemotePeer {
 
     log("remote:send", { id: this.#id, label, info, message });
 
-    return dc.send(message, info);
+    return dc.send(message, { info, signal });
   }
 
   /**
@@ -718,7 +756,7 @@ export class RemotePeer {
    * Creates a data channel.
    */
   #createChannel(options: ChannelOptions): void {
-    const { label = "default", ...channelOptions } = options || {};
+    const { label = "default", ...channelOptions } = options ?? {};
     if (this.#dataChannels.has(label)) return;
 
     try {
@@ -833,7 +871,7 @@ export class RemotePeer {
    * Removes a media stream from the peer connection.
    */
   async #removeStream(stream: MediaStream): Promise<void> {
-    const existingTracks = stream?.getTracks() || [];
+    const existingTracks = stream?.getTracks() ?? [];
 
     try {
       this.#stopSendonlyTransceivers(existingTracks);
@@ -876,7 +914,7 @@ export class RemotePeer {
       if (this.#controlChannel.active) {
         const labels = Array.from(this.#streamOptions.keys()).reduce(
           (acc, label) => {
-            const { stream } = this.#streamOptions.get(label) || {};
+            const { stream } = this.#streamOptions.get(label) ?? {};
             if (stream) acc[stream.id] = label;
             return acc;
           },
@@ -992,7 +1030,7 @@ export class RemotePeer {
     };
 
     const dc = new DataChannel({
-      peer: this.id,
+      peerId: this.id,
       channel,
       callback: {
         open: () => emitEvent("channel:open"),
@@ -1032,7 +1070,7 @@ export class RemotePeer {
    * and emitting appropriate events.
    */
   #setupMediaTrack(track: MediaStreamTrack, stream: MediaStream): void {
-    const label = this.#streamLabels.get(stream.id) || stream.id;
+    const label = this.#streamLabels.get(stream.id) ?? stream.id;
 
     const addTrack = () => {
       if (!this.#streams.has(label)) {
@@ -1090,7 +1128,7 @@ export class RemotePeer {
     });
 
     if (sender) {
-      const params = sender.getParameters() || {};
+      const params = sender.getParameters() ?? {};
       if (!params.encodings) return;
       for (const encoding of params.encodings) {
         if (!encoding) continue;

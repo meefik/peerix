@@ -124,13 +124,13 @@ export class Peer {
       namespaceHashing = true,
       signalingCompression = true,
       signalingEncryption = true,
-    } = options || {};
+    } = options ?? {};
 
     this.#active = false;
     this.#id = "";
     this.#room = "";
     this.#metadata = undefined;
-    this.#driver = driver || defaultDriver;
+    this.#driver = driver ?? defaultDriver;
     this.#connections = new Map();
     this.#streamOptions = new Map();
     this.#channelOptions = new Map();
@@ -270,7 +270,7 @@ export class Peer {
     }
 
     const { stream: newStream = new MediaStream(), managed } =
-      this.#streamOptions.get(label) || {};
+      this.#streamOptions.get(label) ?? {};
 
     const incomingTracks = stream.getTracks();
     const currentTracks = newStream.getTracks();
@@ -338,7 +338,7 @@ export class Peer {
     });
 
     const oldStreamOptions = this.#streamOptions.get(label);
-    const { stream, managed } = oldStreamOptions || {};
+    const { stream, managed } = oldStreamOptions ?? {};
 
     log("peer:unshare", { id: this.#id, label, stream });
 
@@ -439,6 +439,8 @@ export class Peer {
    * peer.send("Hello, all peers!");
    * // send a message to a specific channel
    * peer.send("Hello, chat channel!", { label: "chat" });
+   * // send with a timeout
+   * peer.send(data, { signal: AbortSignal.timeout(5000) });
    * ```
    *
    * @param message Message payload to send.
@@ -451,12 +453,13 @@ export class Peer {
   ): ReadableStream<TransferProgress>[] {
     if (!this.#active) return [];
 
-    const { label = "default", info } = parseOptions<SendOptions>(
-      options,
-      (value) => {
-        return { label: String(value) };
-      },
-    );
+    const {
+      label = "default",
+      info,
+      signal,
+    } = parseOptions<SendOptions>(options, (value) => {
+      return { label: String(value) };
+    });
 
     const numConnections = this.#connections.size;
     if (!numConnections) return [];
@@ -473,7 +476,7 @@ export class Peer {
       this.#connections.values(),
     ).entries()) {
       const data = streams ? streams[index] : message;
-      const progress = remote.send(data, { label, info });
+      const progress = remote.send(data, { label, info, signal });
       results.push(progress);
     }
 
@@ -794,6 +797,8 @@ export interface SendOptions {
   label?: string;
   /** Optional additional information to send with the message. */
   info?: Record<string, unknown>;
+  /** AbortSignal to cancel the send operation. */
+  signal?: AbortSignal;
 }
 
 /**
