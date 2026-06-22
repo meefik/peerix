@@ -4,7 +4,7 @@ import { setTimeout as wait } from "node:timers/promises";
 import { Driver } from "./driver.js";
 
 suite("drivers/driver", async () => {
-  test("should initialize as inactive", async () => {
+  test("Driver initializes as inactive", async () => {
     // Arrange
     const driver = new Driver();
 
@@ -12,7 +12,7 @@ suite("drivers/driver", async () => {
     assert.equal(driver.active, false);
   });
 
-  test("should emit active and inactive only on state changes", async () => {
+  test("Driver emits active and inactive only on state changes", async () => {
     // Arrange
     const driver = new Driver();
     let activeCalls = 0;
@@ -39,7 +39,7 @@ suite("drivers/driver", async () => {
     assert.equal(driver.active, false);
   });
 
-  test("should support on, off, and emit with payloads", async () => {
+  test("Driver supports on, off, and emit with payloads", async () => {
     // Arrange
     const driver = new Driver();
     const errors: unknown[] = [];
@@ -62,7 +62,7 @@ suite("drivers/driver", async () => {
     assert.deepEqual(errors, ["first"]);
   });
 
-  test("should expose no-op async subscribe/unsubscribe/publish methods", async () => {
+  test("Driver exposes no-op async subscribe/unsubscribe/publish methods", async () => {
     // Arrange
     const driver = new Driver();
     const namespace = ["room", "peer"];
@@ -74,7 +74,7 @@ suite("drivers/driver", async () => {
     await assert.doesNotReject(driver.publish(namespace, [1, 2, 3]));
   });
 
-  test("should clear handlers on destroy and set inactive", async () => {
+  test("Driver clears handlers on destroy and sets inactive", async () => {
     // Arrange
     const driver = new Driver();
     let activeCalls = 0;

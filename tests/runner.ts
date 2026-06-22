@@ -1,4 +1,4 @@
-import type { PeerEvents } from "../src/index.js";
+import type { PeerEvents, PeerOptions } from "../src/index.js";
 import { Peer } from "../src/index.js";
 
 type PeerEventName = keyof PeerEvents;
@@ -29,8 +29,10 @@ type WaitStep = {
 type Step = CallStep | WaitStep;
 
 type Scenario = {
-  defaults: { timeout: number };
-  peers: readonly Record<PropertyKey, any>[];
+  id: string;
+  title?: string;
+  defaults?: Record<string, any>;
+  peers?: Record<string, PeerOptions>;
   steps: readonly Step[];
 };
 
@@ -266,7 +268,7 @@ export class TestRunner {
           step.wait,
           step.where,
           step.count ?? 1,
-          step.timeout ?? scenario.defaults.timeout,
+          step.timeout ?? scenario.defaults?.timeout,
         );
       }
     }

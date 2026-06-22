@@ -1,18 +1,20 @@
 /** Represents the detected type of data payload. */
-export type DataType = "stream" | "blob" | "binary" | "text" | "json";
+export type DataType = "stream" | "blob" | "bytes" | "text" | "json";
 
 /**
  * Converts various data types into a ReadableStream.
  *
  * @param data The input data to be converted.
- * @returns A ReadableStream representing the input data and its type.
+ * @returns A ReadableStream representing the input data, its type and size.
  */
 export function dataToStream(data: unknown): {
   stream: ReadableStream;
   type: DataType;
+  size: number;
 } {
   let stream: ReadableStream;
   let type: DataType;
+  let size: number = -1;
 
   if (data instanceof ReadableStream) {
     stream = data;
@@ -20,6 +22,7 @@ export function dataToStream(data: unknown): {
   } else if (data instanceof Blob) {
     stream = data.stream();
     type = "blob";
+    size = data.size;
   } else if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
     const payload =
       data instanceof ArrayBuffer
@@ -31,7 +34,8 @@ export function dataToStream(data: unknown): {
         controller.close();
       },
     });
-    type = "binary";
+    type = "bytes";
+    size = data.byteLength;
   } else if (typeof data === "string") {
     const payload = new TextEncoder().encode(data);
     stream = new ReadableStream({
@@ -41,6 +45,7 @@ export function dataToStream(data: unknown): {
       },
     });
     type = "text";
+    size = payload.byteLength;
   } else {
     const jsonString = JSON.stringify(data ?? null);
     const payload = new TextEncoder().encode(jsonString);
@@ -51,9 +56,10 @@ export function dataToStream(data: unknown): {
       },
     });
     type = "json";
+    size = payload.byteLength;
   }
 
-  return { stream, type };
+  return { stream, type, size };
 }
 
 /**

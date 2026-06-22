@@ -4,7 +4,7 @@ import { setTimeout as wait } from "node:timers/promises";
 import { IceCandidateBatcher, IceCandidateQueue } from "./ice.js";
 
 suite("utils/ice", async () => {
-  test("push passes through when remote description ufrag matches", async () => {
+  test("IceCandidateQueue passes through when remote description ufrag matches", async () => {
     // Arrange
     const queue = new IceCandidateQueue();
     const description = {
@@ -23,7 +23,7 @@ suite("utils/ice", async () => {
     assert.deepEqual(queue.pull("peer-a", description), []);
   });
 
-  test("push queues candidates until a matching remote description is available", async () => {
+  test("IceCandidateQueue queues candidates until a matching remote description is available", async () => {
     // Arrange
     const queue = new IceCandidateQueue();
     const queuedCandidate = {
@@ -46,7 +46,7 @@ suite("utils/ice", async () => {
     assert.deepEqual(queue.pull("peer-b", matchingDescription), []);
   });
 
-  test("pull discards non-matching candidates and clears the queue", async () => {
+  test("IceCandidateQueue discards non-matching candidates and clears the queue", async () => {
     // Arrange
     const queue = new IceCandidateQueue();
     const description = {
@@ -72,7 +72,7 @@ suite("utils/ice", async () => {
     assert.deepEqual(queue.pull("peer-c", description), []);
   });
 
-  test("pull returns empty when no description is provided", async () => {
+  test("IceCandidateQueue.pull returns empty when no description is provided", async () => {
     // Arrange
     const queue = new IceCandidateQueue();
     const candidate = {
@@ -89,7 +89,7 @@ suite("utils/ice", async () => {
     assert.deepEqual(result, []);
   });
 
-  test("clear removes queued candidates for one peer or all peers", async () => {
+  test("IceCandidateQueue.clear removes queued candidates for one peer or all peers", async () => {
     // Arrange
     const queue = new IceCandidateQueue();
     const candidate = {
@@ -108,7 +108,7 @@ suite("utils/ice", async () => {
     assert.deepEqual(queue.pull("peer-e"), []);
   });
 
-  test("queueSize limits queued candidates per peer and keeps the newest", async () => {
+  test("IceCandidateQueue limits queued candidates per peer and keeps the newest", async () => {
     // Arrange
     const queue = new IceCandidateQueue({ queueSize: 2 });
     const description = {
@@ -138,7 +138,7 @@ suite("utils/ice", async () => {
     assert.deepEqual(result, [candidate2, candidate3]);
   });
 
-  test("batcher debounces candidates into a single flush", async () => {
+  test("IceCandidateBatcher debounces candidates into a single flush", async () => {
     // Arrange
     const batches: RTCIceCandidateInit[][] = [];
     const batcher = new IceCandidateBatcher({
@@ -166,7 +166,7 @@ suite("utils/ice", async () => {
     assert.deepEqual(batches, [[candidate1, candidate2]]);
   });
 
-  test("batcher clear cancels pending flush and discards candidates", async () => {
+  test("IceCandidateBatcher.clear cancels pending flush and discards candidates", async () => {
     // Arrange
     const batches: RTCIceCandidateInit[][] = [];
     const batcher = new IceCandidateBatcher({

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { encode, decode } from "./protobuf.js";
 
 suite("utils/protobuf", async () => {
-  test("should roundtrip all supported field types", async () => {
+  test("encode and decode roundtrip all supported field types", async () => {
     // Arrange
     const schema = {
       active: { id: 1, type: "bool" as const },
@@ -33,7 +33,7 @@ suite("utils/protobuf", async () => {
     });
   });
 
-  test("should omit nullish fields during encoding", async () => {
+  test("encode omits nullish fields during encoding", async () => {
     // Arrange
     const schema = {
       present: { id: 1, type: "string" as const },
@@ -56,7 +56,7 @@ suite("utils/protobuf", async () => {
     assert.deepEqual(decode(encoded, schema), { present: "value" });
   });
 
-  test("should skip unknown fields while decoding", async () => {
+  test("decode skips unknown fields while decoding", async () => {
     // Arrange
     const schema = {
       active: { id: 1, type: "bool" as const },
@@ -81,7 +81,7 @@ suite("utils/protobuf", async () => {
     assert.deepEqual(decode(withUnknown, schema), { active: true });
   });
 
-  test("should reject invalid schemas", async () => {
+  test("encode and decode reject invalid schemas", async () => {
     // Arrange
     const duplicateIds = {
       first: { id: 1, type: "bool" as const },
@@ -98,7 +98,7 @@ suite("utils/protobuf", async () => {
     assert.equal(decode(new Uint8Array([0x08, 0x01]), invalidFieldId), null);
   });
 
-  test("should reject malformed or wire-mismatched payloads", async () => {
+  test("decode rejects malformed or wire-mismatched payloads", async () => {
     // Arrange
     const stringSchema = {
       label: { id: 1, type: "string" as const },

@@ -19,7 +19,7 @@ async function waitFor(predicate: () => boolean, timeoutMs: number = 300) {
 }
 
 suite("drivers/broadcast-channel", async () => {
-  test("should initialize as active", async () => {
+  test("BroadcastChannelDriver initializes as active", async () => {
     // Arrange
     const channelName = makeChannelName();
 
@@ -32,7 +32,7 @@ suite("drivers/broadcast-channel", async () => {
     driver.destroy();
   });
 
-  test("should deliver messages to all subscribed handlers", async () => {
+  test("BroadcastChannelDriver delivers messages to all subscribed handlers", async () => {
     // Arrange
     const channel = makeChannelName();
     const publisher = new BroadcastChannelDriver(channel);
@@ -64,7 +64,7 @@ suite("drivers/broadcast-channel", async () => {
     }
   });
 
-  test("should stop delivering messages after unsubscribe", async () => {
+  test("BroadcastChannelDriver stops delivering after unsubscribe", async () => {
     // Arrange
     const channel = makeChannelName();
     const publisher = new BroadcastChannelDriver(channel);
@@ -93,7 +93,7 @@ suite("drivers/broadcast-channel", async () => {
     }
   });
 
-  test("should clear subscriptions on destroy and become inactive", async () => {
+  test("BroadcastChannelDriver clears subscriptions on destroy and becomes inactive", async () => {
     // Arrange
     const channel = makeChannelName();
     const publisher = new BroadcastChannelDriver(channel);

@@ -4,7 +4,7 @@ import { setTimeout as wait } from "node:timers/promises";
 import { Timeout } from "./timeout.js";
 
 suite("utils/timeout", async () => {
-  test("should call the callback after the default delay when started", async () => {
+  test("Timeout calls the callback after the default delay when started", async () => {
     // Arrange
     let calls = 0;
     const timeout = new Timeout(() => {
@@ -20,7 +20,7 @@ suite("utils/timeout", async () => {
     assert.equal(calls, 1);
   });
 
-  test("should use the provided delay override when start receives a value", async () => {
+  test("Timeout uses the provided delay override when start receives a value", async () => {
     // Arrange
     let calls = 0;
     const timeout = new Timeout(() => {
@@ -36,7 +36,7 @@ suite("utils/timeout", async () => {
     assert.equal(calls, 1);
   });
 
-  test("should restart the timer when start is called again before expiration", async () => {
+  test("Timeout restarts the timer when start is called again before expiration", async () => {
     // Arrange
     let calls = 0;
     const timeout = new Timeout(() => {
@@ -57,7 +57,7 @@ suite("utils/timeout", async () => {
     assert.equal(calls, 1);
   });
 
-  test("should not call the callback after stop is called", async () => {
+  test("Timeout does not call the callback after stop is called", async () => {
     // Arrange
     let calls = 0;
     const timeout = new Timeout(() => {
@@ -74,7 +74,7 @@ suite("utils/timeout", async () => {
     assert.equal(calls, 0);
   });
 
-  test("stop should be safe when no timer is active", async () => {
+  test("Timeout.stop is safe when no timer is active", async () => {
     // Arrange
     const timeout = new Timeout(() => {}, 10);
 

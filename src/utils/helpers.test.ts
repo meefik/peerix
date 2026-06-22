@@ -2,12 +2,12 @@ import { suite, test } from "node:test";
 import assert from "node:assert/strict";
 import { parseOptions } from "./helpers.js";
 
-suite("utils/helpers.parseOptions", async () => {
+suite("utils/helpers", async () => {
   interface CustomOptions {
     key?: string;
   }
 
-  test("should return a shallow copy when options is an object", async () => {
+  test("parseOptions returns a shallow copy when options is an object", async () => {
     // Arrange
     const input: CustomOptions = { key: "alpha" };
 
@@ -19,7 +19,7 @@ suite("utils/helpers.parseOptions", async () => {
     assert.notEqual(result, input);
   });
 
-  test("should return an empty object for primitive options when parser is not provided", async () => {
+  test("parseOptions returns an empty object for primitives without a parser", async () => {
     // Act
     const result = parseOptions<CustomOptions>(1);
 
@@ -27,7 +27,7 @@ suite("utils/helpers.parseOptions", async () => {
     assert.deepEqual(result, {});
   });
 
-  test("should return an empty object for undefined options", async () => {
+  test("parseOptions returns an empty object for undefined options", async () => {
     // Act
     const result = parseOptions<CustomOptions>(undefined, (options) => ({
       key: String(options),
@@ -37,7 +37,7 @@ suite("utils/helpers.parseOptions", async () => {
     assert.deepEqual(result, {});
   });
 
-  test("should use custom parser when options is a primitive and parser is provided", async () => {
+  test("parseOptions uses custom parser when options is a primitive and parser is provided", async () => {
     // Act
     const result = parseOptions<CustomOptions>(1, (options) => ({
       key: String(options),

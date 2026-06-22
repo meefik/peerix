@@ -32,7 +32,7 @@ async function withLoggerEnv(
 }
 
 suite("utils/logger", async () => {
-  test("should log enabled namespaces and stringify supported values", async () => {
+  test("log outputs enabled namespaces and stringifies supported values", async () => {
     await withLoggerEnv(async (calls) => {
       // Arrange
       const error = new Error("boom");
@@ -70,7 +70,7 @@ suite("utils/logger", async () => {
     });
   });
 
-  test("should skip denied namespaces and avoid evaluating lazy arguments", async () => {
+  test("log skips denied namespaces and avoids evaluating lazy arguments", async () => {
     // Arrange
     let executed = 0;
 
@@ -87,7 +87,7 @@ suite("utils/logger", async () => {
     });
   });
 
-  test("should skip namespaces not included in allow patterns", async () => {
+  test("log skips namespaces not included in allow patterns", async () => {
     await withLoggerEnv(async (calls) => {
       // Act
       await log("other:topic", "hidden");

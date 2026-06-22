@@ -4,7 +4,7 @@ import { setTimeout as wait } from "node:timers/promises";
 import { EventEmitter } from "./emitter.js";
 
 suite("utils/emitter", async () => {
-  test("should subscribe and emit with handler arguments", async () => {
+  test("EventEmitter subscribes and emits with handler arguments", async () => {
     // Arrange
     type Events = {
       message: [number, string];
@@ -28,7 +28,7 @@ suite("utils/emitter", async () => {
     assert.deepEqual(calls, [[1, "hello"]]);
   });
 
-  test("should call once handlers only one time", async () => {
+  test("EventEmitter.once calls handlers only one time", async () => {
     // Arrange
     type Events = {
       ready: [];
@@ -52,7 +52,7 @@ suite("utils/emitter", async () => {
     assert.equal(emitter.has("ready"), false);
   });
 
-  test("should remove only the specified handler with off", async () => {
+  test("EventEmitter.off removes only the specified handler with a handler arg", async () => {
     // Arrange
     type Events = {
       update: [number];
@@ -85,7 +85,7 @@ suite("utils/emitter", async () => {
     assert.equal(emitter.has("update"), true);
   });
 
-  test("should remove all handlers for an event when off is called without handler", async () => {
+  test("EventEmitter.off removes all handlers when called without a handler", async () => {
     // Arrange
     type Events = {
       sync: [];
@@ -112,7 +112,7 @@ suite("utils/emitter", async () => {
     assert.equal(emitter.has("sync"), false);
   });
 
-  test("should support arrays of events and custom context with delay", async () => {
+  test("EventEmitter supports arrays of events and custom context with delay", async () => {
     // Arrange
     type Events = {
       alpha: [string];

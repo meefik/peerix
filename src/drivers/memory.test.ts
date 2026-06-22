@@ -4,7 +4,7 @@ import { setTimeout as wait } from "node:timers/promises";
 import { MemoryDriver } from "./memory.js";
 
 suite("drivers/memory", async () => {
-  test("should initialize as active", async () => {
+  test("MemoryDriver initializes as active", async () => {
     // Arrange
     const driver = new MemoryDriver();
 
@@ -14,7 +14,7 @@ suite("drivers/memory", async () => {
     driver.destroy();
   });
 
-  test("should deliver messages to all subscribed handlers", async () => {
+  test("MemoryDriver delivers messages to all subscribed handlers", async () => {
     // Arrange
     const driver = new MemoryDriver();
     const payloads: number[][] = [];
@@ -41,7 +41,7 @@ suite("drivers/memory", async () => {
     driver.destroy();
   });
 
-  test("should stop delivering messages after unsubscribe", async () => {
+  test("MemoryDriver stops delivering after unsubscribe", async () => {
     // Arrange
     const driver = new MemoryDriver();
     const payloads: number[][] = [];
@@ -62,7 +62,7 @@ suite("drivers/memory", async () => {
     driver.destroy();
   });
 
-  test("should delay message delivery when configured", async () => {
+  test("MemoryDriver delays message delivery when configured", async () => {
     // Arrange
     const driver = new MemoryDriver({ delay: 20 });
     let callCount = 0;
@@ -84,7 +84,7 @@ suite("drivers/memory", async () => {
     driver.destroy();
   });
 
-  test("should clear subscriptions on destroy and become inactive", async () => {
+  test("MemoryDriver clears subscriptions on destroy and becomes inactive", async () => {
     // Arrange
     const driver = new MemoryDriver();
     const payloads: number[][] = [];

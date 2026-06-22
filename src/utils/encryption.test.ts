@@ -11,7 +11,7 @@ import {
 } from "./encryption.js";
 
 suite("utils/encryption", async () => {
-  test("sha256 should be deterministic and input-sensitive", async () => {
+  test("sha256 is deterministic and input-sensitive", async () => {
     // Act
     const a = await sha256("hello");
     const b = await sha256("hello");
@@ -23,7 +23,7 @@ suite("utils/encryption", async () => {
     assert.ok(a.length > 0);
   });
 
-  test("generateKeyPair should produce ECDH P-256 keys", async () => {
+  test("generateKeyPair produces ECDH P-256 keys", async () => {
     // Act
     const keyPair = await generateKeyPair();
 
@@ -37,7 +37,7 @@ suite("utils/encryption", async () => {
     );
   });
 
-  test("should derive compatible shared keys and roundtrip encrypt/decrypt", async () => {
+  test("generateDerivedKey derives compatible shared keys and roundtrips encrypt/decrypt", async () => {
     // Arrange
     const alice = await generateKeyPair();
     const bob = await generateKeyPair();
@@ -59,7 +59,7 @@ suite("utils/encryption", async () => {
     assert.ok(encrypted.length > plaintext.length);
   });
 
-  test("exportPublicKey/importPublicKey should preserve key usability", async () => {
+  test("exportPublicKey/importPublicKey preserves key usability", async () => {
     // Arrange
     const alice = await generateKeyPair();
     const bob = await generateKeyPair();
@@ -87,7 +87,7 @@ suite("utils/encryption", async () => {
     );
   });
 
-  test("importPublicKey should reject invalid compressed key length", async () => {
+  test("importPublicKey rejects invalid compressed key length", async () => {
     // Arrange
     const shortKey = new Uint8Array(32);
 
@@ -97,7 +97,7 @@ suite("utils/encryption", async () => {
     });
   });
 
-  test("importPublicKey should reject invalid compressed key prefix", async () => {
+  test("importPublicKey rejects invalid compressed key prefix", async () => {
     // Arrange
     const invalid = new Uint8Array(33);
     invalid[0] = 0x04;
@@ -108,7 +108,7 @@ suite("utils/encryption", async () => {
     });
   });
 
-  test("importPublicKey should reject x coordinate not on the curve", async () => {
+  test("importPublicKey rejects x coordinate not on the curve", async () => {
     // Arrange
     const tampered = new Uint8Array(33);
     tampered[0] = 0x02;
@@ -123,7 +123,7 @@ suite("utils/encryption", async () => {
     });
   });
 
-  test("decrypt should fail for tampered ciphertext", async () => {
+  test("decrypt fails for tampered ciphertext", async () => {
     // Arrange
     const alice = await generateKeyPair();
     const bob = await generateKeyPair();
