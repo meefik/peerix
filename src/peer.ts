@@ -425,7 +425,7 @@ export class Peer {
   }
 
   /**
-   * Sends a message through a data channel to all connected remote peers.
+   * Sends a message through data channels to all connected remote peers.
    *
    * If `options` is a string, it is treated as the channel label. If a label
    * is not provided, it uses the `default` channel.
@@ -443,9 +443,13 @@ export class Peer {
    *
    * @param message Message payload to send.
    * @param options Send options or channel label.
+   * @returns A list of ReadableStream of transfer progress status for each connection.
    */
-  async send(message: unknown, options?: string | SendOptions): Promise<void> {
-    if (!this.#active) return;
+  send(
+    message: unknown,
+    options?: string | SendOptions,
+  ): ReadableStream<TransferProgress>[] {
+    if (!this.#active) return [];
 
     const { label = "default", info } = parseOptions<SendOptions>(
       options,
@@ -455,7 +459,7 @@ export class Peer {
     );
 
     const numConnections = this.#connections.size;
-    if (!numConnections) return;
+    if (!numConnections) return [];
 
     log("peer:send", { id: this.#id, label, info, message });
 
@@ -464,12 +468,16 @@ export class Peer {
       streams = teeStream(message, numConnections);
     }
 
-    await Promise.allSettled(
-      Array.from(this.#connections.values()).map((remote, index) => {
-        const data = streams ? streams[index] : message;
-        return remote.send(data, { label, info });
-      }),
-    );
+    const results: ReadableStream<TransferProgress>[] = [];
+    for (const [index, remote] of Array.from(
+      this.#connections.values(),
+    ).entries()) {
+      const data = streams ? streams[index] : message;
+      const progress = remote.send(data, { label, info });
+      results.push(progress);
+    }
+
+    return results;
   }
 
   /**
@@ -786,6 +794,24 @@ export interface SendOptions {
   label?: string;
   /** Optional additional information to send with the message. */
   info?: Record<string, unknown>;
+}
+
+/**
+ * Progress information for a transfer operation on a channel.
+ *
+ * @group Streams and Channels
+ */
+export interface TransferProgress {
+  /** Peer ID. */
+  id: string;
+  /** Channel label. */
+  label: string;
+  /** Number of bytes transferred so far. */
+  current: number;
+  /** Total number of bytes to transfer. It could be -1 if it is unknown. */
+  total: number;
+  /** Whether the transfer is done. */
+  done: boolean;
 }
 
 /**

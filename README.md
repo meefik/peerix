@@ -1,6 +1,6 @@
 # Peerix
 
-Peerix is a peer-to-peer media and data-sharing JavaScript library. Peerix uses WebRTC for peer-to-peer communication and relies on a signaling mechanism to facilitate peer discovery and connection management. The library abstracts away the complexities of WebRTC and provides a minimal API for developers to create real-time applications with media streaming and data-sharing capabilities.
+Peerix is a JavaScript library for peer-to-peer room-based media and data sharing over WebRTC. It abstracts the complexity of WebRTC into a simple API for building real-time applications, handling peer discovery and connection management through pluggable signaling drivers without vendor lock-in.
 
 Read the full documentation and API reference on the official websites:
 
@@ -20,7 +20,7 @@ Peerix is composed of several key components:
   - **Lifecycle Events**: Track connection state changes and peer availability.
   - **Media Streams**: Handle audio and video streaming between peers.
   - **Data Channels**: Enable message exchange and data sharing between peers.
-- **Signaling Drivers**: Facilitate peer discovery and connection management through various signaling servers (such as NATS, BroadcastChannel, or custom implementations).
+- **Signaling Drivers**: Facilitate peer discovery and connection management through various signaling servers (NATS, MQTT, SSE, SocketIO, and more).
 - **STUN/TURN servers**: Enable NAT traversal and media relay in restrictive network environments.
 - **Add-ons**: Optional extensions and utilities for enhanced functionality.
 
@@ -108,6 +108,19 @@ peer.send("Hello, peers!", { label: "chat" });
 // peer.close({ label: 'chat' });
 ```
 
+Sending a large message via a data channel and track its progress:
+
+```js
+const blob = new Blob([new Uint8Array(1024 * 1024)]); // create a 1 MB blob
+const transfer = remote.send(blob);
+// track the progress of the transfer
+for await (const { id, label, current, total, done } of transfer) {
+  console.log(`Transfer: ${id}, ${label}: ${current} / ${total}`);
+}
+// cancel the transfer if needed
+// transfer.cancel();
+```
+
 > The channel label can be any string and should be unique for each data channel.
 
 Work with media streams to share audio and video with other peers:
@@ -191,7 +204,7 @@ Lifecycle events include:
 - `track[:add,:remove]`: a track is added or removed from a media stream by a remote peer.
 - `error`: an error occurs with a peer connection, media stream, data channel, or signaling.
 
-You can subscribe to either group or specific events using the `:event` suffix.
+You can subscribe to either group events or individual events using the `:event` suffix.
 
 ## Signaling Drivers
 
@@ -238,7 +251,7 @@ class MyDriver extends Driver {
 
 This driver interface allows you to integrate Peerix with any signaling mechanism you prefer.
 
-If you do not want to create your own signaling server, you may prefer to use one of the built-in drivers. For example, you can use the NATS driver. Using NATS allows you to use Peerix without any server-side code because all signaling is handled through NATS servers directly from the browser.
+If you do not want to create your own signaling server, you may prefer to use one of the built-in drivers. For example, you can use the NATS driver. Using NATS allows you to use Peerix without writing any backend code, as all signaling is handled through NATS servers directly from the browser.
 
 Here's how you can set up the NATS driver:
 
@@ -256,7 +269,7 @@ const nc = await wsconnect({
 const driver = new NatsDriver({ nc });
 ```
 
-You should install the [`@nats-io/nats-core`](https://www.npmjs.com/package/@nats-io/nats-core) package to use the NATS Driver.
+You should install the [`@nats-io/nats-core`](https://www.npmjs.com/package/@nats-io/nats-core) package to use the NATS driver.
 
 ## ICE Servers
 

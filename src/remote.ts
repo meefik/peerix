@@ -5,6 +5,7 @@ import type {
   ChannelOptions,
   StreamOptions,
   SendOptions,
+  TransferProgress,
 } from "./peer.js";
 import log from "./utils/logger.js";
 import { PeerixError } from "./error.js";
@@ -461,18 +462,22 @@ export class RemotePeer {
   }
 
   /**
-   * Sends a message through a data channel to all connected remote peers.
+   * Sends a message through a data channel.
    *
-   * If `options` is a string, it is treated as the channel label. If a label
-   * is not provided, it uses the `default` channel.
+   * If `options` is a string, it is treated as the channel label. If no label
+   * is provided, it uses the `default` channel.
    *
    * The `send` method works only with open channels that have no protocol specified,
    * are ordered (reliable), and match the specified label.
    *
    * @param message Message payload to send.
    * @param options Send options or channel label.
+   * @returns A ReadableStream of transfer progress status.
    */
-  async send(message: unknown, options?: string | SendOptions): Promise<void> {
+  send(
+    message: unknown,
+    options?: string | SendOptions,
+  ): ReadableStream<TransferProgress> {
     const { label = "default", info } = parseOptions<SendOptions>(
       options,
       (value) => {
@@ -480,17 +485,20 @@ export class RemotePeer {
       },
     );
 
+    const dc = this.#dataChannels.get(label);
+    if (!dc) {
+      if (message instanceof ReadableStream) message.cancel();
+      return new ReadableStream({
+        start(c) {
+          const err = new Error(`No channel found for label: ${label}`);
+          c.error(err);
+        },
+      });
+    }
+
     log("remote:send", { id: this.#id, label, info, message });
 
-    if (!this.#dataChannels.size) {
-      if (message instanceof ReadableStream) message.cancel();
-      return;
-    }
-
-    const dc = this.#dataChannels.get(label);
-    if (dc) {
-      await dc.send(message, { info });
-    }
+    return dc.send(message, info);
   }
 
   /**
@@ -984,6 +992,7 @@ export class RemotePeer {
     };
 
     const dc = new DataChannel({
+      peer: this.id,
       channel,
       callback: {
         open: () => emitEvent("channel:open"),

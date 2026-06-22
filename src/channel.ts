@@ -22,7 +22,7 @@ const MESSAGE_TYPE = {
   text: 2, // UTF-8 string
   json: 3, // JSON-serializable object
   blob: 4, // Blob or File
-  binary: 5, // ArrayBuffer or Uint8Array
+  bytes: 5, // ArrayBuffer or Uint8Array
 } as const;
 
 /** Protobuf schema for data packets. */
@@ -47,12 +47,15 @@ const PACKET_SCHEMA: Record<
  * management so that a fast sender doesn't overwhelm the channel buffer.
  */
 export class DataChannel {
+  #peerId: string;
   #messageId: number;
   #channel: RTCDataChannel;
   #callback: DataChannelCallback;
   #handlers: Record<string, EventListener>;
   #outgoingQueue: Promise<unknown>;
   #incomingQueue: Map<string, MessageController>;
+  #textEncoder: TextEncoder;
+  #textDecoder: TextDecoder;
 
   /**
    * Creates a new DataChannel instance.
@@ -61,17 +64,21 @@ export class DataChannel {
    * @param callback Callback functions to handle propagating events.
    */
   constructor(options: {
+    peer: string;
     channel: RTCDataChannel;
     callback: DataChannelCallback;
   }) {
-    const { channel, callback } = options;
+    const { peer, channel, callback } = options;
 
+    this.#peerId = peer;
     this.#channel = channel;
     this.#callback = callback;
 
     this.#messageId = 0;
     this.#outgoingQueue = Promise.resolve();
     this.#incomingQueue = new Map();
+    this.#textEncoder = new TextEncoder();
+    this.#textDecoder = new TextDecoder();
 
     this.#handlers = {
       open: this.#handleOpen.bind(this),
@@ -93,32 +100,30 @@ export class DataChannel {
    * Sends a message through the RTCDataChannel.
    *
    * @param message The message to send.
-   * @param options Optional parameters for sending the message
-   * @param options.info Optional information associated with the message.
-   * @returns A promise that resolves to true if the message was sent successfully.
+   * @param info Metadata associated with the message.
+   * @returns A ReadableStream that resolves when the message is sent.
    */
-  async send(
-    message: unknown,
-    options?: { info?: Record<string, unknown> },
-  ): Promise<void> {
-    const { info } = options || {};
-
-    // Verify the channel label if provided.
-    if (this.#channel.readyState !== "open") {
-      throw new Error("Channel is not open");
+  send(message: unknown, info?: Record<string, unknown>): ReadableStream {
+    let canceled = false;
+    let ctrl: ReadableStreamDefaultController | undefined;
+    const progress = new ReadableStream({
+      start(c) {
+        ctrl = c;
+      },
+      cancel() {
+        canceled = true;
+      },
+    });
+    if (!ctrl) {
+      throw new Error("Failed to create progress stream");
     }
 
-    // For unreliable channels or channels with custom protocols,
-    // send the message as-is without chunking.
-    const customTransport = this.#channel.protocol || !this.#channel.ordered;
-    if (customTransport) {
-      if (message instanceof ReadableStream) {
-        throw new Error(
-          "Stream messages are not supported with custom protocols",
-        );
-      }
-      this.#channel.send(message as Parameters<RTCDataChannel["send"]>[0]);
-      return;
+    // Unreliable channels or channels with custom protocols is not supported.
+    const isSupported = !this.#channel.protocol && this.#channel.ordered;
+    if (!isSupported) {
+      const err = new Error("Channel is not supported");
+      ctrl.error(err);
+      return progress;
     }
 
     // Length of the info must be less than chunk size because the info
@@ -126,34 +131,68 @@ export class DataChannel {
     const infoBuffer = this.#encodeJSON(info);
     const infoLength = infoBuffer?.byteLength || 0;
     if (infoLength >= CHUNK_SIZE) {
-      throw new Error("Info data is too large");
+      const err = new Error("Metadata is too large");
+      ctrl.error(err);
+      return progress;
     }
 
     // Enqueue the message send operation to ensure it doesn't interleave
     // with other messages.
-    await this.#enqueueMessage(async () => {
-      this.#messageId = (this.#messageId & MAX_MESSAGE_ID) + 1;
-      const { stream, type } = dataToStream(message);
-      const typeCode = MESSAGE_TYPE[type];
-      let firstChunk = true;
+    this.#enqueueMessage(async () => {
+      let dataStream;
+      let failed = false;
+      try {
+        if (this.#channel.readyState !== "open") {
+          throw new Error("Channel is not open");
+        }
 
-      for await (const { index, chunk, done } of streamToChunks(
-        stream,
-        CHUNK_SIZE,
-        infoLength,
-      )) {
-        const packet: Packet = {
-          id: this.#messageId,
-          index,
-          type: firstChunk ? typeCode : undefined,
-          info: firstChunk && infoBuffer ? infoBuffer : undefined,
-          chunk,
-          done,
-        };
-        await this.#sendChunk(packet);
-        firstChunk = false;
+        this.#messageId = (this.#messageId & MAX_MESSAGE_ID) + 1;
+        const { stream, type, size: total } = dataToStream(message);
+        dataStream = stream;
+        const typeCode = MESSAGE_TYPE[type];
+        let current = 0;
+
+        for await (const { index, chunk, done } of streamToChunks(
+          stream,
+          CHUNK_SIZE,
+          infoLength,
+        )) {
+          if (canceled) {
+            throw new Error("Send canceled");
+          }
+
+          const isFrstChunk = index === 0;
+          const packet: Packet = {
+            id: this.#messageId,
+            index,
+            type: isFrstChunk ? typeCode : undefined,
+            info: isFrstChunk && infoBuffer ? infoBuffer : undefined,
+            chunk,
+            done,
+          };
+
+          await this.#sendChunk(packet);
+
+          current += chunk.byteLength;
+          if (done) current = total;
+          ctrl?.enqueue({
+            id: this.#peerId,
+            label: this.#channel.label,
+            current,
+            total,
+            done,
+          });
+        }
+      } catch (err) {
+        failed = true;
+        ctrl?.error(err);
+      } finally {
+        dataStream?.cancel();
+        if (!failed) ctrl?.close();
       }
     });
+
+    return progress;
   }
 
   /**
@@ -304,6 +343,14 @@ export class DataChannel {
       throw new Error("Failed to initialize data stream");
     }
 
+    // Evict the oldest controller when the incoming queue exceeds its limit.
+    if (this.#incomingQueue.size >= MAX_CONCURRENT_MESSAGES) {
+      const oldestEntry = this.#incomingQueue.values().next();
+      oldestEntry.value?.error(
+        new Error("Too many concurrent incoming messages"),
+      );
+    }
+
     const controller: MessageController = {
       id,
       index: -1,
@@ -334,14 +381,6 @@ export class DataChannel {
 
     this.#incomingQueue.set(messageId, controller);
 
-    // Evict the oldest controller when the incoming queue exceeds its limit.
-    if (this.#incomingQueue.size >= MAX_CONCURRENT_MESSAGES) {
-      const oldestEntry = this.#incomingQueue.values().next();
-      oldestEntry.value?.error(
-        new Error("Too many concurrent incoming messages"),
-      );
-    }
-
     return controller;
   }
 
@@ -351,13 +390,13 @@ export class DataChannel {
    * Converts the internal ReadableStream into the appropriate type
    * (string, JSON object, ArrayBuffer, Blob, or the stream itself).
    */
-  async #serializeMessage(controller: MessageController): Promise<unknown> {
+  async #deserializeMessage(controller: MessageController): Promise<unknown> {
     let content: unknown = controller.stream;
     if (controller.type === MESSAGE_TYPE.text) {
       content = await new Response(controller.stream).text();
     } else if (controller.type === MESSAGE_TYPE.json) {
       content = await new Response(controller.stream).json();
-    } else if (controller.type === MESSAGE_TYPE.binary) {
+    } else if (controller.type === MESSAGE_TYPE.bytes) {
       content = await new Response(controller.stream).arrayBuffer();
     } else if (controller.type === MESSAGE_TYPE.blob) {
       content = await new Response(controller.stream).blob();
@@ -373,7 +412,7 @@ export class DataChannel {
   ): Uint8Array | undefined {
     try {
       return typeof obj !== "undefined"
-        ? new TextEncoder().encode(JSON.stringify(obj))
+        ? this.#textEncoder.encode(JSON.stringify(obj))
         : undefined;
     } catch {
       return;
@@ -388,7 +427,7 @@ export class DataChannel {
   ): Record<string, unknown> | undefined {
     try {
       return typeof bytes !== "undefined"
-        ? JSON.parse(new TextDecoder().decode(bytes))
+        ? JSON.parse(this.#textDecoder.decode(bytes))
         : undefined;
     } catch {
       return;
@@ -486,7 +525,7 @@ export class DataChannel {
 
         // Non-stream messages are serialized and delivered at the end of the message.
         if (controller.type !== MESSAGE_TYPE.stream) {
-          const data = await this.#serializeMessage(controller);
+          const data = await this.#deserializeMessage(controller);
           this.#callback.message(data, controller.info);
         }
       }
