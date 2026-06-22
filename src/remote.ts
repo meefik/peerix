@@ -501,11 +501,20 @@ export class RemotePeer {
    * ```javascript
    * // send a message to default channel
    * remote.send("Hello, peer!");
-   * // send a message to a specific channel
-   * remote.send("Hello, chat channel!", { label: "chat" });
-   * // send a message with a 10-second timeout
-   * remote.send(data, { signal: AbortSignal.timeout(10000) });
-   * ```
+   * // send large data with a progress handler
+   * const blob = new Blob([new Uint8Array(1024 * 1024)]);
+   * const file = new File([blob], "example.dat");
+   * const transfer = remote.send(file, {
+   *   label: "chat", // channel label
+   *   info: { filename: file.name }, // metadata
+   *   signal: AbortSignal.timeout(10000), // abort signal
+   * });
+   * // optionally handle the progress
+   * for await (const progress of transfer) {
+   *   const { id, label, current, total } = progress;
+   *   const percent = Math.round((current / total) * 100);
+   *   console.log(`[${id}:${label}] Sending... ${percent}%`);
+   * }
    *
    * @param message Message payload to send.
    * @param options Send options or channel label.

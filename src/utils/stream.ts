@@ -70,6 +70,7 @@ export function dataToStream(data: unknown): {
  * @param stream The input ReadableStream of Uint8Arrays.
  * @param chunkSize The size of each chunk to be yielded.
  * @param skipBytes Number of bytes to subtract from the first chunk size.
+ * @returns An AsyncGenerator yielding objects with index, chunk, and done properties.
  */
 export async function* streamToChunks(
   stream: ReadableStream<Uint8Array>,
@@ -136,6 +137,7 @@ export async function* streamToChunks(
  *
  * @param source Stream to be duplicated.
  * @param count Number of branches to create.
+ * @returns An array of ReadableStream branches.
  */
 export function teeStream(
   source: ReadableStream,
@@ -154,4 +156,85 @@ export function teeStream(
   }
 
   return branches.slice(0, count);
+}
+
+/**
+ * Merges multiple ReadableStreams into a single stream.
+ *
+ * Values from all source streams are forwarded to the merged stream as they
+ * become available. The merged stream closes only when every source stream
+ * has finished, and errors if any source stream errors.
+ *
+ * @param sources Streams to merge.
+ * @returns A single ReadableStream yielding values from all sources.
+ */
+export function mergeStreams<T>(
+  sources: ReadableStream<T>[],
+): ReadableStream<T> {
+  if (sources.length === 0) {
+    return new ReadableStream({
+      start(controller) {
+        controller.close();
+      },
+    });
+  }
+
+  if (sources.length === 1) {
+    return sources[0];
+  }
+
+  let doneCount = 0;
+  const total = sources.length;
+  let errored = false;
+
+  return new ReadableStream({
+    start(controller) {
+      const readers: ReadableStreamDefaultReader<T>[] = sources.map((source) =>
+        source.getReader(),
+      );
+      const readerDone = new Uint8Array(total);
+
+      const pump = async () => {
+        try {
+          while (doneCount < total) {
+            for (let i = 0; i < readers.length; i++) {
+              if (readerDone[i]) continue;
+
+              try {
+                const { value, done } = await readers[i].read();
+                if (done) {
+                  readerDone[i] = 1;
+                  doneCount++;
+                  if (doneCount === total) {
+                    controller.close();
+                  }
+                  continue;
+                }
+                controller.enqueue(value);
+              } catch (err) {
+                errored = true;
+                controller.error(err);
+                return;
+              }
+
+              await Promise.resolve();
+            }
+          }
+        } catch (err) {
+          if (!errored) {
+            errored = true;
+            controller.error(err);
+          }
+        } finally {
+          for (const reader of readers) {
+            try {
+              reader.releaseLock();
+            } catch {}
+          }
+        }
+      };
+
+      pump();
+    },
+  });
 }

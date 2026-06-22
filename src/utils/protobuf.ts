@@ -226,7 +226,13 @@ function skipUnknownField(
   return null;
 }
 
-/** Encodes an object using the provided schema. */
+/**
+ * Encodes an object using the provided schema.
+ *
+ * @param obj The object to encode.
+ * @param schema The schema used for encoding.
+ * @returns The encoded buffer, or null if encoding fails.
+ */
 export function encode<T extends object>(
   obj: T,
   schema: Schema,
@@ -255,7 +261,13 @@ export function encode<T extends object>(
   return new Uint8Array(out);
 }
 
-/** Decodes a buffer using the provided schema. */
+/**
+ * Decodes a buffer using the provided schema.
+ *
+ * @param buffer The buffer to decode.
+ * @param schema The schema used for decoding.
+ * @returns The decoded object, or null if decoding fails.
+ */
 export function decode<T extends object>(
   buffer: Uint8Array,
   schema: Schema,

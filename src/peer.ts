@@ -4,7 +4,7 @@ import { RemotePeer } from "./remote.js";
 import { MemoryDriver } from "./drivers/memory.js";
 import { PeerixError } from "./error.js";
 import { parseOptions } from "./utils/helpers.js";
-import { teeStream } from "./utils/stream.js";
+import { teeStream, mergeStreams } from "./utils/stream.js";
 import { EventEmitter } from "./utils/emitter.js";
 import { Signaler } from "./signaler.js";
 import { Addon } from "./addons/addon.js";
@@ -437,22 +437,30 @@ export class Peer {
    * ```javascript
    * // send a message to default channel
    * peer.send("Hello, all peers!");
-   * // send a message to a specific channel
-   * peer.send("Hello, chat channel!", { label: "chat" });
-   * // send with a timeout
-   * peer.send(data, { signal: AbortSignal.timeout(5000) });
+   * // send large data with a progress handler
+   * const blob = new Blob([new Uint8Array(1024 * 1024)]);
+   * const file = new File([blob], "example.dat");
+   * const transfer = peer.send(file, {
+   *   label: "chat", // channel label
+   *   info: { filename: file.name }, // metadata
+   *   signal: AbortSignal.timeout(10000), // abort signal
+   * });
+   * // optionally handle the progress
+   * for await (const progress of transfer) {
+   *   const { id, label, current, total } = progress;
+   *   const percent = Math.round((current / total) * 100);
+   *   console.log(`[${id}:${label}] Sending... ${percent}%`);
+   * }
    * ```
    *
    * @param message Message payload to send.
    * @param options Send options or channel label.
-   * @returns A list of ReadableStream of transfer progress status for each connection.
+   * @returns A ReadableStream of aggregated transfer progress across all connections.
    */
   send(
     message: unknown,
     options?: string | SendOptions,
-  ): ReadableStream<TransferProgress>[] {
-    if (!this.#active) return [];
-
+  ): ReadableStream<TransferProgress> {
     const {
       label = "default",
       info,
@@ -462,7 +470,13 @@ export class Peer {
     });
 
     const numConnections = this.#connections.size;
-    if (!numConnections) return [];
+    if (!this.#active || !numConnections) {
+      return new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      });
+    }
 
     log("peer:send", { id: this.#id, label, info, message });
 
@@ -480,7 +494,7 @@ export class Peer {
       results.push(progress);
     }
 
-    return results;
+    return mergeStreams(results);
   }
 
   /**
@@ -813,7 +827,7 @@ export interface TransferProgress {
   label: string;
   /** Number of bytes transferred so far. */
   current: number;
-  /** Total number of bytes to transfer. It could be -1 if it is unknown. */
+  /** Total number of bytes to transfer. It could be -1 if unknown. */
   total: number;
   /** Whether the transfer is done. */
   done: boolean;

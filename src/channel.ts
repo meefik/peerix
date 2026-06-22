@@ -118,14 +118,17 @@ export class DataChannel {
   }> {
     let canceled = false;
     let ctrl!: ReadableStreamDefaultController;
-    const progress = new ReadableStream({
-      start(c) {
-        ctrl = c;
+    const progress = new ReadableStream(
+      {
+        start(c) {
+          ctrl = c;
+        },
+        cancel() {
+          canceled = true;
+        },
       },
-      cancel() {
-        canceled = true;
-      },
-    });
+      { highWaterMark: 0, size: () => 1 },
+    );
 
     const { info, signal } = options ?? {};
 

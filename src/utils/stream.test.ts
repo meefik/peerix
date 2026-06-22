@@ -1,6 +1,11 @@
 import { suite, test } from "node:test";
 import assert from "node:assert/strict";
-import { dataToStream, streamToChunks, teeStream } from "./stream.js";
+import {
+  dataToStream,
+  streamToChunks,
+  teeStream,
+  mergeStreams,
+} from "./stream.js";
 
 async function bytesToText(bytes: Uint8Array): Promise<string> {
   return new TextDecoder().decode(bytes);
@@ -159,6 +164,34 @@ suite("utils/stream", async () => {
     ]);
   });
 
+  test("streamToChunks shrinks the first chunk when skipBytes is set", async () => {
+    // Arrange
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3, 4, 5, 6, 7]));
+        controller.close();
+      },
+    });
+
+    // Act — chunkSize=4, skipBytes=2 → first chunk target = 2, rest = 4
+    const packets: Array<{ index: number; chunk: number[]; done: boolean }> =
+      [];
+    for await (const packet of streamToChunks(stream, 4, 2)) {
+      packets.push({
+        index: packet.index,
+        chunk: [...packet.chunk],
+        done: packet.done,
+      });
+    }
+
+    // Assert
+    assert.deepEqual(packets, [
+      { index: 0, chunk: [1, 2], done: false },
+      { index: 1, chunk: [3, 4, 5, 6], done: false },
+      { index: 2, chunk: [7], done: true },
+    ]);
+  });
+
   test("teeStream returns no branches for non-positive counts", async () => {
     // Arrange
     const source = await bytesToStream(new Uint8Array([1, 2, 3]));
@@ -205,5 +238,143 @@ suite("utils/stream", async () => {
       "tee payload",
       "tee payload",
     ]);
+  });
+
+  test("mergeStreams returns an empty stream when no sources are provided", async () => {
+    // Arrange & Act
+    const merged = mergeStreams([]);
+
+    // Assert
+    const reader = merged.getReader();
+    const { done } = await reader.read();
+    assert.equal(done, true);
+  });
+
+  test("mergeStreams returns the source stream when only one is provided", async () => {
+    // Arrange
+    const source = new ReadableStream({
+      start(controller) {
+        controller.enqueue(42);
+        controller.close();
+      },
+    });
+
+    // Act
+    const merged = mergeStreams([source]);
+
+    // Assert
+    assert.equal(merged, source);
+  });
+
+  test("mergeStreams combines values from multiple streams", async () => {
+    // Arrange
+    const stream1 = new ReadableStream({
+      start(controller) {
+        controller.enqueue(1);
+        controller.enqueue(2);
+        controller.close();
+      },
+    });
+
+    const stream2 = new ReadableStream({
+      start(controller) {
+        controller.enqueue("a");
+        controller.enqueue("b");
+        controller.close();
+      },
+    });
+
+    // Act
+    const values: unknown[] = [];
+    for await (const value of mergeStreams([stream1, stream2])) {
+      values.push(value);
+    }
+
+    // Assert
+    assert.equal(values.length, 4);
+    assert.ok(values.includes(1));
+    assert.ok(values.includes(2));
+    assert.ok(values.includes("a"));
+    assert.ok(values.includes("b"));
+  });
+
+  test("mergeStreams closes only when all source streams are done", async () => {
+    // Arrange
+    const stream1 = new ReadableStream({
+      start(controller) {
+        controller.enqueue(1);
+        controller.close();
+      },
+    });
+
+    let resolveClose: () => void;
+    const closePromise = new Promise<void>((resolve) => {
+      resolveClose = resolve;
+    });
+
+    const stream2 = new ReadableStream({
+      async start(controller) {
+        controller.enqueue("a");
+        await closePromise;
+        controller.close();
+      },
+    });
+
+    const merged = mergeStreams([stream1, stream2]);
+    const reader = merged.getReader();
+
+    // Act - read first value
+    const result1 = await reader.read();
+    assert.equal(result1.value, 1);
+    assert.equal(result1.done, false);
+
+    // Stream 1 is done but stream 2 is not; merged should stay open
+    resolveClose!();
+
+    // Act - read remaining values until done
+    const result2 = await reader.read();
+    assert.equal(result2.done, false);
+    const result3 = await reader.read();
+    assert.equal(result3.done, true);
+  });
+
+  test("mergeStreams propagates errors from source streams", async () => {
+    // Arrange
+    let resolveError: () => void;
+    const errorDeferred = new Promise<void>((resolve) => {
+      resolveError = resolve;
+    });
+
+    const stream1 = new ReadableStream({
+      async start(controller) {
+        controller.enqueue(1);
+        await errorDeferred;
+        controller.error(new Error("source error"));
+      },
+    });
+
+    const stream2 = new ReadableStream({
+      start(controller) {
+        controller.close();
+      },
+    });
+
+    // Act
+    const merged = mergeStreams([stream1, stream2]);
+    const reader = merged.getReader();
+
+    const result1 = await reader.read();
+    assert.equal(result1.value, 1);
+
+    // Trigger the error after first read succeeds
+    resolveError!();
+
+    try {
+      await reader.read();
+      assert.fail("Expected error to be thrown");
+    } catch (err) {
+      assert(err instanceof Error);
+      assert.equal(err.message, "source error");
+    }
   });
 });
