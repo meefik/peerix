@@ -1,5 +1,10 @@
 import { encode, decode } from "./utils/protobuf.js";
-import { dataToStream, streamToChunks } from "./utils/stream.js";
+import {
+  dataToStream,
+  streamToChunks,
+  PromiseLikeReadableStream,
+  DataType,
+} from "./utils/stream.js";
 
 /** Size of the protobuf header in bytes. */
 const HEADER_SIZE = 64;
@@ -18,11 +23,10 @@ const MAX_CONCURRENT_MESSAGES = 100;
 
 /** Map from human-readable type names to their numeric identifiers. */
 const MESSAGE_TYPE = {
-  stream: 1, // ReadableStream
-  text: 2, // UTF-8 string
-  json: 3, // JSON-serializable object
-  blob: 4, // Blob or File
-  bytes: 5, // ArrayBuffer or Uint8Array
+  text: 1, // UTF-8 string
+  json: 2, // JSON-serializable object
+  blob: 3, // Blob or File
+  bytes: 4, // ArrayBuffer or Uint8Array
 } as const;
 
 /** Protobuf schema for data packets. */
@@ -355,23 +359,23 @@ export class DataChannel {
    * Sets up a ReadableStream and tracks chunk ordering, metadata,
    * and lifecycle (enqueue / close / error) for the message.
    */
-  #createMessageController(
-    id: number,
-    type: number,
-    infoBytes?: Uint8Array,
-  ): MessageController {
+  #createMessageController(id: number, type: DataType): MessageController {
     const messageId = this.#getMessageId(id);
 
-    let streamCtrl!: ReadableStreamDefaultController<Uint8Array>;
-    const stream = new ReadableStream({
-      start: (ctrl) => {
-        streamCtrl = ctrl;
+    let streamCtrl!: ReadableStreamDefaultController;
+    const data = new PromiseLikeReadableStream(
+      {
+        start: (ctrl) => {
+          streamCtrl = ctrl;
+        },
+        cancel: () => {
+          this.#incomingQueue.delete(messageId);
+          this.#sendAbort(id);
+        },
       },
-      cancel: () => {
-        this.#incomingQueue.delete(messageId);
-        this.#sendAbort(id);
-      },
-    });
+      {},
+      type,
+    );
 
     // Evict the oldest controller when the incoming queue exceeds its limit.
     if (this.#incomingQueue.size >= MAX_CONCURRENT_MESSAGES) {
@@ -384,9 +388,7 @@ export class DataChannel {
     const controller: MessageController = {
       id,
       index: -1,
-      type,
-      info: this.#decodeJSON(infoBytes),
-      stream,
+      data,
       enqueue: (index: number, chunk: Uint8Array) => {
         if (streamCtrl) {
           if (index === controller.index + 1) {
@@ -412,26 +414,6 @@ export class DataChannel {
     this.#incomingQueue.set(messageId, controller);
 
     return controller;
-  }
-
-  /**
-   * Deserializes the content of an incoming message to its final form.
-   *
-   * Converts the internal ReadableStream into the appropriate type
-   * (string, JSON object, ArrayBuffer, Blob, or the stream itself).
-   */
-  async #deserializeMessage(controller: MessageController): Promise<unknown> {
-    let content: unknown = controller.stream;
-    if (controller.type === MESSAGE_TYPE.text) {
-      content = await new Response(controller.stream).text();
-    } else if (controller.type === MESSAGE_TYPE.json) {
-      content = await new Response(controller.stream).json();
-    } else if (controller.type === MESSAGE_TYPE.bytes) {
-      content = await new Response(controller.stream).arrayBuffer();
-    } else if (controller.type === MESSAGE_TYPE.blob) {
-      content = await new Response(controller.stream).blob();
-    }
-    return content;
   }
 
   /**
@@ -462,6 +444,17 @@ export class DataChannel {
     } catch {
       return;
     }
+  }
+
+  /**
+   * Decodes the data type from the message.
+   */
+  #decodeType(code: number): DataType {
+    let type: DataType = "bytes";
+    if (code === MESSAGE_TYPE.text) type = "text";
+    else if (code === MESSAGE_TYPE.json) type = "json";
+    else if (code === MESSAGE_TYPE.blob) type = "blob";
+    return type;
   }
 
   /**
@@ -532,12 +525,10 @@ export class DataChannel {
 
       // New message — create a controller.
       if (type && index === 0 && !controller) {
-        controller = this.#createMessageController(id, type, info);
-
-        // Stream-type messages are delivered immediately as a ReadableStream.
-        if (type === MESSAGE_TYPE.stream) {
-          this.#callback.message(controller.stream, controller.info);
-        }
+        const decodedType = this.#decodeType(type);
+        controller = this.#createMessageController(id, decodedType);
+        const decodedInfo = this.#decodeJSON(info);
+        this.#callback.message(controller.data, decodedInfo);
       }
 
       // Ignore any inconsistent messages.
@@ -551,12 +542,7 @@ export class DataChannel {
       // Finalize the message when the done flag is set.
       if (done) {
         controller.close();
-
-        // Non-stream messages are serialized and delivered at the end of the message.
-        if (controller.type !== MESSAGE_TYPE.stream) {
-          const data = await this.#deserializeMessage(controller);
-          this.#callback.message(data, controller.info);
-        }
+        // TODO: send ASK
       }
     } catch (err) {
       this.#callback.error(err);
@@ -575,12 +561,8 @@ interface MessageController {
   id: number;
   /** Current chunk index. Initialized to -1; increments with each enqueued chunk. */
   index: number;
-  /** Numeric type identifier (TYPE_STREAM, TYPE_TEXT, etc.). */
-  type: number;
   /** ReadableStream that delivers chunks to the consumer. */
-  stream: ReadableStream<Uint8Array>;
-  /** Optional metadata attached by the sender. */
-  info?: Record<string, unknown>;
+  data: PromiseLikeReadableStream;
   /** Push a new chunk into the stream. */
   enqueue: (index: number, chunk: Uint8Array) => void;
   /** Signal that the message is complete and close the stream. */

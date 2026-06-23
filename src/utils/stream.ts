@@ -1,5 +1,5 @@
 /** Represents the detected type of data payload. */
-export type DataType = "stream" | "blob" | "bytes" | "text" | "json";
+export type DataType = "text" | "json" | "blob" | "bytes";
 
 /**
  * Converts various data types into a ReadableStream.
@@ -18,7 +18,7 @@ export function dataToStream(data: unknown): {
 
   if (data instanceof ReadableStream) {
     stream = data;
-    type = "stream";
+    type = "bytes";
   } else if (data instanceof Blob) {
     stream = data.stream();
     type = "blob";
@@ -237,4 +237,46 @@ export function mergeStreams<T>(
       pump();
     },
   });
+}
+
+/**
+ * ReadableStream that resolves to typed content via `.then()`.
+ */
+export class PromiseLikeReadableStream extends ReadableStream<Uint8Array> {
+  #type: DataType;
+
+  /**
+   * Creates a typed stream that resolves via {@link then}.
+   *
+   * @param underlyingSource Source producing the stream's data chunks.
+   * @param queuingStrategy Strategy for managing backpressure.
+   * @param type How to resolve the content. Defaults to `"bytes"`.
+   */
+  constructor(
+    underlyingSource?: UnderlyingSource,
+    queuingStrategy?: QueuingStrategy,
+    type: DataType = "bytes",
+  ) {
+    super(underlyingSource, queuingStrategy);
+    this.#type = type;
+  }
+
+  /**
+   * Pipes the stream through `Response` and resolves as the configured {@link DataType}.
+   *
+   * @param onFulfilled The callback to execute when the promise is settled.
+   * @returns A promise that resolves with the converted value.
+   */
+  then(onFulfilled: (value: unknown) => void): Promise<void> {
+    if (this.locked) return Promise.reject(new Error("Stream is locked"));
+
+    const converters: Record<DataType, () => Promise<unknown>> = {
+      text: () => new Response(this).text(),
+      json: () => new Response(this).json(),
+      blob: () => new Response(this).blob(),
+      bytes: () => new Response(this).arrayBuffer(),
+    };
+
+    return converters[this.#type]().then(onFulfilled);
+  }
 }

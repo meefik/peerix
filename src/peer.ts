@@ -37,9 +37,10 @@ const defaultDriver = new MemoryDriver();
  * });
  *
  * // listen for incoming messages
- * peer.on("channel:message", (e) => {
+ * peer.on("channel:message", async (e) => {
  *   const { remote, data, label } = e;
- *   console.log(`Message from peer "${remote.id}" on channel "${label}":`, data);
+ *   const message = await data;
+ *   console.log(`Message from peer "${remote.id}" on channel "${label}":`, message);
  * });
  *
  * // open a data channel
@@ -973,7 +974,7 @@ export interface PeerChannelEvent {
   /** Optional additional information associated with the message event. */
   info?: Record<string, unknown>;
   /** Received message data for message events. */
-  data?: unknown;
+  data?: ReadableStream<Uint8Array> & PromiseLike<unknown>;
   /** Error object containing details about the error for error events. */
   error?: Error;
 }

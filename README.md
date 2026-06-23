@@ -93,9 +93,10 @@ peer.on("channel:close", (e) => {
 });
 
 // listen for incoming messages
-peer.on("channel:message", (e) => {
+peer.on("channel:message", async (e) => {
   const { remote, data, label } = e;
-  console.log(`Message from peer "${remote.id}" on channel "${label}":`, data);
+  const message = await data;
+  console.log(`Message from peer "${remote.id}" on channel "${label}":`, message);
 });
 
 // open a data channel with a specific label

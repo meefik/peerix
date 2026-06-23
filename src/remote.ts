@@ -1235,7 +1235,7 @@ export interface RemotePeerChannelEvent {
   /** Optional additional information associated with the message event. */
   info?: Record<string, unknown>;
   /** Data associated with the message event. */
-  data?: unknown;
+  data?: ReadableStream<Uint8Array> & PromiseLike<unknown>;
   /** Error associated with the error event. */
   error?: Error;
 }

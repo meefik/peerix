@@ -5,6 +5,7 @@ import {
   streamToChunks,
   teeStream,
   mergeStreams,
+  PromiseLikeReadableStream,
 } from "./stream.js";
 
 async function bytesToText(bytes: Uint8Array): Promise<string> {
@@ -44,7 +45,7 @@ suite("utils/stream", async () => {
     const jsonResult = dataToStream({ ok: true, value: 7 });
 
     // Assert
-    assert.equal(streamResult.type, "stream");
+    assert.equal(streamResult.type, "bytes");
     assert.equal(streamResult.stream, sourceStream);
     assert.equal(bytesResult.type, "bytes");
     assert.equal(blobResult.type, "blob");
@@ -81,7 +82,7 @@ suite("utils/stream", async () => {
     const textResult = dataToStream(textInput);
     const jsonResult = dataToStream(jsonInput);
 
-    // Assert - stream type has unknown size
+    // Assert - stream input has unknown size
     assert.equal(streamResult.size, -1);
 
     // Assert - binary and ArrayBuffer sizes match byteLength
@@ -376,5 +377,126 @@ suite("utils/stream", async () => {
       assert(err instanceof Error);
       assert.equal(err.message, "source error");
     }
+  });
+
+  test("PromiseLikeReadableStream resolves as ArrayBuffer when type is bytes (default)", async () => {
+    // Arrange
+    const payload = new Uint8Array([10, 20, 30]);
+    let resolved: unknown;
+
+    const stream = new PromiseLikeReadableStream({
+      start(controller) {
+        controller.enqueue(payload);
+        controller.close();
+      },
+    });
+
+    // Act
+    await stream.then((value) => {
+      resolved = value;
+    });
+
+    // Assert
+    assert(resolved instanceof ArrayBuffer);
+    assert.deepEqual(new Uint8Array(resolved as ArrayBuffer), payload);
+  });
+
+  test("PromiseLikeReadableStream resolves as text when type is text", async () => {
+    // Arrange
+    const message = "Hello, world!";
+    let resolved: unknown;
+
+    const stream = new PromiseLikeReadableStream(
+      {
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(message));
+          controller.close();
+        },
+      },
+      {},
+      "text",
+    );
+
+    // Act
+    await stream.then((value) => {
+      resolved = value;
+    });
+
+    // Assert
+    assert.equal(resolved, message);
+  });
+
+  test("PromiseLikeReadableStream resolves as JSON when type is json", async () => {
+    // Arrange
+    const obj = { name: "test", count: 42 };
+    let resolved: unknown;
+
+    const stream = new PromiseLikeReadableStream(
+      {
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(obj)));
+          controller.close();
+        },
+      },
+      {},
+      "json",
+    );
+
+    // Act
+    await stream.then((value) => {
+      resolved = value;
+    });
+
+    // Assert
+    assert.deepEqual(resolved, obj);
+  });
+
+  test("PromiseLikeReadableStream resolves as Blob when type is blob", async () => {
+    // Arrange
+    const content = "blob content here";
+    let resolved: unknown;
+
+    const stream = new PromiseLikeReadableStream(
+      {
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(content));
+          controller.close();
+        },
+      },
+      {},
+      "blob",
+    );
+
+    // Act
+    await stream.then((value) => {
+      resolved = value;
+    });
+
+    // Assert
+    assert(resolved instanceof Blob);
+    assert.equal(await (resolved as Blob).text(), content);
+  });
+
+  test("PromiseLikeReadableStream rejects when the stream is locked", async () => {
+    // Arrange
+    const stream = new PromiseLikeReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2]));
+        controller.close();
+      },
+    });
+
+    // Lock the stream by acquiring a reader
+    const reader = stream.getReader();
+
+    // Act & Assert
+    await assert.rejects(
+      stream.then(() => {
+        /* no-op */
+      }),
+      { message: "Stream is locked" },
+    );
+
+    reader.releaseLock();
   });
 });
