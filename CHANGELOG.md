@@ -9,19 +9,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-06-25
 
 ### Added
 
-- Add unit tests for utilities and some drivers.
 - Add support for `ReadableStream` data in the `send` method.
-- Add optional additional metadata (`info` field) when sending messages.
+- Add unit tests for utilities and some drivers.
+- Add optional metadata (`info` field) when sending messages.
+- Add abort signal handling to stop message transmission early.
 - Add `toJSON` method to serialize peer information for local and remote peers.
 - Add `AGENTS.md` file with rules for AI agents interacting with this project.
 
 ### Changed
 
-- Chunk and buffer large messages during transmission via data channels to support larger messages out of the box.
+- Update the `send` method API to return an async iterator that can be used to track data transmission progress or a `Promise` that resolves when the data is delivered.
+- Chunk and buffer large messages during transmission via data channels, supporting larger payloads out of the box.
+- **Breaking:** Change incoming data to be either a `ReadableStream` or a `Promise`. Read the stream to track receiving progress; use the Promise to get a specific data type when the full message is received.
+- **Breaking:** Send data through only one data channel instead of multiple. If the `label` is omitted, it uses the `default` label.
 
 ## [0.4.0] - 2026-05-28
 
@@ -38,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rename `dispatch` method to `publish` in the `Driver` interface for better clarity and consistency with common messaging terminology.
 - Rename `publish` and `unpublish` methods in the `Peer` and `RemotePeer` classes to `share` and `unshare` respectively to avoid confusion with the `publish` method in the `Driver` interface.
 - The `SseDriver` uses a Mercure-compatible endpoint by default (`/.well-known/mercure`).
-- The `Driver` class sets the `active` accessor to `false` by default.
+- The `active` property in the `Driver` class defaults to `false`.
 - The `room` property is escaped when namespace hashing is disabled.
 - Most drivers use peer or room identifiers as event names instead of concatenating them, which simplifies implementation and shortens event names.
 - Some drivers use empty prefixes by default, so if you want to use a prefix, you need to specify one in the options.
@@ -58,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enable signaling encryption by default.
 - Use the compressed public key as the peer ID.
 - The minimum build target is ES2020 to allow the use of modern JavaScript features such as BigInt.
-- Rename 'signalingHashing' to 'namespaceHashing' for clarity.
+- Rename `signalingHashing` to `namespaceHashing` for clarity.
 - The license has been changed from GPL-3.0 to Apache-2.0 to allow more permissive use of the library in both open-source and commercial projects.
 
 ## [0.2.0] - 2026-05-13
