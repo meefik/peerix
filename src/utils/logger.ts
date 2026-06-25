@@ -18,7 +18,7 @@ let deny: RegExp[];
  * - "multiple,patterns,-with:exclusions"
  *
  * Example usage:
- * ```javascript
+ * ```js
  * import log from "./utils/logger.js";
  * log("module:submodule", "This is a debug message");
  * log("module:submodule", () => "This is a message inside a function");

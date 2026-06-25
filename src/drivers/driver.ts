@@ -23,7 +23,7 @@ import { EventEmitter } from "../utils/emitter.js";
  * @group Drivers
  *
  * @example
- * ```javascript
+ * ```js
  * class MyDriver extends Driver {
  *   async subscribe(namespace, handler) {
  *     // subscribe to messages for the given namespace and call the handler on each message

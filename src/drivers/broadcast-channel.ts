@@ -14,7 +14,7 @@ import { EventEmitter } from "../utils/emitter.js";
  * @group Drivers
  *
  * @example
- * ```javascript
+ * ```js
  * const driver = new BroadcastChannelDriver("peerix");
  * ```
  */

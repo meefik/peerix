@@ -14,7 +14,7 @@ import { EventEmitter } from "../utils/emitter.js";
  * @group Drivers
  *
  * @example
- * ```javascript
+ * ```js
  * import { connect } from "mqtt";
  *
  * // connect to an MQTT server (e.g., the local server)

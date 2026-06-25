@@ -14,7 +14,7 @@ import { EventEmitter } from "../utils/emitter.js";
  * @group Drivers
  *
  * @example
- * ```javascript
+ * ```js
  * import { Centrifuge } from "centrifuge";
  *
  * // connect to a Centrifuge server

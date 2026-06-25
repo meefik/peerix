@@ -13,7 +13,7 @@ import { EventEmitter } from "../utils/emitter.js";
  * @group Drivers
  *
  * @example
- * ```javascript
+ * ```js
  * import { wsconnect } from "@nats-io/nats-core";
  *
  * // connect to a NATS server (e.g., the local server)

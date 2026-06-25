@@ -18,7 +18,7 @@ import { EventEmitter } from "../utils/emitter.js";
  * @example
  *
  * Client-side code (browser with SSE support):
- * ```javascript
+ * ```js
  * const publisherJwtKey = "mercure-publisher-jwt-key";
  * const driver = new SseDriver({
  *   url: "http://localhost:8080/.well-known/mercure",
@@ -40,7 +40,7 @@ import { EventEmitter } from "../utils/emitter.js";
  * ```
  *
  * Instead of using Mercure, you can use a Node.js server:
- * ```javascript
+ * ```js
  * const express = require("express");
  * const cors = require("cors");
  *

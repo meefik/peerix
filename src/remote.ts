@@ -240,7 +240,7 @@ export class RemotePeer {
    * Registers an event handler for a specific event type emitted by the remote peer connection.
    *
    * @example
-   * ```javascript
+   * ```js
    * // subscribe to the "connection" event
    * peer.on("connection", (e) => {
    *   console.log("Connection state is changed:", e.state);
@@ -325,7 +325,7 @@ export class RemotePeer {
    * a new stream.
    *
    * @example
-   * ```javascript
+   * ```js
    * // get a media stream from the user's camera and microphone
    * const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
    *
@@ -402,7 +402,7 @@ export class RemotePeer {
    * stopped automatically.
    *
    * @example
-   * ```javascript
+   * ```js
    * // unshare a media stream with an explicit label
    * await remote.unshare({ label: "camera" });
    * ```
@@ -453,7 +453,7 @@ export class RemotePeer {
    * each label. You can send data through the channel in both directions.
    *
    * @example
-   * ```javascript
+   * ```js
    * // open a channel with label "chat"
    * await remote.open({ label: "chat" });
    * ```
@@ -477,7 +477,7 @@ export class RemotePeer {
    * Closes a previously opened data channel to the current remote peer.
    *
    * @example
-   * ```javascript
+   * ```js
    * // close the channel with label "chat"
    * await remote.close({ label: "chat" });
    * ```
@@ -507,7 +507,7 @@ export class RemotePeer {
    * are ordered (reliable), and match the specified label.
    *
    * @example
-   * ```javascript
+   * ```js
    * // send a message to default channel
    * await remote.send("Hello, peer!");
    * // send large data with a progress handler

@@ -21,7 +21,7 @@ const defaultDriver = new MemoryDriver();
  *
  * @group Peers
  * @example
- * ```javascript
+ * ```js
  * // create a new peer
  * // using default in-memory signaling driver
  * const peer = new Peer();
@@ -112,7 +112,7 @@ export class Peer {
    * Creates a new {@link Peer} instance.
    *
    * @example
-   * ```javascript
+   * ```js
    * // create a new peer with default options
    * const peer = new Peer();
    * ```
@@ -163,7 +163,7 @@ export class Peer {
    * Joins a room and starts listening for incoming connections.
    *
    * @example
-   * ```javascript
+   * ```js
    * // join a room with ID "room-id" and custom metadata
    * await peer.join({ room: "room-id", metadata: { name: "Alice" } });
    * ```
@@ -204,7 +204,7 @@ export class Peer {
    * Leaves the current room and closes all active remote connections.
    *
    * @example
-   * ```javascript
+   * ```js
    * // leave the current room
    * await peer.leave();
    * ```
@@ -246,7 +246,7 @@ export class Peer {
    * a new stream.
    *
    * @example
-   * ```javascript
+   * ```js
    * // get a media stream from the user's camera and microphone
    * const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
    *
@@ -323,7 +323,7 @@ export class Peer {
    * stopped automatically.
    *
    * @example
-   * ```javascript
+   * ```js
    * // unshare a media stream with an explicit label
    * await peer.unshare({ label: "camera" });
    * ```
@@ -377,7 +377,7 @@ export class Peer {
    * each label. You can send data through the channel in both directions.
    *
    * @example
-   * ```javascript
+   * ```js
    * // open a channel with label "chat"
    * await peer.open({ label: "chat" });
    * ```
@@ -406,7 +406,7 @@ export class Peer {
    * and removes it from all remote peers.
    *
    * @example
-   * ```javascript
+   * ```js
    * // close the channel with label "chat"
    * await peer.close({ label: "chat" });
    * ```
@@ -439,7 +439,7 @@ export class Peer {
    * ordered (reliable), and match the specified label.
    *
    * @example
-   * ```javascript
+   * ```js
    * // send a message to default channel
    * await peer.send("Hello, all peers!");
    * // send large data with a progress handler
@@ -528,7 +528,7 @@ export class Peer {
    * Subscribes to one or more peer events.
    *
    * @example
-   * ```javascript
+   * ```js
    * // subscribe to the "connection" event
    * peer.on("connection", (e) => {
    *   console.log("Connection state is changed:", e.state);
@@ -868,7 +868,7 @@ export interface PeerOptions {
    * to local peers.
    *
    * @example
-   * ```javascript
+   * ```js
    * iceServers: [{
    *   urls: "stun:stun.l.google.com:19302"
    * }]

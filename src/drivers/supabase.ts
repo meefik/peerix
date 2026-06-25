@@ -13,7 +13,7 @@ import { EventEmitter } from "../utils/emitter.js";
  * @group Drivers
  *
  * @example
- * ```javascript
+ * ```js
  * import { createClient } from "@supabase/supabase-js";
  *
  * // connect to a Supabase server

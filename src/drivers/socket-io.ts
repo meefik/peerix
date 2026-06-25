@@ -20,7 +20,7 @@ import { EventEmitter } from "../utils/emitter.js";
  * @example
  *
  * Client-side code (browser with Socket.IO client):
- * ```javascript
+ * ```js
  * import { io } from "socket.io-client";
  *
  * // connect to a Socket.IO server (e.g. at localhost:8080)
@@ -31,7 +31,7 @@ import { EventEmitter } from "../utils/emitter.js";
  * ```
  *
  * Server-side code (Node.js with Socket.IO):
- * ```javascript
+ * ```js
  * const { Server } = require("socket.io");
  * const io = new Server(8080, { cors: { origin: "*" } });
  *
