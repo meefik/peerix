@@ -34,12 +34,12 @@
     "docs": "typedoc && cat docs/globals.md > docs/llms.txt && cat docs/README.md docs/**/*.md | grep -v '^\\[\\*\\*' > docs/llms-full.txt"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.0",
-    "@types/node": "^26.0.0",
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^26.0.1",
     "tsx": "^4.22.4",
     "typedoc": "^0.28.19",
     "typedoc-plugin-markdown": "^4.12.0",
     "typescript": "^6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.1.0"
   }
 }
