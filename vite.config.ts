@@ -9,7 +9,7 @@ export default defineConfig(({ command }) => {
     },
     resolve: {
       alias: {
-        peerix: resolve(__dirname, "./src/index.js"),
+        peerix: resolve(__dirname, "./src/index.ts"),
       },
     },
     build: {

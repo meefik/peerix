@@ -22,12 +22,20 @@
   "types": "dist/index.d.ts",
   "module": "dist/peerix.esm.js",
   "unpkg": "dist/peerix.umd.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/peerix.esm.js",
+      "default": "./dist/peerix.esm.js"
+    }
+  },
   "files": [
     "dist"
   ],
+  "sideEffects": false,
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build && tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "build": "vite build && tsc -p tsconfig.build.json",
     "test:unit": "node --import tsx --test 'src/**/*.test.ts'",
     "test:e2e": "playwright test",
     "test": "npm run test:unit && npm run test:e2e",

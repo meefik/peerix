@@ -1,10 +1,10 @@
 import type { TransferProgress } from "./peer.js";
+import type { DataType } from "./utils/stream.js";
 import { encode, decode } from "./utils/protobuf.js";
 import {
   dataToStream,
   streamToChunks,
   PromiseLikeReadableStream,
-  DataType,
 } from "./utils/stream.js";
 
 /** Size of the protobuf header in bytes. */
