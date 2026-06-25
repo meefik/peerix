@@ -4,7 +4,11 @@ import { RemotePeer } from "./remote.js";
 import { MemoryDriver } from "./drivers/memory.js";
 import { PeerixError } from "./error.js";
 import { parseOptions } from "./utils/helpers.js";
-import { teeStream, mergeStreams } from "./utils/stream.js";
+import {
+  teeStream,
+  PromiseLikeReadableStream,
+  mergeStreams,
+} from "./utils/stream.js";
 import { EventEmitter } from "./utils/emitter.js";
 import { Signaler } from "./signaler.js";
 import { Addon } from "./addons/addon.js";
@@ -44,10 +48,10 @@ const defaultDriver = new MemoryDriver();
  * });
  *
  * // open a data channel
- * peer.open({ label: "default" });
+ * await peer.open({ label: "default" });
  *
  * // join a room
- * peer.join({ room: "room-id" });
+ * await peer.join({ room: "room-id" });
  * ```
  */
 export class Peer {
@@ -161,7 +165,7 @@ export class Peer {
    * @example
    * ```javascript
    * // join a room with ID "room-id" and custom metadata
-   * peer.join({ room: "room-id", metadata: { name: "Alice" } });
+   * await peer.join({ room: "room-id", metadata: { name: "Alice" } });
    * ```
    *
    * @param options Room name or join options.
@@ -202,7 +206,7 @@ export class Peer {
    * @example
    * ```javascript
    * // leave the current room
-   * peer.leave();
+   * await peer.leave();
    * ```
    */
   async leave(): Promise<void> {
@@ -247,7 +251,7 @@ export class Peer {
    * const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
    *
    * // share a media stream with an explicit label
-   * peer.share({ label: "camera", stream, managed: true });
+   * const sharedStream = await peer.share({ label: "camera", stream, managed: true });
    * ```
    *
    * @param options Stream descriptor or MediaStream instance.
@@ -321,7 +325,7 @@ export class Peer {
    * @example
    * ```javascript
    * // unshare a media stream with an explicit label
-   * peer.unshare({ label: "camera" });
+   * await peer.unshare({ label: "camera" });
    * ```
    *
    * @param options A stream label, MediaStream instance, or an object containing a label.
@@ -375,7 +379,7 @@ export class Peer {
    * @example
    * ```javascript
    * // open a channel with label "chat"
-   * peer.open({ label: "chat" });
+   * await peer.open({ label: "chat" });
    * ```
    *
    * @param options Channel options or channel label.
@@ -404,7 +408,7 @@ export class Peer {
    * @example
    * ```javascript
    * // close the channel with label "chat"
-   * peer.close({ label: "chat" });
+   * await peer.close({ label: "chat" });
    * ```
    *
    * @param options Channel label or object containing `label`.
@@ -437,10 +441,9 @@ export class Peer {
    * @example
    * ```javascript
    * // send a message to default channel
-   * peer.send("Hello, all peers!");
+   * await peer.send("Hello, all peers!");
    * // send large data with a progress handler
-   * const blob = new Blob([new Uint8Array(1024 * 1024)]);
-   * const file = new File([blob], "example.dat");
+   * const file = new File([new Uint8Array(1024 * 1024)], "example.dat");
    * const transfer = peer.send(file, {
    *   label: "chat", // channel label
    *   info: { filename: file.name }, // metadata
@@ -457,11 +460,13 @@ export class Peer {
    * @param message Message payload to send.
    * @param options Send options or channel label.
    * @returns A ReadableStream of aggregated transfer progress across all connections.
+   *   The returned value also implements Promise, which resolves when all
+   *   transfers complete or error.
    */
   send(
     message: unknown,
     options?: string | SendOptions,
-  ): ReadableStream<TransferProgress> {
+  ): ReadableStream<TransferProgress> & Promise<void> {
     const {
       label = "default",
       info,
@@ -472,7 +477,8 @@ export class Peer {
 
     const numConnections = this.#connections.size;
     if (!this.#active || !numConnections) {
-      return new ReadableStream({
+      if (message instanceof ReadableStream) message.cancel();
+      return new PromiseLikeReadableStream<TransferProgress>({
         start(controller) {
           controller.close();
         },
@@ -486,16 +492,16 @@ export class Peer {
       streams = teeStream(message, numConnections);
     }
 
-    const results: ReadableStream<TransferProgress>[] = [];
+    const sources: PromiseLikeReadableStream<TransferProgress>[] = [];
     for (const [index, remote] of Array.from(
       this.#connections.values(),
     ).entries()) {
       const data = streams ? streams[index] : message;
       const progress = remote.send(data, { label, info, signal });
-      results.push(progress);
+      sources.push(progress);
     }
 
-    return mergeStreams(results);
+    return mergeStreams<TransferProgress>(sources);
   }
 
   /**
@@ -520,6 +526,14 @@ export class Peer {
 
   /**
    * Subscribes to one or more peer events.
+   *
+   * @example
+   * ```javascript
+   * // subscribe to the "connection" event
+   * peer.on("connection", (e) => {
+   *   console.log("Connection state is changed:", e.state);
+   * });
+   * ````
    *
    * @param event Event name or list of event names.
    * @param handler Event handler.
@@ -828,8 +842,8 @@ export interface TransferProgress {
   label: string;
   /** Number of bytes transferred so far. */
   current: number;
-  /** Total number of bytes to transfer. It could be -1 if unknown. */
-  total: number;
+  /** Total number of bytes to transfer if known, otherwise `undefined`. */
+  total?: number;
   /** Whether the transfer is done. */
   done: boolean;
 }

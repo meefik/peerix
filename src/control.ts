@@ -84,7 +84,7 @@ export class ControlChannel {
     const buffer = this.#encode(event, message);
     if (!buffer) return false;
 
-    this.#channel.send(new Uint8Array(buffer));
+    this.#channel.send(buffer);
 
     return true;
   }
@@ -92,7 +92,7 @@ export class ControlChannel {
   /**
    * Encodes an event and its payload into a protocol buffer byte array.
    */
-  #encode(event: number, message: object): Uint8Array | null {
+  #encode(event: number, message: object): Uint8Array<ArrayBuffer> | null {
     const payload = new TextEncoder().encode(JSON.stringify(message));
     return encode<Packet>({ event, payload }, PACKET_SCHEMA);
   }
@@ -100,7 +100,9 @@ export class ControlChannel {
   /**
    * Decodes a protocol buffer byte array back into an event and message.
    */
-  #decode(buffer: Uint8Array): { event: number; message: object } | null {
+  #decode(
+    buffer: Uint8Array<ArrayBuffer>,
+  ): { event: number; message: object } | null {
     const { event, payload } = decode<Packet>(buffer, PACKET_SCHEMA) ?? {};
     if (typeof event === "number" && typeof payload !== "undefined") {
       const message = JSON.parse(new TextDecoder().decode(payload));
@@ -143,7 +145,7 @@ export class ControlChannel {
   #handleMessage(e: Event): void {
     try {
       const { data } = e as MessageEvent;
-      const decoded = this.#decode(new Uint8Array(data));
+      const decoded = this.#decode(new Uint8Array(data as ArrayBuffer));
       if (decoded) {
         const { event, message } = decoded;
         this.#callback.message(event, message);

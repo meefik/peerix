@@ -62,15 +62,13 @@ peer.on("error", (e) => {
 });
 
 // join a room
-peer.join({
+await peer.join({
   room: "room-id",
-  metadata: {
-    /* optional metadata */
-  },
+  metadata: { /* optional metadata */ },
 });
 
 // later, if you want to leave the room
-// peer.leave();
+// await peer.leave();
 ```
 
 > The room identifier can be any string, but it should be the same for all peers that want to connect with each other.
@@ -94,32 +92,57 @@ peer.on("channel:close", (e) => {
 
 // listen for incoming messages
 peer.on("channel:message", async (e) => {
-  const { remote, data, label } = e;
+  const { remote, label, data } = e;
+  // you must await the `data` to read its content
   const message = await data;
   console.log(`Message from peer "${remote.id}" on channel "${label}":`, message);
 });
 
 // open a data channel with a specific label
-peer.open({ label: "chat" });
-
-// send a message to each connected peer via a specific data channel
-peer.send("Hello, peers!", { label: "chat" });
+await peer.open({ label: "chat" });
 
 // later, if you want to close the data channel
-// peer.close({ label: 'chat' });
+// await peer.close({ label: "chat" });
 ```
 
-Sending a large message via a data channel and track its progress:
+The `channel:message` event fires when the first chunk of data is received on a channel. The `data` is a `ReadableStream` but it also can be consumed as a promise. The `send` method returns an iterable transfer object to track its progress and a promise that resolves when the data is received by the remote peer.
+
+Sending a large file via a data channel and tracking its progress:
 
 ```js
-const blob = new Blob([new Uint8Array(1024 * 1024)]); // create a 1 MB blob
-const transfer = remote.send(blob);
+const file = new File([new Uint8Array(1024 * 1024)], "example.dat");
+const transfer = peer.send(file, {
+  label: "chat", // channel label
+  info: { name: file.name, size: file.size }, // metadata
+  signal: AbortSignal.timeout(10000), // abort signal
+});
 // track the progress of the transfer
-for await (const { id, label, current, total, done } of transfer) {
-  console.log(`Transfer: ${id}, ${label}: ${current} / ${total}`);
+for await (const progress of transfer) {
+  const { id, label, current, total } = progress;
+  const percent = Math.round((current / total) * 100);
+  console.log(`[${id}:${label}] Sending... ${percent}%`);
 }
-// cancel the transfer if needed
-// transfer.cancel();
+```
+
+You can use `AbortSignal` to abort the transfer after a specified time or cancel it manually with an abort controller.
+
+Receiving the file and tracking its progress:
+
+```js
+peer.on("channel:message", async (e) => {
+  const { remote, label, data, info } = e;
+  let current = 0;
+  const chunks = []
+  // read data by chunks
+  for await (const chunk of data) {
+    chunks.push(chunk);
+    current += chunk.length;
+    const percent = Math.round((current / info.size) * 100);
+    console.log(`[${remote.id}:${label}] Receiving... ${percent}%`)
+  }
+  const file = new File(chunks, info.name);
+  console.log("Received:", file);
+});
 ```
 
 > The channel label can be any string and should be unique for each data channel.
@@ -130,17 +153,13 @@ Work with media streams to share audio and video with other peers:
 // listen for a remote peer sharing a stream
 peer.on("stream:add", (e) => {
   const { remote, stream, label } = e;
-  console.log(
-    `Peer "${remote.id}" shared stream "${stream.id}" with label "${label}"`,
-  );
+  console.log(`Peer "${remote.id}" shared stream "${stream.id}" with label "${label}"`);
 });
 
 // listen for a remote peer unsharing a stream
 peer.on("stream:remove", (e) => {
   const { remote, stream, label } = e;
-  console.log(
-    `Peer "${remote.id}" unshared stream "${stream.id}" with label "${label}"`,
-  );
+  console.log(`Peer "${remote.id}" unshared stream "${stream.id}" with label "${label}"`);
 });
 
 // get a media stream from the user's camera and microphone
@@ -150,10 +169,10 @@ const stream = await navigator.mediaDevices.getUserMedia({
 });
 
 // start sharing the stream with the room
-peer.share({ label: "camera", stream });
+const sharedStream = await peer.share({ label: "camera", stream });
 
 // later, if you no longer want to share the stream, you can unshare it
-// peer.unshare({ label: 'camera' });
+// await peer.unshare({ label: "camera" });
 ```
 
 > The stream label can be any string and should be unique for each media stream.
@@ -188,7 +207,7 @@ const newStream = await navigator.mediaDevices.getUserMedia({
 });
 
 // reshare the new stream with the same label to update the media
-peer.share({ label: "camera", stream: newStream });
+await peer.share({ label: "camera", stream: newStream });
 ```
 
 In this case, the tracks from the old stream will be removed and replaced with the tracks from the new stream for all connected peers and new peers that join the room. On the remote peers, you will receive a `track:remove` event for the old tracks and a `track:add` event for the new tracks. This allows you to easily switch between different media sources or update the media being shared without having to manage individual tracks manually.
@@ -199,11 +218,11 @@ Peerix emits various lifecycle events that allow you to track the state of peer 
 
 Lifecycle events include:
 
-- `connection[:new,:connecting,:connected,:disconnected,:failed,:closed]`: a peer's connection state changes.
-- `channel[:new,:open,:close,:message,:error]`: a data channel's state changes or it receives a message.
-- `stream[:add,:remove]`: a remote peer shares or unshares a media stream.
-- `track[:add,:remove]`: a track is added or removed from a media stream by a remote peer.
-- `error`: an error occurs with a peer connection, media stream, data channel, or signaling.
+- `connection[:new,:connecting,:connected,:disconnected,:failed,:closed]`: fired when a peer's connection state changes.
+- `channel[:new,:open,:close,:message,:error]`: fired for data channel state changes and incoming messages.
+- `stream[:add,:remove]`: fired when a remote peer shares or unshares a media stream.
+- `track[:add,:remove]`: fired when a track is added or removed from a media stream.
+- `error`: fired when an error occurs with a peer connection, media stream, data channel, or signaling.
 
 You can subscribe to either group events or individual events using the `:event` suffix.
 

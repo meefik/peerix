@@ -11,6 +11,7 @@ import log from "./utils/logger.js";
 import { PeerixError } from "./error.js";
 import { parseOptions } from "./utils/helpers.js";
 import { EventEmitter } from "./utils/emitter.js";
+import { PromiseLikeReadableStream } from "./utils/stream.js";
 import { Timeout } from "./utils/timeout.js";
 import { ControlChannel } from "./control.js";
 import { DataChannel } from "./channel.js";
@@ -238,6 +239,14 @@ export class RemotePeer {
   /**
    * Registers an event handler for a specific event type emitted by the remote peer connection.
    *
+   * @example
+   * ```javascript
+   * // subscribe to the "connection" event
+   * peer.on("connection", (e) => {
+   *   console.log("Connection state is changed:", e.state);
+   * });
+   * ````
+   *
    * @param event Event type to listen for.
    * @param handler Callback function to handle the event.
    */
@@ -321,7 +330,7 @@ export class RemotePeer {
    * const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
    *
    * // share a media stream with an explicit label
-   * remote.share({ label: "camera", stream, managed: true });
+   * const sharedStream = await remote.share({ label: "camera", stream, managed: true });
    * ```
    *
    * @param options Stream descriptor or MediaStream instance.
@@ -395,7 +404,7 @@ export class RemotePeer {
    * @example
    * ```javascript
    * // unshare a media stream with an explicit label
-   * remote.unshare({ label: "camera" });
+   * await remote.unshare({ label: "camera" });
    * ```
    *
    * @param options A stream label, MediaStream instance, or an object containing a label.
@@ -446,7 +455,7 @@ export class RemotePeer {
    * @example
    * ```javascript
    * // open a channel with label "chat"
-   * remote.open({ label: "chat" });
+   * await remote.open({ label: "chat" });
    * ```
    *
    * @param options Channel options or channel label.
@@ -470,7 +479,7 @@ export class RemotePeer {
    * @example
    * ```javascript
    * // close the channel with label "chat"
-   * remote.close({ label: "chat" });
+   * await remote.close({ label: "chat" });
    * ```
    *
    * @param options Channel label or object containing `label`.
@@ -500,10 +509,9 @@ export class RemotePeer {
    * @example
    * ```javascript
    * // send a message to default channel
-   * remote.send("Hello, peer!");
+   * await remote.send("Hello, peer!");
    * // send large data with a progress handler
-   * const blob = new Blob([new Uint8Array(1024 * 1024)]);
-   * const file = new File([blob], "example.dat");
+   * const file = new File([new Uint8Array(1024 * 1024)], "example.dat");
    * const transfer = remote.send(file, {
    *   label: "chat", // channel label
    *   info: { filename: file.name }, // metadata
@@ -515,15 +523,16 @@ export class RemotePeer {
    *   const percent = Math.round((current / total) * 100);
    *   console.log(`[${id}:${label}] Sending... ${percent}%`);
    * }
+   * ```
    *
    * @param message Message payload to send.
    * @param options Send options or channel label.
-   * @returns A ReadableStream of transfer progress status.
+   * @returns A ReadableStream of transfer progress status or a Promise.
    */
   send(
     message: unknown,
     options?: string | SendOptions,
-  ): ReadableStream<TransferProgress> {
+  ): ReadableStream<TransferProgress> & Promise<void> {
     const {
       label = "default",
       info,
@@ -535,7 +544,7 @@ export class RemotePeer {
     const dc = this.#dataChannels.get(label);
     if (!dc) {
       if (message instanceof ReadableStream) message.cancel();
-      return new ReadableStream({
+      return new PromiseLikeReadableStream<TransferProgress>({
         start(c) {
           const err = new Error(`No channel found for label: ${label}`);
           c.error(err);

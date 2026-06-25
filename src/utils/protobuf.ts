@@ -236,7 +236,7 @@ function skipUnknownField(
 export function encode<T extends object>(
   obj: T,
   schema: Schema,
-): Uint8Array | null {
+): Uint8Array<ArrayBuffer> | null {
   const out: number[] = [];
   const textEncoder = new TextEncoder();
   const fieldIds = new Set<number>();
@@ -269,7 +269,7 @@ export function encode<T extends object>(
  * @returns The decoded object, or null if decoding fails.
  */
 export function decode<T extends object>(
-  buffer: Uint8Array,
+  buffer: Uint8Array<ArrayBuffer>,
   schema: Schema,
 ): T | null {
   const result: Record<string, unknown> = {};

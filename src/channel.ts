@@ -1,3 +1,4 @@
+import type { TransferProgress } from "./peer.js";
 import { encode, decode } from "./utils/protobuf.js";
 import {
   dataToStream,
@@ -14,12 +15,10 @@ const CHUNK_SIZE = 16 * 1024 - HEADER_SIZE;
 const BUFFERED_AMOUNT_LOW = 32 * 1024;
 /** Upper bound on buffered bytes before back-pressure kicks in. */
 const BUFFERED_AMOUNT_MAX = 256 * 1024;
-/** How long to wait for the channel buffer to drain before giving up. */
-const DRAIN_TIMEOUT = 10 * 1000;
-/** Maximum 16-bit unsigned integer used for message IDs (wraps around). */
-const MAX_MESSAGE_ID = 0xffff;
-/** Maximum number of concurrent messages that can be sent. */
-const MAX_CONCURRENT_MESSAGES = 100;
+/** How long to wait for the channel buffer to drain or the remote answers before giving up. */
+const ASK_TIMEOUT = 10 * 1000;
+/** Maximum 16-bit unsigned integer used for transfer IDs (wraps around). */
+const MAX_TRANSFER_ID = 0xffff;
 
 /** Map from human-readable type names to their numeric identifiers. */
 const MESSAGE_TYPE = {
@@ -35,12 +34,13 @@ const PACKET_SCHEMA: Record<
   { id: number; type: "uint32" | "bytes" | "bool" }
 > = {
   id: { id: 1, type: "uint32" },
-  index: { id: 2, type: "uint32" },
-  type: { id: 3, type: "uint32" },
-  abort: { id: 4, type: "bool" },
-  done: { id: 5, type: "bool" },
-  info: { id: 6, type: "bytes" },
-  chunk: { id: 7, type: "bytes" },
+  ask: { id: 2, type: "bool" },
+  index: { id: 3, type: "uint32" },
+  type: { id: 4, type: "uint32" },
+  abort: { id: 5, type: "bool" },
+  done: { id: 6, type: "bool" },
+  info: { id: 7, type: "bytes" },
+  chunk: { id: 8, type: "bytes" },
 };
 
 /**
@@ -52,21 +52,23 @@ const PACKET_SCHEMA: Record<
  */
 export class DataChannel {
   #peerId: string;
-  #messageId: number;
+  #transferId: number;
   #channel: RTCDataChannel;
   #callback: DataChannelCallback;
   #handlers: Record<string, EventListener>;
-  #outgoingQueue: Promise<unknown>;
-  #incomingQueue: Map<string, MessageController>;
+  #outgoingTransfers: Map<number, OutgoingTransfer>;
+  #incomingTransfers: Map<number, IncomingTransfer>;
+  #taskQueue: Promise<unknown>;
   #textEncoder: TextEncoder;
   #textDecoder: TextDecoder;
+  #lowBufferResolvers: Set<() => void>;
 
   /**
    * Creates a new DataChannel instance.
    *
    * @param options.peerId The unique identifier of the remote peer.
    * @param options.channel The WebRTC data channel to transfer data over.
-   * @param options.callback Callback functions to handle propagating events.
+   * @param options.callback Callback functions to handle propagated events.
    */
   constructor({
     peerId,
@@ -81,16 +83,19 @@ export class DataChannel {
     this.#channel = channel;
     this.#callback = callback;
 
-    this.#messageId = 0;
-    this.#outgoingQueue = Promise.resolve();
-    this.#incomingQueue = new Map();
+    this.#transferId = 0;
+    this.#taskQueue = Promise.resolve();
+    this.#outgoingTransfers = new Map();
+    this.#incomingTransfers = new Map();
     this.#textEncoder = new TextEncoder();
     this.#textDecoder = new TextDecoder();
+    this.#lowBufferResolvers = new Set();
 
     this.#handlers = {
       open: this.#handleOpen.bind(this),
       close: this.#handleClose.bind(this),
       error: this.#handleError.bind(this),
+      bufferedamountlow: this.#handleBufferedAmountLow.bind(this),
       message: this.#handleMessage.bind(this),
     };
 
@@ -108,48 +113,40 @@ export class DataChannel {
    *
    * @param message The message to send.
    * @param options Send options including metadata and abort signal.
-   * @returns A ReadableStream that resolves when the message is sent.
+   * @returns A ReadableStream that yields transfer progress updates.
    */
   send(
     message: unknown,
     options?: { info?: Record<string, unknown>; signal?: AbortSignal },
-  ): ReadableStream<{
-    id: string;
-    label: string;
-    current: number;
-    total: number;
-    done: boolean;
-  }> {
-    let canceled = false;
-    let ctrl!: ReadableStreamDefaultController;
-    const progress = new ReadableStream(
-      {
-        start(c) {
-          ctrl = c;
-        },
-        cancel() {
-          canceled = true;
-        },
-      },
-      { highWaterMark: 0, size: () => 1 },
-    );
-
+  ): PromiseLikeReadableStream<TransferProgress> {
     const { info, signal } = options ?? {};
 
-    // Fail immediately if the signal is already aborted.
-    if (signal?.aborted) {
-      ctrl.error(
-        signal.reason ?? new DOMException("Send aborted", "AbortError"),
-      );
+    let aborted = false;
+    const onAbort = () => {
+      aborted = true;
+    };
+    const { progress, controller: progressCtrl } =
+      this.#createProgress(onAbort);
+
+    const failTransfer = (
+      error: Error,
+    ): PromiseLikeReadableStream<TransferProgress> => {
+      progressCtrl.error(error);
+      if (message instanceof ReadableStream) message.cancel();
       return progress;
+    };
+
+    // Fail immediately if the signal is already aborted.
+    // Use `signal.aborted` instead of the `abort` event.
+    if (aborted || signal?.aborted) {
+      return failTransfer(
+        signal?.reason ?? new DOMException("Transfer aborted", "AbortError"),
+      );
     }
 
     // Unreliable channels or channels with custom protocols are not supported.
-    const isSupported = !this.#channel.protocol && this.#channel.ordered;
-    if (!isSupported) {
-      const err = new Error("Channel is not supported");
-      ctrl.error(err);
-      return progress;
+    if (this.#channel.protocol || !this.#channel.ordered) {
+      return failTransfer(new Error("Channel is not supported"));
     }
 
     // Length of the info must be less than chunk size because the info
@@ -157,75 +154,82 @@ export class DataChannel {
     const infoBuffer = this.#encodeJSON(info);
     const infoLength = infoBuffer?.byteLength ?? 0;
     if (infoLength >= CHUNK_SIZE) {
-      const err = new Error("Metadata is too large");
-      ctrl.error(err);
-      return progress;
-    }
-
-    // Wire up abort signal to cancel the send operation.
-    const onAbort = () => {
-      canceled = true;
-    };
-    if (signal) {
-      signal.addEventListener("abort", onAbort, { once: true });
+      return failTransfer(new Error("Metadata is too large"));
     }
 
     // Enqueue the message send operation to ensure it doesn't interleave
     // with other messages.
-    void this.#enqueueMessage(async () => {
-      let dataStream;
+    void this.#enqueueTask(async () => {
+      let dataStream, transfer;
       let failed = false;
+
       try {
         if (this.#channel.readyState !== "open") {
           throw new Error("Channel is not open");
         }
 
-        if (signal?.aborted) {
-          throw signal.reason ?? new DOMException("Send aborted", "AbortError");
+        if (aborted || signal?.aborted) {
+          throw (
+            signal?.reason ?? new DOMException("Transfer aborted", "AbortError")
+          );
         }
 
-        this.#messageId = (this.#messageId % MAX_MESSAGE_ID) + 1;
         const { stream, type, size: total } = dataToStream(message);
         dataStream = stream;
-        const typeCode = MESSAGE_TYPE[type];
+        this.#transferId = (this.#transferId % MAX_TRANSFER_ID) + 1;
+        const id = this.#transferId;
         const label = this.#channel.label;
         const peerId = this.#peerId;
-        const messageId = this.#messageId;
+        const typeCode = MESSAGE_TYPE[type];
         let current = 0;
+
+        transfer = this.#createOutgoingTransfer(id);
 
         for await (const { index, chunk, done } of streamToChunks(
           stream,
           CHUNK_SIZE,
           infoLength,
         )) {
-          if (canceled) {
-            this.#sendAbort(messageId);
-            throw new DOMException("Send aborted", "AbortError");
+          if (aborted || signal?.aborted) {
+            throw (
+              signal?.reason ??
+              new DOMException("Transfer aborted", "AbortError")
+            );
           }
 
+          // Send the data chunk.
           const isFirstChunk = index === 0;
           const packet: Packet = {
-            id: messageId,
+            id,
             index,
             type: isFirstChunk ? typeCode : undefined,
             info: isFirstChunk && infoBuffer ? infoBuffer : undefined,
             chunk,
             done,
           };
+          await this.#send(packet);
 
-          await this.#sendChunk(packet);
-
+          // Update transfer progress.
           current += chunk.byteLength;
-          if (done) current = total;
-          ctrl?.enqueue({ id: peerId, label, current, total, done });
+          progressCtrl.enqueue({ id: peerId, label, current, total, done });
+
+          // Wait for delivery confirmation before finishing.
+          if (done) {
+            await transfer.waitForDone();
+          }
         }
       } catch (err) {
         failed = true;
-        ctrl?.error(err);
+        progressCtrl.error(err);
+        if (transfer) {
+          transfer.abort(err);
+          void this.#send({ id: transfer.id, ask: true, abort: true }).catch(
+            () => {},
+          );
+        }
       } finally {
-        signal?.removeEventListener("abort", onAbort);
         dataStream?.cancel();
-        if (!failed) ctrl?.close();
+        if (!failed) progressCtrl.close();
       }
     });
 
@@ -236,15 +240,18 @@ export class DataChannel {
    * Closes the data channel and cleans up all resources.
    */
   destroy(): void {
-    if (this.#channel.readyState === "closed") return;
+    try {
+      if (this.#channel.readyState !== "closed") {
+        this.#channel.close();
+      }
+      this.#lowBufferResolvers.clear();
 
-    this.#channel.close();
-
-    const err = new Error("Channel is closed");
-    this.#incomingQueue.forEach((controller) => controller.error(err));
-    this.#incomingQueue.clear();
-
-    this.#callback.destroy();
+      const err = new Error("Channel is closed");
+      this.#outgoingTransfers.forEach((transfer) => transfer.abort(err));
+      this.#incomingTransfers.forEach((transfer) => transfer.abort(err));
+    } finally {
+      this.#callback.destroy();
+    }
   }
 
   /**
@@ -253,25 +260,150 @@ export class DataChannel {
    * Each task waits for the previous one to finish, which guarantees that
    * chunks belonging to different messages are never interleaved.
    */
-  #enqueueMessage<T>(task: () => Promise<T>): Promise<T> {
-    const prev = this.#outgoingQueue;
+  #enqueueTask<T>(task: () => Promise<T>): Promise<T> {
+    const prev = this.#taskQueue;
     const run = prev.then(() => task());
     // Swallow errors because tasks handle them independently.
-    this.#outgoingQueue = run.catch((err) => {});
+    this.#taskQueue = run.catch((err) => {});
     return run;
   }
 
   /**
-   * Generates a unique key for tracking incoming messages by combining the channel label and message ID.
+   * Creates a progress ReadableStream for reporting transfer status.
    */
-  #getMessageId(id: number): string {
-    return `${this.#channel.label}:${id}`;
+  #createProgress(onCancel: () => void): {
+    progress: PromiseLikeReadableStream<TransferProgress>;
+    controller: ReadableStreamDefaultController;
+  } {
+    let controller!: ReadableStreamDefaultController;
+    const progress = new PromiseLikeReadableStream<TransferProgress>(
+      {
+        start(ctrl) {
+          controller = ctrl;
+        },
+        cancel() {
+          onCancel();
+        },
+      },
+      { highWaterMark: 0, size: () => 1 },
+    );
+    return {
+      progress,
+      controller,
+    };
   }
 
   /**
-   * Sends a chunk of data through a specific channel.
+   * Creates a new transfer controller for an outgoing message.
    */
-  async #sendChunk(packet: Packet): Promise<void> {
+  #createOutgoingTransfer(id: number): OutgoingTransfer {
+    let ended = false;
+    const listeners = new Set<[() => void, (err: unknown) => void]>();
+    const transfer: OutgoingTransfer = {
+      id,
+      abort: (err?: unknown) => {
+        if (ended) return;
+        ended = true;
+        this.#outgoingTransfers.delete(id);
+        const error = err ?? new DOMException("Transfer aborted", "AbortError");
+        for (const [, reject] of listeners) reject(error);
+      },
+      done: () => {
+        if (ended) return;
+        ended = true;
+        this.#outgoingTransfers.delete(id);
+        for (const [resolve] of listeners) resolve();
+      },
+      waitForDone: () => {
+        return new Promise<void>((res, rej) => {
+          const timer = setTimeout(() => {
+            ended = true;
+            this.#outgoingTransfers.delete(id);
+            rej(new Error("Transfer timed out"));
+          }, ASK_TIMEOUT);
+          const resolve = () => {
+            clearTimeout(timer);
+            res();
+          };
+          const reject = (err: unknown) => {
+            clearTimeout(timer);
+            rej(err);
+          };
+          listeners.add([resolve, reject]);
+        });
+      },
+    };
+
+    this.#outgoingTransfers.set(id, transfer);
+
+    return transfer;
+  }
+
+  /**
+   * Creates a new transfer controller for an incoming message.
+   */
+  #createIncomingTransfer(
+    id: number,
+    type: DataType,
+    onCancel: (err: unknown) => void,
+  ): IncomingTransfer {
+    let ended = false;
+    let transfer: IncomingTransfer | undefined;
+    let streamCtrl!: ReadableStreamDefaultController;
+
+    const data = new PromiseLikeReadableStream<Uint8Array>(
+      {
+        start: (ctrl) => {
+          streamCtrl = ctrl;
+        },
+        cancel: () => {
+          if (ended) return;
+          ended = true;
+          const err = new Error("Transfer cancelled");
+          transfer?.abort(err);
+          onCancel(err);
+        },
+      },
+      {},
+      type,
+    );
+
+    transfer = {
+      id,
+      index: 0,
+      data,
+      enqueue: (chunk: Uint8Array) => {
+        if (ended) return;
+        streamCtrl.enqueue(chunk);
+        transfer!.index++;
+      },
+      close: () => {
+        if (ended) return;
+        ended = true;
+        streamCtrl.close();
+        this.#incomingTransfers.delete(id);
+      },
+      abort: (error: unknown) => {
+        if (ended) return;
+        ended = true;
+        streamCtrl.error(error);
+        this.#incomingTransfers.delete(id);
+      },
+    };
+
+    this.#incomingTransfers.set(id, transfer);
+
+    return transfer;
+  }
+
+  /**
+   * Sends a packet over the data channel.
+   */
+  async #send(packet: Packet): Promise<void> {
+    if (this.#channel.readyState !== "open") {
+      throw new Error("Channel is not open");
+    }
+
     const buffer = encode(packet, PACKET_SCHEMA);
     if (!buffer) {
       throw new Error("Failed to encode message");
@@ -282,138 +414,9 @@ export class DataChannel {
       BUFFERED_AMOUNT_MAX - buffer.byteLength,
     );
 
-    while (this.#channel.bufferedAmount > maxBufferedAmount) {
-      await this.#waitForLowBuffer(maxBufferedAmount);
-    }
+    await this.#waitForLowBuffer(maxBufferedAmount);
 
-    if (this.#channel.readyState !== "open") {
-      throw new Error("Channel is not open");
-    }
-
-    this.#channel.send(new Uint8Array(buffer));
-  }
-
-  /**
-   * Waits until a data channel can accept more bytes.
-   */
-  async #waitForLowBuffer(maxBufferedAmount = 0): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      const channel = this.#channel;
-
-      if (channel.readyState !== "open") {
-        return reject(new Error("Channel is not open"));
-      }
-
-      if (channel.bufferedAmount <= maxBufferedAmount) {
-        return resolve();
-      }
-
-      let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-      const cleanup = () => {
-        channel.removeEventListener("bufferedamountlow", onLow);
-        channel.removeEventListener("close", onClose);
-        channel.removeEventListener("error", onError);
-        if (timeoutTimer) {
-          clearTimeout(timeoutTimer);
-          timeoutTimer = null;
-        }
-      };
-      const onLow = () => {
-        cleanup();
-        resolve();
-      };
-      const onClose = () => {
-        cleanup();
-        reject(new Error("Channel closed during data send"));
-      };
-      const onError = () => {
-        cleanup();
-        reject(new Error("Channel failed during data send"));
-      };
-
-      channel.addEventListener("bufferedamountlow", onLow);
-      channel.addEventListener("close", onClose);
-      channel.addEventListener("error", onError);
-
-      timeoutTimer = setTimeout(() => {
-        cleanup();
-        reject(new Error("Timed out waiting for channel buffer to drain"));
-      }, DRAIN_TIMEOUT);
-    });
-  }
-
-  /**
-   * Sends an abort signal to the channel for a specific message.
-   */
-  #sendAbort(id: number): void {
-    if (this.#channel.readyState !== "open") return;
-
-    const packet: Packet = { id, index: 0, abort: true };
-    const payload = encode(packet, PACKET_SCHEMA);
-    if (payload) this.#channel.send(new Uint8Array(payload));
-  }
-
-  /**
-   * Creates a new MessageController for an incoming message.
-   *
-   * Sets up a ReadableStream and tracks chunk ordering, metadata,
-   * and lifecycle (enqueue / close / error) for the message.
-   */
-  #createMessageController(id: number, type: DataType): MessageController {
-    const messageId = this.#getMessageId(id);
-
-    let streamCtrl!: ReadableStreamDefaultController;
-    const data = new PromiseLikeReadableStream(
-      {
-        start: (ctrl) => {
-          streamCtrl = ctrl;
-        },
-        cancel: () => {
-          this.#incomingQueue.delete(messageId);
-          this.#sendAbort(id);
-        },
-      },
-      {},
-      type,
-    );
-
-    // Evict the oldest controller when the incoming queue exceeds its limit.
-    if (this.#incomingQueue.size >= MAX_CONCURRENT_MESSAGES) {
-      const oldestEntry = this.#incomingQueue.values().next();
-      oldestEntry.value?.error(
-        new Error("Too many concurrent incoming messages"),
-      );
-    }
-
-    const controller: MessageController = {
-      id,
-      index: -1,
-      data,
-      enqueue: (index: number, chunk: Uint8Array) => {
-        if (streamCtrl) {
-          if (index === controller.index + 1) {
-            streamCtrl.enqueue(chunk);
-            controller.index = index;
-          } else {
-            const err = new Error("Incorrect message order");
-            this.#incomingQueue.delete(messageId);
-            streamCtrl.error(err);
-          }
-        }
-      },
-      close: () => {
-        this.#incomingQueue.delete(messageId);
-        streamCtrl?.close();
-      },
-      error: (err: unknown) => {
-        this.#incomingQueue.delete(messageId);
-        streamCtrl?.error(err);
-      },
-    };
-
-    this.#incomingQueue.set(messageId, controller);
-
-    return controller;
+    this.#channel.send(buffer);
   }
 
   /**
@@ -447,7 +450,7 @@ export class DataChannel {
   }
 
   /**
-   * Decodes the data type from the message.
+   * Decodes a numeric type code into its corresponding DataType.
    */
   #decodeType(code: number): DataType {
     let type: DataType = "bytes";
@@ -455,6 +458,26 @@ export class DataChannel {
     else if (code === MESSAGE_TYPE.json) type = "json";
     else if (code === MESSAGE_TYPE.blob) type = "blob";
     return type;
+  }
+
+  /**
+   * Waits until the channel's buffered amount drops below the given threshold.
+   */
+  async #waitForLowBuffer(maxBufferedAmount = 0): Promise<void> {
+    while (this.#channel.bufferedAmount > maxBufferedAmount) {
+      await new Promise<void>((resolve, reject) => {
+        const handler = () => {
+          clearTimeout(timer);
+          this.#lowBufferResolvers.delete(handler);
+          resolve();
+        };
+        this.#lowBufferResolvers.add(handler);
+        const timer = setTimeout(() => {
+          this.#lowBufferResolvers.delete(handler);
+          reject(new Error("Transfer timed out"));
+        }, ASK_TIMEOUT);
+      });
+    }
   }
 
   /**
@@ -484,6 +507,17 @@ export class DataChannel {
   }
 
   /**
+   * Handles the `bufferedamountlow` event by notifying all waiters that the buffer is available for writing.
+   */
+  #handleBufferedAmountLow(): void {
+    console.warn("buffer amount low");
+    for (const resolve of [...this.#lowBufferResolvers]) {
+      resolve();
+      this.#lowBufferResolvers.delete(resolve);
+    }
+  }
+
+  /**
    * Processes an incoming raw message from the data channel.
    *
    * Decodes the protobuf payload, routes chunks to the correct in-progress
@@ -491,87 +525,114 @@ export class DataChannel {
    */
   async #handleMessage(e: Event): Promise<void> {
     try {
-      const { data: payload } = e as MessageEvent;
+      const { data } = e as MessageEvent;
 
       // For unreliable channels, channels with custom protocols, and
       // non-ArrayBuffer messages, skip protobuf decoding and deliver
       // the message as-is.
-      const customTransport =
-        this.#channel.protocol ||
-        !this.#channel.ordered ||
-        !(payload instanceof ArrayBuffer || payload instanceof Uint8Array);
-
-      if (customTransport) {
-        this.#callback.message(payload);
+      const isSupported =
+        !this.#channel.protocol &&
+        this.#channel.ordered &&
+        data instanceof ArrayBuffer;
+      if (!isSupported) {
+        this.#callback.message(data);
         return;
       }
 
-      const data =
-        payload instanceof Uint8Array ? payload : new Uint8Array(payload);
-      const packet: Packet | null = decode(data, PACKET_SCHEMA);
+      const packet: Packet | null = decode(
+        new Uint8Array(data as ArrayBuffer),
+        PACKET_SCHEMA,
+      );
       if (!packet) {
         throw new Error("Failed to decode message");
       }
 
-      const { id, index, type, abort, done, info, chunk } = packet;
-
-      const messageId = this.#getMessageId(id);
-      let controller = this.#incomingQueue.get(messageId);
-
-      if (abort) {
-        controller?.error(new Error("Message aborted by sender"));
-        return;
-      }
-
-      // New message — create a controller.
-      if (type && index === 0 && !controller) {
-        const decodedType = this.#decodeType(type);
-        controller = this.#createMessageController(id, decodedType);
-        const decodedInfo = this.#decodeJSON(info);
-        this.#callback.message(controller.data, decodedInfo);
-      }
-
-      // Ignore any inconsistent messages.
-      if (!controller) return;
-
-      // Enqueue chunk data if present.
-      if (chunk) {
-        controller.enqueue(index, chunk);
-      }
-
-      // Finalize the message when the done flag is set.
-      if (done) {
-        controller.close();
-        // TODO: send ASK
+      if (packet.ask) {
+        this.#handleAskPacket(packet);
+      } else {
+        this.#handleDataPacket(packet);
       }
     } catch (err) {
       this.#callback.error(err);
     }
   }
+
+  /**
+   * Handles an incoming ask packet that acknowledges or aborts an outgoing transfer.
+   */
+  #handleAskPacket(packet: Packet): void {
+    const { id, abort, done } = packet;
+    const transfer = this.#outgoingTransfers.get(id);
+
+    if (abort) {
+      transfer?.abort(new Error("Aborted by receiver"));
+      return;
+    }
+
+    if (done && transfer) {
+      transfer.done();
+    }
+  }
+
+  /**
+   * Handles an incoming data packet that creates or advances an incoming transfer.
+   */
+  #handleDataPacket(packet: Packet): void {
+    const { id, index, type, abort, done, info, chunk } = packet;
+    let transfer = this.#incomingTransfers.get(id);
+
+    if (abort) {
+      transfer?.abort(new Error("Aborted by sender"));
+      return;
+    }
+
+    // New message: create the incoming transfer and fire the callback.
+    if (type && index === 0) {
+      transfer?.close();
+      const decodedType = this.#decodeType(type);
+      transfer = this.#createIncomingTransfer(id, decodedType, () => {
+        void this.#send({ id, ask: true, abort: true }).catch(() => {});
+      });
+      const decodedInfo = this.#decodeJSON(info);
+      this.#callback.message(transfer.data, decodedInfo);
+    }
+
+    // Enqueue data chunk if the order is correct.
+    if (chunk && transfer) {
+      if (index !== transfer.index) {
+        transfer.abort(new Error("Incorrect message order"));
+      } else {
+        transfer.enqueue(chunk);
+      }
+    }
+
+    // Signal completion and acknowledge receipt.
+    if (done && transfer) {
+      transfer.close();
+      void this.#send({ id, ask: true, done: true }).catch(() => {});
+    }
+  }
 }
 
-/**
- * Internal controller that tracks a single in-progress incoming message.
- *
- * Chunks are enqueued as they arrive, and the stream is closed or errored
- * when the message finishes or errors.
- */
-interface MessageController {
-  /** Numeric message identifier. */
+/** Internal controller that tracks a single in-progress outgoing message. */
+interface OutgoingTransfer {
   id: number;
-  /** Current chunk index. Initialized to -1; increments with each enqueued chunk. */
-  index: number;
-  /** ReadableStream that delivers chunks to the consumer. */
-  data: PromiseLikeReadableStream;
-  /** Push a new chunk into the stream. */
-  enqueue: (index: number, chunk: Uint8Array) => void;
-  /** Signal that the message is complete and close the stream. */
-  close: () => void;
-  /** Signal an error and terminate the stream. */
-  error: (error: unknown) => void;
+  abort: (error?: unknown) => void;
+  done: () => void;
+  waitForDone: () => Promise<void>;
 }
 
-/** Callback interface for handling propagating events. */
+/** Internal controller that tracks a single in-progress incoming message. */
+interface IncomingTransfer {
+  id: number;
+  index: number;
+  data: PromiseLikeReadableStream<Uint8Array>;
+  enqueue: (chunk: Uint8Array) => void;
+  close: () => void;
+  abort: (error: unknown) => void;
+}
+
+/** Callback interface for handling propagated events. */
 interface DataChannelCallback {
   open: () => void;
   close: () => void;
@@ -583,7 +644,8 @@ interface DataChannelCallback {
 /** Protobuf-encoded packet structure for data channel communication. */
 interface Packet {
   id: number;
-  index: number;
+  ask?: boolean;
+  index?: number;
   type?: number;
   abort?: boolean;
   done?: boolean;

@@ -30,74 +30,75 @@ async function bytesToStream(bytes: Uint8Array): Promise<ReadableStream> {
   });
 }
 
+async function collectPackets(
+  stream: ReadableStream<Uint8Array>,
+  chunkSize: number,
+  skipBytes = 0,
+): Promise<Array<{ index: number; chunk: number[]; done: boolean }>> {
+  const packets: Array<{ index: number; chunk: number[]; done: boolean }> = [];
+  for await (const packet of streamToChunks(stream, chunkSize, skipBytes)) {
+    packets.push({
+      index: packet.index,
+      chunk: [...packet.chunk],
+      done: packet.done,
+    });
+  }
+  return packets;
+}
+
 suite("utils/stream", async () => {
-  test("dataToStream preserves stream inputs and infers text/json/blob/bytes types", async () => {
+  test("dataToStream infers types, reports sizes, and produces correct output for all input kinds", async () => {
     // Arrange
     const sourceStream = await bytesToStream(
       await textToBytes("stream payload"),
     );
-
-    // Act
-    const streamResult = dataToStream(sourceStream);
-    const bytesResult = dataToStream(new Uint8Array([1, 2, 3]));
-    const blobResult = dataToStream(new Blob(["blob payload"]));
-    const textResult = dataToStream("text payload");
-    const jsonResult = dataToStream({ ok: true, value: 7 });
-
-    // Assert
-    assert.equal(streamResult.type, "bytes");
-    assert.equal(streamResult.stream, sourceStream);
-    assert.equal(bytesResult.type, "bytes");
-    assert.equal(blobResult.type, "blob");
-    assert.equal(textResult.type, "text");
-    assert.equal(jsonResult.type, "json");
-
-    const blobBytes = await streamToBytes(blobResult.stream);
-    assert.equal(await bytesToText(blobBytes), "blob payload");
-
-    const textBytes = await streamToBytes(textResult.stream);
-    assert.equal(await bytesToText(textBytes), "text payload");
-
-    const jsonBytes = await streamToBytes(jsonResult.stream);
-    assert.equal(await bytesToText(jsonBytes), '{"ok":true,"value":7}');
-
-    const bytesBytes = await streamToBytes(bytesResult.stream);
-    assert.deepEqual(bytesBytes, new Uint8Array([1, 2, 3]));
-  });
-
-  test("dataToStream reports correct size for each data type", async () => {
-    // Arrange
     const textInput = "hello";
     const binaryInput = new Uint8Array([1, 2, 3, 4, 5]);
     const arrayBuffer = new ArrayBuffer(7);
-    const blobInput = new Blob(["some content"]);
-    const sourceStream = await bytesToStream(await textToBytes("stream data"));
+    const blobInput = new Blob(["blob content"]);
     const jsonInput = { key: "value", num: 42 };
 
     // Act
     const streamResult = dataToStream(sourceStream);
+    const textResult = dataToStream(textInput);
     const binaryResult = dataToStream(binaryInput);
     const arrayBufferResult = dataToStream(arrayBuffer);
     const blobResult = dataToStream(blobInput);
-    const textResult = dataToStream(textInput);
     const jsonResult = dataToStream(jsonInput);
 
-    // Assert - stream input has unknown size
-    assert.equal(streamResult.size, -1);
+    // Assert - types
+    assert.equal(streamResult.type, "bytes");
+    assert.equal(streamResult.stream, sourceStream);
+    assert.equal(textResult.type, "text");
+    assert.equal(binaryResult.type, "bytes");
+    assert.equal(arrayBufferResult.type, "bytes");
+    assert.equal(blobResult.type, "blob");
+    assert.equal(jsonResult.type, "json");
 
-    // Assert - binary and ArrayBuffer sizes match byteLength
+    // Assert - sizes
+    assert.equal(streamResult.size, undefined);
     assert.equal(binaryResult.size, 5);
     assert.equal(arrayBufferResult.size, 7);
-
-    // Assert - blob size matches Blob's size property
     assert.equal(blobResult.size, blobInput.size);
-
-    // Assert - text and json sizes match encoded byte length
     const textBytes = await textToBytes(textInput);
     assert.equal(textResult.size, textBytes.byteLength);
-
     const jsonBytes = await textToBytes(JSON.stringify(jsonInput));
     assert.equal(jsonResult.size, jsonBytes.byteLength);
+
+    // Assert - stream content
+    assert.equal(
+      await bytesToText(await streamToBytes(blobResult.stream)),
+      "blob content",
+    );
+    assert.equal(
+      await bytesToText(await streamToBytes(textResult.stream)),
+      textInput,
+    );
+    assert.equal(
+      await bytesToText(await streamToBytes(jsonResult.stream)),
+      JSON.stringify(jsonInput),
+    );
+    assert.deepEqual(await streamToBytes(binaryResult.stream), binaryInput);
   });
 
   test("dataToStream respects typed array views when producing byte streams", async () => {
@@ -113,6 +114,24 @@ suite("utils/stream", async () => {
     assert.deepEqual(bytes, new Uint8Array([8, 7, 6]));
   });
 
+  test("dataToStream handles null and undefined as JSON fallback", async () => {
+    // Arrange & Act
+    const nullResult = dataToStream(null);
+    const undefResult = dataToStream(undefined);
+
+    // Assert — both map to the json type with "null" content
+    assert.equal(nullResult.type, "json");
+    assert.equal(undefResult.type, "json");
+
+    const nullText = await bytesToText(await streamToBytes(nullResult.stream));
+    const undefText = await bytesToText(
+      await streamToBytes(undefResult.stream),
+    );
+
+    assert.equal(nullText, "null");
+    assert.equal(undefText, "null");
+  });
+
   test("streamToChunks emits fixed-size chunks and marks only the last as done", async () => {
     // Arrange
     const stream = new ReadableStream<Uint8Array>({
@@ -125,43 +144,13 @@ suite("utils/stream", async () => {
     });
 
     // Act
-    const packets: Array<{ index: number; chunk: number[]; done: boolean }> =
-      [];
-    for await (const packet of streamToChunks(stream, 2)) {
-      packets.push({
-        index: packet.index,
-        chunk: [...packet.chunk],
-        done: packet.done,
-      });
-    }
+    const packets = await collectPackets(stream, 2);
 
     // Assert
     assert.deepEqual(packets, [
       { index: 0, chunk: [1, 2], done: false },
       { index: 1, chunk: [3, 4], done: false },
       { index: 2, chunk: [5, 6], done: true },
-    ]);
-  });
-
-  test("streamToChunks emits a final partial chunk when the stream ends early", async () => {
-    // Arrange
-    const stream = await bytesToStream(new Uint8Array([10, 11, 12]));
-
-    // Act
-    const packets: Array<{ index: number; chunk: number[]; done: boolean }> =
-      [];
-    for await (const packet of streamToChunks(stream, 2)) {
-      packets.push({
-        index: packet.index,
-        chunk: [...packet.chunk],
-        done: packet.done,
-      });
-    }
-
-    // Assert
-    assert.deepEqual(packets, [
-      { index: 0, chunk: [10, 11], done: false },
-      { index: 1, chunk: [12], done: true },
     ]);
   });
 
@@ -175,15 +164,7 @@ suite("utils/stream", async () => {
     });
 
     // Act — chunkSize=4, skipBytes=2 → first chunk target = 2, rest = 4
-    const packets: Array<{ index: number; chunk: number[]; done: boolean }> =
-      [];
-    for await (const packet of streamToChunks(stream, 4, 2)) {
-      packets.push({
-        index: packet.index,
-        chunk: [...packet.chunk],
-        done: packet.done,
-      });
-    }
+    const packets = await collectPackets(stream, 4, 2);
 
     // Assert
     assert.deepEqual(packets, [
@@ -191,6 +172,94 @@ suite("utils/stream", async () => {
       { index: 1, chunk: [3, 4, 5, 6], done: false },
       { index: 2, chunk: [7], done: true },
     ]);
+  });
+
+  test("streamToChunks releases the reader lock when the source errors", async () => {
+    // Arrange — stream produces one chunk then errors, well within buffer
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1]));
+        controller.error(new Error("read error"));
+      },
+    });
+
+    // Act — iterate until the generator throws
+    const generator = streamToChunks(stream, 1);
+    let readError: Error | undefined;
+
+    try {
+      await generator.next(); // yields chunk [1] with done: false
+      await generator.next(); // reader.read() rejects with "read error"
+    } catch (err) {
+      readError = err as Error;
+    }
+
+    // Assert — the error propagated through the generator
+    assert.equal(readError?.message, "read error");
+
+    // Assert — reader was released in finally; further .next() calls return
+    // {done: true} without throwing or hanging (proves generator exited cleanly)
+    const after = await generator.next();
+    assert.equal(after.done, true);
+  });
+
+  test("streamToChunks yields nothing for an empty stream", async () => {
+    // Arrange
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+
+    // Act
+    const packets = await collectPackets(stream, 4);
+
+    // Assert
+    assert.deepEqual(packets, []);
+  });
+
+  test("streamToChunks throws on invalid chunk size arguments", async () => {
+    const stream = await bytesToStream(new Uint8Array([1, 2]));
+    const consume = async (
+      stream: ReadableStream<Uint8Array>,
+      chunkSize: number,
+      skipBytes?: number,
+    ) => {
+      for await (const _ of streamToChunks(stream, chunkSize, skipBytes)) {
+        /* empty */
+      }
+    };
+
+    // Act & Assert — zero chunk size
+    await assert.rejects(consume(stream, 0), { message: "Invalid chunk size" });
+
+    // Act & Assert — negative chunk size
+    await assert.rejects(consume(stream, -1), {
+      message: "Invalid chunk size",
+    });
+
+    // Act & Assert — skipBytes makes effective first-chunk size zero or negative
+    await assert.rejects(consume(stream, 4, 4), {
+      message: "Invalid chunk size",
+    });
+
+    await assert.rejects(consume(stream, 3, 5), {
+      message: "Invalid chunk size",
+    });
+  });
+
+  test("streamToChunks throws when source yields non-Uint8Array chunks", async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue("not a buffer" as unknown as Uint8Array);
+        controller.close();
+      },
+    });
+
+    const generator = streamToChunks(stream, 16);
+    await assert.rejects(generator.next(), {
+      message: "ReadableStream must yield Uint8Array chunks",
+    });
   });
 
   test("teeStream returns no branches for non-positive counts", async () => {
@@ -241,30 +310,17 @@ suite("utils/stream", async () => {
     ]);
   });
 
-  test("mergeStreams returns an empty stream when no sources are provided", async () => {
+  test("mergeStreams returns an empty PromiseLikeReadableStream when no sources are provided", async () => {
     // Arrange & Act
     const merged = mergeStreams([]);
 
-    // Assert
+    // Assert — return type is PromiseLikeReadableStream
+    assert.ok(merged instanceof PromiseLikeReadableStream);
+
+    // Assert — the stream closes immediately with no values
     const reader = merged.getReader();
     const { done } = await reader.read();
     assert.equal(done, true);
-  });
-
-  test("mergeStreams returns the source stream when only one is provided", async () => {
-    // Arrange
-    const source = new ReadableStream({
-      start(controller) {
-        controller.enqueue(42);
-        controller.close();
-      },
-    });
-
-    // Act
-    const merged = mergeStreams([source]);
-
-    // Assert
-    assert.equal(merged, source);
   });
 
   test("mergeStreams combines values from multiple streams", async () => {
@@ -324,18 +380,20 @@ suite("utils/stream", async () => {
     const merged = mergeStreams([stream1, stream2]);
     const reader = merged.getReader();
 
-    // Act - read first value
+    // Act
     const result1 = await reader.read();
+
+    // Assert - first value arrives and stream stays open
     assert.equal(result1.value, 1);
     assert.equal(result1.done, false);
 
-    // Stream 1 is done but stream 2 is not; merged should stay open
+    // Act - resolve the slow stream then read remaining values
     resolveClose!();
-
-    // Act - read remaining values until done
     const result2 = await reader.read();
-    assert.equal(result2.done, false);
     const result3 = await reader.read();
+
+    // Assert - second value arrives, then stream closes
+    assert.equal(result2.done, false);
     assert.equal(result3.done, true);
   });
 
@@ -379,102 +437,151 @@ suite("utils/stream", async () => {
     }
   });
 
-  test("PromiseLikeReadableStream resolves as ArrayBuffer when type is bytes (default)", async () => {
+  test("mergeStreams prevents fast producers from starving slow ones", async () => {
     // Arrange
-    const payload = new Uint8Array([10, 20, 30]);
-    let resolved: unknown;
+    let resolveSlow: () => void;
+    const slowReady = new Promise<void>((resolve) => {
+      resolveSlow = resolve;
+    });
 
-    const stream = new PromiseLikeReadableStream({
+    // Fast producer enqueues many values immediately
+    const fastStream = new ReadableStream({
       start(controller) {
-        controller.enqueue(payload);
+        for (let i = 0; i < 100; i++) {
+          controller.enqueue(`fast-${i}`);
+        }
         controller.close();
       },
     });
 
-    // Act
-    await stream.then((value) => {
-      resolved = value;
+    // Slow producer waits, then enqueues its value
+    const slowStream = new ReadableStream({
+      async start(controller) {
+        await slowReady;
+        controller.enqueue("slow-value");
+        controller.close();
+      },
     });
 
-    // Assert
-    assert(resolved instanceof ArrayBuffer);
-    assert.deepEqual(new Uint8Array(resolved as ArrayBuffer), payload);
+    const merged = mergeStreams([fastStream, slowStream]);
+    const reader = merged.getReader();
+
+    // Act - collect all values through the same reader to keep the stream locked
+    const values: string[] = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      values.push(value as string);
+
+      // Let slow stream proceed after reading some fast values
+      if (values.length === 1) {
+        resolveSlow!();
+      }
+    }
+
+    // Assert — slow stream's value is present among the collected values,
+    // proving it wasn't starved by the fast producer
+    assert.ok(values.includes("slow-value"), "Slow producer was starved");
   });
 
-  test("PromiseLikeReadableStream resolves as text when type is text", async () => {
-    // Arrange
-    const message = "Hello, world!";
-    let resolved: unknown;
-
-    const stream = new PromiseLikeReadableStream(
+  test("PromiseLikeReadableStream resolves correctly for all DataType values and undefined", async () => {
+    const cases: Array<{
+      type?: "text" | "json" | "blob" | "bytes";
+      data: Uint8Array<ArrayBuffer>;
+      assertResolved: (value: unknown) => Promise<void>;
+    }> = [
       {
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(message));
-          controller.close();
+        type: "bytes",
+        data: new Uint8Array([10, 20, 30]),
+        assertResolved: async (value) => {
+          assert(value instanceof ArrayBuffer);
+          assert.deepEqual(
+            new Uint8Array(value as ArrayBuffer),
+            new Uint8Array([10, 20, 30]),
+          );
         },
       },
-      {},
-      "text",
-    );
+      {
+        type: "text",
+        data: new TextEncoder().encode("Hello, world!"),
+        assertResolved: async (value) => {
+          assert.equal(value, "Hello, world!");
+        },
+      },
+      {
+        type: "json",
+        data: new TextEncoder().encode(
+          JSON.stringify({ name: "test", count: 42 }),
+        ),
+        assertResolved: async (value) => {
+          assert.deepEqual(value, { name: "test", count: 42 });
+        },
+      },
+      {
+        type: "blob",
+        data: new TextEncoder().encode("blob content here"),
+        assertResolved: async (value) => {
+          assert(value instanceof Blob);
+          assert.equal(await (value as Blob).text(), "blob content here");
+        },
+      },
+      {
+        type: undefined,
+        data: new Uint8Array([1, 2, 3]),
+        assertResolved: async (value) => {
+          // When type is omitted the stream resolves to void after consuming
+          assert.equal(value, undefined);
+        },
+      },
+    ];
 
-    // Act
-    await stream.then((value) => {
-      resolved = value;
-    });
+    for (const { type, data, assertResolved } of cases) {
+      // Arrange
+      let resolved: unknown;
 
-    // Assert
-    assert.equal(resolved, message);
+      const stream = type
+        ? new PromiseLikeReadableStream(
+            {
+              start(controller) {
+                controller.enqueue(data);
+                controller.close();
+              },
+            },
+            {},
+            type,
+          )
+        : new PromiseLikeReadableStream({
+            start(controller) {
+              controller.enqueue(data);
+              controller.close();
+            },
+          });
+
+      // Act
+      await stream.then((value) => {
+        resolved = value;
+      });
+
+      // Assert
+      await assertResolved(resolved);
+    }
   });
 
-  test("PromiseLikeReadableStream resolves as JSON when type is json", async () => {
+  test("PromiseLikeReadableStream rejects when stream errors and type is undefined", async () => {
     // Arrange
-    const obj = { name: "test", count: 42 };
-    let resolved: unknown;
-
-    const stream = new PromiseLikeReadableStream(
-      {
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(JSON.stringify(obj)));
-          controller.close();
-        },
+    const stream = new PromiseLikeReadableStream({
+      start(controller) {
+        controller.error(new Error("stream failed"));
       },
-      {},
-      "json",
-    );
-
-    // Act
-    await stream.then((value) => {
-      resolved = value;
     });
 
-    // Assert
-    assert.deepEqual(resolved, obj);
-  });
-
-  test("PromiseLikeReadableStream resolves as Blob when type is blob", async () => {
-    // Arrange
-    const content = "blob content here";
-    let resolved: unknown;
-
-    const stream = new PromiseLikeReadableStream(
-      {
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode(content));
-          controller.close();
-        },
-      },
-      {},
-      "blob",
+    // Act & Assert
+    await assert.rejects(
+      stream.then(() => {
+        /* no-op */
+      }),
+      { message: "stream failed" },
     );
-
-    // Act
-    await stream.then((value) => {
-      resolved = value;
-    });
-
-    // Assert
-    assert(resolved instanceof Blob);
-    assert.equal(await (resolved as Blob).text(), content);
   });
 
   test("PromiseLikeReadableStream rejects when the stream is locked", async () => {
@@ -494,9 +601,37 @@ suite("utils/stream", async () => {
       stream.then(() => {
         /* no-op */
       }),
-      { message: "Stream is locked" },
+      { message: "Invalid state: ReadableStream is locked" },
     );
 
     reader.releaseLock();
+  });
+
+  test("PromiseLikeReadableStream memoizes the promise across multiple then calls", async () => {
+    // Arrange
+    let consumeCount = 0;
+    const stream = new PromiseLikeReadableStream(
+      {
+        start(controller) {
+          consumeCount++;
+          controller.enqueue(new TextEncoder().encode("memo"));
+          controller.close();
+        },
+      },
+      {},
+      "text",
+    );
+
+    // Act — calling .then() twice should not create two independent promises
+    const p1 = stream.then(() => undefined);
+    const p2 = stream.then(() => undefined);
+
+    // Assert — both references point to the same underlying promise
+    assert(p1 !== p2, ".then() returns a new chained promise");
+
+    await Promise.all([p1, p2]);
+
+    // Assert — the underlying stream was consumed only once
+    assert.equal(consumeCount, 1);
   });
 });

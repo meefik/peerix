@@ -66,20 +66,30 @@ export class TestRunner {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
-  private matchesExpected(actual: any, expected: any): boolean {
+  private async matchesExpected(actual: any, expected: any): Promise<boolean> {
     if (Array.isArray(expected)) {
       if (!Array.isArray(actual) || actual.length !== expected.length)
         return false;
-      return expected.every((value, index) =>
-        this.matchesExpected(actual[index], value),
-      );
+      for (let i = 0; i < expected.length; i++) {
+        if (!(await this.matchesExpected(actual[i], expected[i]))) return false;
+      }
+      return true;
     }
 
     if (this.isRecord(expected)) {
       if (!this.isRecord(actual)) return false;
       for (const [key, value] of Object.entries(expected)) {
-        const nestedActual = actual?.[key];
-        if (!this.matchesExpected(nestedActual, value)) return false;
+        let nestedActual = actual?.[key];
+        // Resolve PromiseLike data fields (e.g., channel:message data)
+        if (
+          key === "data" &&
+          nestedActual !== null &&
+          typeof nestedActual === "object" &&
+          "then" in nestedActual
+        ) {
+          nestedActual = await nestedActual;
+        }
+        if (!(await this.matchesExpected(nestedActual, value))) return false;
       }
       return true;
     }
@@ -184,13 +194,16 @@ export class TestRunner {
   ): Promise<any[]> {
     const started = Date.now();
     return new Promise<any[]>((resolve, reject) => {
-      const scan = () => {
+      const scan = async () => {
         const from = this.cursors[peerId].get(event) ?? 0;
         const queue = this.eventStore[peerId].get(event) ?? [];
         const tail = queue.slice(from);
-        const matched = tail.filter((payload) =>
-          this.matchesExpected(payload, where),
-        );
+        const matched: any[] = [];
+        for (const payload of tail) {
+          if (await this.matchesExpected(payload, where)) {
+            matched.push(payload);
+          }
+        }
 
         if (matched.length >= count) {
           if (where === undefined) {
@@ -203,7 +216,7 @@ export class TestRunner {
               index < queue.length && remaining > 0;
               index += 1
             ) {
-              if (this.matchesExpected(queue[index], where)) {
+              if (await this.matchesExpected(queue[index], where)) {
                 queue.splice(index, 1);
                 index -= 1;
                 remaining -= 1;
@@ -227,7 +240,7 @@ export class TestRunner {
       };
 
       const wake = () => scan();
-      const timer = setInterval(scan, 25);
+      const timer = setInterval(() => scan(), 25);
       const cleanup = () => {
         clearInterval(timer);
         const list = this.waiters[peerId].get(event) ?? [];

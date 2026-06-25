@@ -133,12 +133,12 @@
         log(`[${name}] ${details.join(", ")}`);
       });
 
-      peer.on("channel", (e) => {
+      peer.on("channel", async (e) => {
         const { name, remote, channel, data, error } = e;
         const details = [];
         if (remote) details.push(`remote: ${remote.id}`);
         if (channel) details.push(`channel: ${channel.label}`);
-        if (data) details.push(`data: ${data}`);
+        if (data) details.push(`data: ${await data}`);
         if (error) details.push(`error: ${error}`);
         log(`[${name}] ${details.join(", ")}`);
       });

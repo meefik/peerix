@@ -103,8 +103,6 @@ export default [
         call: "send",
         args: ["Hello peer! I am peer2.", { label: "channel1" }],
       },
-      { peer: "1", call: "send", args: ["Hello all! I am peer1."] },
-      { peer: "2", call: "send", args: ["Hello all! I am peer2."] },
       {
         peer: "1",
         wait: "channel:message",
@@ -123,26 +121,6 @@ export default [
           channel: { label: "channel1" },
           label: "channel1",
           data: "Hello peer! I am peer1.",
-        },
-      },
-      {
-        peer: "1",
-        wait: "channel:message",
-        where: {
-          remote: { metadata: { name: "peer2" } },
-          channel: { label: "channel1" },
-          label: "channel1",
-          data: "Hello all! I am peer2.",
-        },
-      },
-      {
-        peer: "2",
-        wait: "channel:message",
-        where: {
-          remote: { metadata: { name: "peer1" } },
-          channel: { label: "channel1" },
-          label: "channel1",
-          data: "Hello all! I am peer1.",
         },
       },
       { peer: "1", call: "close", args: [{ label: "channel1" }] },
