@@ -169,7 +169,7 @@ const stream = await navigator.mediaDevices.getUserMedia({
 });
 
 // start sharing the stream with the room
-const sharedStream = await peer.share({ label: "camera", stream });
+await peer.share({ label: "camera", stream });
 
 // later, if you no longer want to share the stream, you can unshare it
 // await peer.unshare({ label: "camera" });
@@ -218,6 +218,8 @@ Peerix emits various lifecycle events that allow you to track the state of peer 
 
 Lifecycle events include:
 
+- `share`/`unshare`: fired when a media stream is requested or revoked.
+- `open`/`close`: fired when a data channel is requested or revoked.
 - `connection[:new,:connecting,:connected,:disconnected,:failed,:closed]`: fired when a peer's connection state changes.
 - `channel[:new,:open,:close,:message,:error]`: fired for data channel state changes and incoming messages.
 - `stream[:add,:remove]`: fired when a remote peer shares or unshares a media stream.

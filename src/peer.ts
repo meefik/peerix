@@ -241,25 +241,18 @@ export class Peer {
    * exists, it will be updated and its tracks will be added/removed as needed
    * to minimize renegotiations.
    *
-   * If the stream is shared with the `managed` option, its tracks will be
-   * automatically stopped when the stream is unshared or replaced with
-   * a new stream.
-   *
    * @example
    * ```js
    * // get a media stream from the user's camera and microphone
    * const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
    *
    * // share a media stream with an explicit label
-   * const sharedStream = await peer.share({ label: "camera", stream, managed: true });
+   * await peer.share({ label: "camera", stream });
    * ```
    *
    * @param options Stream descriptor or MediaStream instance.
-   * @returns The shared MediaStream instance if successful, or undefined.
    */
-  async share(
-    options: MediaStream | StreamOptions,
-  ): Promise<MediaStream | void> {
+  async share(options: MediaStream | StreamOptions): Promise<void> {
     if (options instanceof MediaStream) {
       options = { label: options.id, stream: options };
     }
@@ -285,7 +278,7 @@ export class Peer {
     for (const track of currentTracks) {
       if (!incomingTrackIds.has(track.id)) {
         newStream.removeTrack(track);
-        if (managed && track.readyState !== "ended") {
+        if (!managed && track.readyState !== "ended") {
           track.stop();
         }
       }
@@ -297,18 +290,21 @@ export class Peer {
     }
 
     const newStreamOptions = { label, stream: newStream, ...opts };
-
-    log("peer:share", { id: this.#id, ...newStreamOptions });
-
     this.#streamOptions.set(label, newStreamOptions);
+
+    this.emit("share", {
+      id: this.#id,
+      name: "share",
+      stream: newStream,
+      label,
+    });
+    log("peer:share", { id: this.#id, ...newStreamOptions });
 
     await Promise.allSettled(
       Array.from(this.#connections.values()).map((remote) =>
         remote.share(newStreamOptions),
       ),
     );
-
-    return newStream;
   }
 
   /**
@@ -319,9 +315,6 @@ export class Peer {
    * its id as the label. Otherwise, you can specify the label in the options
    * object or pass it directly as a string.
    *
-   * If the stream was shared with the `managed` option, its tracks will be
-   * stopped automatically.
-   *
    * @example
    * ```js
    * // unshare a media stream with an explicit label
@@ -329,11 +322,10 @@ export class Peer {
    * ```
    *
    * @param options A stream label, MediaStream instance, or an object containing a label.
-   * @returns The unshared MediaStream instance, or undefined.
    */
   async unshare(
     options: MediaStream | string | { label?: string },
-  ): Promise<MediaStream | void> {
+  ): Promise<void> {
     if (options instanceof MediaStream) {
       options = { label: options.id };
     }
@@ -345,13 +337,11 @@ export class Peer {
     const oldStreamOptions = this.#streamOptions.get(label);
     const { stream, managed } = oldStreamOptions ?? {};
 
-    log("peer:unshare", { id: this.#id, label, stream });
-
     this.#streamOptions.delete(label);
 
     if (!stream) return;
 
-    if (managed) {
+    if (!managed) {
       for (const track of stream.getTracks()) {
         if (track.readyState !== "ended") {
           track.stop();
@@ -359,13 +349,14 @@ export class Peer {
       }
     }
 
+    this.emit("unshare", { id: this.#id, name: "unshare", stream, label });
+    log("peer:unshare", { id: this.#id, label, stream });
+
     await Promise.allSettled(
       Array.from(this.#connections.values()).map((remote) =>
         remote.unshare({ label }),
       ),
     );
-
-    return stream;
   }
 
   /**
@@ -390,9 +381,10 @@ export class Peer {
         return { label: String(value) };
       });
 
-    log("peer:open", { id: this.#id, label, ...channelOptions });
-
     this.#channelOptions.set(label, { label, ...channelOptions });
+
+    this.emit("open", { id: this.#id, name: "open", label });
+    log("peer:open", { id: this.#id, label, ...channelOptions });
 
     await Promise.allSettled(
       Array.from(this.#connections.values()).map((remote) =>
@@ -418,9 +410,10 @@ export class Peer {
       return { label: String(value) };
     });
 
-    log("peer:close", { id: this.#id, label });
-
     this.#channelOptions.delete(label);
+
+    this.emit("close", { id: this.#id, name: "close", label });
+    log("peer:close", { id: this.#id, label });
 
     await Promise.allSettled(
       Array.from(this.#connections.values()).map((remote) =>
@@ -459,9 +452,8 @@ export class Peer {
    *
    * @param message Message payload to send.
    * @param options Send options or channel label.
-   * @returns A ReadableStream of aggregated transfer progress across all connections.
-   *   The returned value also implements Promise, which resolves when all
-   *   transfers complete or error.
+   * @returns An iterable aggregated transfer progress across all connections
+   *   or a promise which resolves when all transfers complete or error.
    */
   send(
     message: unknown,
@@ -531,9 +523,9 @@ export class Peer {
    * ```js
    * // subscribe to the "connection" event
    * peer.on("connection", (e) => {
-   *   console.log("Connection state is changed:", e.state);
+   *   console.log("Connection state has changed:", e.state);
    * });
-   * ````
+   * ```
    *
    * @param event Event name or list of event names.
    * @param handler Event handler.
@@ -760,7 +752,7 @@ export interface StreamOptions {
   stream: MediaStream;
   /**
    * Whether the peer should manage the lifecycle of the stream's tracks.
-   * If true, tracks will be stopped when the stream is unshared or replaced.
+   * If true, tracks will not be stopped when the stream is unshared or replaced.
    */
   managed?: boolean;
   /**
@@ -941,6 +933,36 @@ export interface PeerJoinOptions {
 }
 
 /**
+ * Event emitted when a request is made to share or unshare a media stream.
+ *
+ * @group Peers
+ */
+export interface PeerShareUnshareEvent {
+  /** Local peer identifier. */
+  id: string;
+  /** Name of the event. */
+  name: "share" | "unshare";
+  /** The shared media stream. */
+  stream: MediaStream;
+  /** The label associated with the media stream. */
+  label: string;
+}
+
+/**
+ * Event emitted when a request is made to open or close a data channel.
+ *
+ * @group Peers
+ */
+export interface PeerOpenCloseEvent {
+  /** Local peer identifier. */
+  id: string;
+  /** Name of the event. */
+  name: "open" | "close";
+  /** The label associated with the data channel. */
+  label: string;
+}
+
+/**
  * Event emitted on peer connection state changes.
  *
  * @group Peers
@@ -1051,44 +1073,52 @@ export interface PeerErrorEvent {
  * @group Peers
  */
 export interface PeerEvents {
-  /** Emitted when a remote peer connection state changes. */
+  /** Peer requests to share a media stream. */
+  share: [PeerShareUnshareEvent];
+  /** Peer requests to unshare a media stream. */
+  unshare: [PeerShareUnshareEvent];
+  /** Peer requests to open a data channel. */
+  open: [PeerOpenCloseEvent];
+  /** Peer requests to close a data channel. */
+  close: [PeerOpenCloseEvent];
+  /** Peer connection state changes. */
   connection: [PeerConnectionEvent];
-  /** Emitted when a new remote peer connection is established. */
+  /** Peer connection is created. */
   "connection:new": [PeerConnectionEvent];
-  /** Emitted when a remote peer connection is connecting. */
+  /** Peer connection is connecting. */
   "connection:connecting": [PeerConnectionEvent];
-  /** Emitted when a remote peer connection is successfully connected. */
+  /** Peer connection is established. */
   "connection:connected": [PeerConnectionEvent];
-  /** Emitted when a remote peer connection is disconnected. */
+  /** Peer connection is disconnected. */
   "connection:disconnected": [PeerConnectionEvent];
-  /** Emitted when a remote peer connection fails. */
+  /** Peer connection is failed. */
   "connection:failed": [PeerConnectionEvent];
-  /** Emitted when a remote peer connection is closed. */
+  /** Peer connection is closed. */
   "connection:closed": [PeerConnectionEvent];
-  /** Emitted when an error occurs in any background operations. */
-  error: [PeerErrorEvent];
-  /** Emitted when stream events occur. */
+  /** Stream events occur. */
   stream: [PeerStreamEvent];
-  /** Emitted when a remote peer shares a media stream. */
+  /** Remote peer shares a media stream. */
   "stream:add": [PeerStreamEvent];
-  /** Emitted when a remote peer unshares a media stream. */
+  /** Remote peer unshares a media stream. */
   "stream:remove": [PeerStreamEvent];
-  /** Emitted when track events occur. */
+  /** Track events occur. */
   track: [PeerTrackEvent];
-  /** Emitted when a remote peer adds a media track to a shared stream. */
+  /** Remote peer adds a media track to a shared stream. */
   "track:add": [PeerTrackEvent];
-  /** Emitted when a remote peer removes a media track from a shared stream. */
+  /** Remote peer removes a media track from a shared stream. */
   "track:remove": [PeerTrackEvent];
-  /** Emitted when channel events occur. */
+  /** Channel events occur. */
   channel: [PeerChannelEvent];
-  /** Emitted when a data channel is created or received from a remote peer. */
+  /** Data channel is created. */
   "channel:new": [PeerChannelEvent];
-  /** Emitted when a data channel is opened. */
+  /** Data channel is opened. */
   "channel:open": [PeerChannelEvent];
-  /** Emitted when a data channel is closed. */
+  /** Data channel is closed. */
   "channel:close": [PeerChannelEvent];
-  /** Emitted when a message is received on a data channel. */
+  /** Message is received on a data channel. */
   "channel:message": [PeerChannelEvent];
-  /** Emitted when an error occurs with a remote peer connection or channel. */
+  /** Error occurs with a data channel. */
   "channel:error": [PeerChannelEvent];
+  /** Error occurs in any background operations. */
+  error: [PeerErrorEvent];
 }

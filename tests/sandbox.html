@@ -82,7 +82,7 @@
       <label>
         <legend>Message</legend>
         <input id="message" placeholder="Data" />
-        <input id="send-channel" placeholder="Channel label" />
+        <input id="send-channel" placeholder="Channel label" value="default" />
         <button data-action="send">Send</button>
       </label>
       <label>
@@ -173,11 +173,23 @@
       });
 
       peer.on("track:add", (e) => {
-        toggleMediaElement(e.stream);
+        const { stream } = e;
+        toggleMediaElement(stream);
       });
 
       peer.on("track:remove", (e) => {
-        toggleMediaElement(e.stream);
+        const { stream } = e;
+        toggleMediaElement(stream);
+      });
+
+      peer.on("share", (e) => {
+        const { stream } = e;
+        toggleMediaElement(stream, true);
+      });
+
+      peer.on("unshare", (e) => {
+        const { stream } = e;
+        toggleMediaElement(stream, true);
       });
 
       // Action handlers
@@ -191,38 +203,32 @@
           peer.leave();
         },
         open: () => {
-          const channel = document.getElementById("channel").value;
-          peer.open({ label: channel });
+          const label = document.getElementById("channel").value || "default";
+          peer.open({ label });
         },
         close: () => {
-          const channel = document.getElementById("channel").value;
-          peer.close({ label: channel });
+          const label = document.getElementById("channel").value || "default";
+          peer.close({ label });
         },
         send: () => {
           const message = document.getElementById("message").value;
-          const channel = document.getElementById("send-channel").value;
-          if (channel) peer.send(message, { label: channel });
-          else peer.send(message);
+          const label =
+            document.getElementById("send-channel").value || "default";
+          peer.send(message, { label });
         },
-        share: async () => {
+        share: () => {
           const stream = createSyntheticMediaStream({
             video: document.getElementById("video-enabled").checked,
             audio: document.getElementById("audio-enabled").checked,
           });
           const label =
             document.getElementById("stream-label").value || "default";
-          const newStream = await peer.share({
-            label,
-            stream,
-            managed: true,
-          });
-          if (newStream) toggleMediaElement(newStream, true);
+          peer.share({ label, stream });
         },
-        unshare: async () => {
+        unshare: () => {
           const label =
             document.getElementById("stream-label").value || "default";
-          const oldStream = await peer.unshare({ label });
-          if (oldStream) toggleMediaElement(oldStream, true);
+          peer.unshare({ label });
         },
       };
 

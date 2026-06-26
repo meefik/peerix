@@ -178,7 +178,6 @@ export class TestRunner {
       const [options] = args;
       if (options.stream instanceof MediaStream === false) {
         options.stream = this.createSyntheticMediaStream(options.stream);
-        options.managed = true;
       }
     }
 
