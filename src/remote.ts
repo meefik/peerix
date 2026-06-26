@@ -343,7 +343,7 @@ export class RemotePeer {
     } = parseOptions<StreamOptions>(options);
 
     if (!(stream instanceof MediaStream) || !stream.getTracks().length) {
-      return;
+      throw new Error("MediaStream is invalid or empty");
     }
 
     const { stream: newStream = new MediaStream(), managed } =
@@ -356,24 +356,37 @@ export class RemotePeer {
     const currentTracks = newStream.getTracks();
     const incomingTrackIds = new Set(incomingTracks.map((track) => track.id));
     const currentTrackIds = new Set(currentTracks.map((track) => track.id));
+    const endedHandler = async (track: MediaStreamTrack) => {
+      try {
+        newStream.removeTrack(track);
+        if (!newStream.active) {
+          await this.unshare({ label });
+        }
+      } catch (err) {
+        this.#emitPeerError(err, "MEDIASTREAM_ERROR");
+      }
+    };
 
     for (const track of currentTracks) {
       if (!incomingTrackIds.has(track.id)) {
         newStream.removeTrack(track);
-        if (!managed && track.readyState !== "ended") {
-          track.stop();
-        }
         removedTracks.push(track);
+        if (!managed && track.readyState !== "ended") track.stop();
       }
     }
     for (const track of incomingTracks) {
       if (!currentTrackIds.has(track.id)) {
         newStream.addTrack(track);
         addedTracks.push(track);
+        if (!managed) {
+          track.addEventListener("ended", () => endedHandler(track), {
+            once: true,
+          });
+        }
       }
     }
 
-    const newStreamOptions = { label, stream: newStream, ...opts };
+    const newStreamOptions = { ...opts, label, stream: newStream };
     this.#streamOptions.set(label, newStreamOptions);
 
     this.emit("share", {
@@ -422,9 +435,7 @@ export class RemotePeer {
 
     if (!managed) {
       for (const track of stream.getTracks()) {
-        if (track.readyState !== "ended") {
-          track.stop();
-        }
+        if (track.readyState !== "ended") track.stop();
       }
     }
 
@@ -457,12 +468,12 @@ export class RemotePeer {
         return { label: String(value) };
       });
 
-    this.#channelOptions.set(label, { label, ...channelOptions });
+    this.#channelOptions.set(label, { ...channelOptions, label });
 
     this.emit("open", { id: this.#id, name: "open", label });
     log("remote:open", { id: this.#id, label, ...channelOptions });
 
-    this.#createChannel({ label, ...channelOptions });
+    this.#createChannel({ ...channelOptions, label });
   }
 
   /**
@@ -679,10 +690,9 @@ export class RemotePeer {
   #stopSendonlyTransceivers(tracks: MediaStreamTrack[]): void {
     for (const transceiver of this.#connection.getTransceivers()) {
       if (transceiver.direction !== "sendonly") continue;
-      const readyToStop = tracks.some(
-        (track) =>
-          !transceiver.sender.track || track.id === transceiver.sender.track.id,
-      );
+      const readyToStop =
+        !transceiver.sender.track ||
+        tracks.some((track) => track.id === transceiver.sender.track?.id);
       if (readyToStop) transceiver.stop();
     }
   }
@@ -779,8 +789,8 @@ export class RemotePeer {
         });
 
         this.#controlChannel.send(MESSAGE_TYPE.channel, {
-          label,
           ...channelOptions,
+          label,
         });
       } else {
         log("remote:createchannel", { id: this.#id, label, ...channelOptions });

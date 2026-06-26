@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking:** The `share`/`unshare` methods do not return a `MediaStream` anymore. The `managed` parameter now means that the stream is externally managed and should not be stopped automatically.
+- If all tracks in a shared stream are ended, the peer will automatically unshare that stream.
 
 ## [0.5.0] - 2026-06-25
 

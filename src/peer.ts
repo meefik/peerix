@@ -264,7 +264,7 @@ export class Peer {
     } = parseOptions<StreamOptions>(options);
 
     if (!(stream instanceof MediaStream) || !stream.getTracks().length) {
-      return;
+      throw new Error("MediaStream is invalid or empty");
     }
 
     const { stream: newStream = new MediaStream(), managed } =
@@ -278,9 +278,7 @@ export class Peer {
     for (const track of currentTracks) {
       if (!incomingTrackIds.has(track.id)) {
         newStream.removeTrack(track);
-        if (!managed && track.readyState !== "ended") {
-          track.stop();
-        }
+        if (!managed && track.readyState !== "ended") track.stop();
       }
     }
     for (const track of incomingTracks) {
@@ -289,7 +287,7 @@ export class Peer {
       }
     }
 
-    const newStreamOptions = { label, stream: newStream, ...opts };
+    const newStreamOptions = { ...opts, label, stream: newStream };
     this.#streamOptions.set(label, newStreamOptions);
 
     this.emit("share", {
@@ -343,9 +341,7 @@ export class Peer {
 
     if (!managed) {
       for (const track of stream.getTracks()) {
-        if (track.readyState !== "ended") {
-          track.stop();
-        }
+        if (track.readyState !== "ended") track.stop();
       }
     }
 
@@ -381,14 +377,14 @@ export class Peer {
         return { label: String(value) };
       });
 
-    this.#channelOptions.set(label, { label, ...channelOptions });
+    this.#channelOptions.set(label, { ...channelOptions, label });
 
     this.emit("open", { id: this.#id, name: "open", label });
     log("peer:open", { id: this.#id, label, ...channelOptions });
 
     await Promise.allSettled(
       Array.from(this.#connections.values()).map((remote) =>
-        remote.open({ label, ...channelOptions }),
+        remote.open({ ...channelOptions, label }),
       ),
     );
   }
