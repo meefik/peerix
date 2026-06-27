@@ -167,7 +167,10 @@ export class RemotePeer {
           this.emit("signal", { name: "candidate", data: candidateInit });
         }
       } catch (err) {
-        this.#emitPeerError(err, "ICECANDIDATE_ERROR");
+        this.emit("error", {
+          name: "error",
+          error: new PeerixError(err, "ICECANDIDATE_ERROR"),
+        });
       }
     });
 
@@ -201,7 +204,7 @@ export class RemotePeer {
         open: () => {
           // create channels
           for (const channelOptions of this.#channelOptions.values()) {
-            this.#createChannel(channelOptions);
+            this.#requestDataChannel(channelOptions);
           }
           // add streams
           for (const streamOptions of this.#streamOptions.values()) {
@@ -222,18 +225,21 @@ export class RemotePeer {
             }
             await this.signal(description);
           } else if (event === MESSAGE_TYPE.channel) {
-            this.#createChannel(message as ChannelOptions);
+            this.#requestDataChannel(message as ChannelOptions);
           }
         },
-        error: (error: unknown) => {
-          this.#emitPeerError(error, "SIGNALING_ERROR");
+        error: (err: unknown) => {
+          this.emit("error", {
+            name: "error",
+            error: new PeerixError(err, "SIGNALING_ERROR"),
+          });
         },
       },
     });
 
     this.#timeout.start();
 
-    log("remote:connection", { id: this.#id, state: this.#state });
+    log("remote:connection", { id: this.#id, state: "new" });
   }
 
   /**
@@ -288,7 +294,10 @@ export class RemotePeer {
           await this.unshare({ label });
         }
       } catch (err) {
-        this.#emitPeerError(err, "MEDIASTREAM_ERROR");
+        this.emit("error", {
+          name: "error",
+          error: new PeerixError(err, "MEDIASTREAM_ERROR"),
+        });
       }
     };
 
@@ -319,7 +328,6 @@ export class RemotePeer {
       stream: newStream,
       label,
     });
-    log("remote:share", { id: this.#id, ...newStreamOptions });
 
     await this.#updateStream(newStreamOptions, addedTracks, removedTracks);
   }
@@ -367,7 +375,6 @@ export class RemotePeer {
       stream,
       label,
     });
-    log("remote:unshare", { id: this.#id, label, stream });
 
     await this.#removeStream(stream);
   }
@@ -398,9 +405,8 @@ export class RemotePeer {
     this.#channelOptions.set(label, { ...channelOptions, label });
 
     this.emit(["local", "local:open"], { name: "local:open", label });
-    log("remote:open", { id: this.#id, label, ...channelOptions });
 
-    this.#createChannel({ ...channelOptions, label });
+    this.#requestDataChannel({ ...channelOptions, label });
   }
 
   /**
@@ -425,7 +431,6 @@ export class RemotePeer {
     this.#channelOptions.delete(label);
 
     this.emit(["local", "local:close"], { name: "local:close", label });
-    log("remote:close", { id: this.#id, label });
 
     const dc = this.#dataChannels.get(label);
     dc?.destroy();
@@ -486,8 +491,6 @@ export class RemotePeer {
       });
     }
 
-    log("remote:send", { id: this.#id, label, info, message });
-
     return dc.send(message, { info, signal });
   }
 
@@ -527,7 +530,10 @@ export class RemotePeer {
             await this.#createAnswer();
           }
         } catch (err) {
-          this.#emitPeerError(err, "NEGOTIATION_ERROR");
+          this.emit("error", {
+            name: "error",
+            error: new PeerixError(err, "NEGOTIATION_ERROR"),
+          });
         }
       } else if ("candidate" in data && data.candidate) {
         if (this.#ignoreOffer) {
@@ -618,11 +624,7 @@ export class RemotePeer {
     if (this.#state === "closed") return;
     this.#setConnectionState("closed");
 
-    log("remote:dispose", {
-      id: this.#id,
-      room: this.#room,
-      metadata: this.#metadata,
-    });
+    log("remote:dispose", { id: this.#id, room: this.#room });
 
     this.#timeout.stop();
     this.#controlChannel.close();
@@ -663,15 +665,13 @@ export class RemotePeer {
   }
 
   /**
-   * Emits and logs a normalized peer error event.
+   * Queues a signaling task so SDP and ICE messages are applied sequentially.
    */
-  #emitPeerError(
-    err: unknown,
-    code: ConstructorParameters<typeof PeerixError>[1],
-  ): void {
-    const error = new PeerixError(err, code);
-    this.emit("error", { name: "error", error });
-    log("remote:error", { id: this.#id, error });
+  #enqueueSignal<T>(task: () => Promise<T>): Promise<T> {
+    const prev = this.#signalQueue;
+    const run = prev.then(() => task());
+    this.#signalQueue = run.catch(() => {});
+    return run;
   }
 
   /**
@@ -724,16 +724,6 @@ export class RemotePeer {
   }
 
   /**
-   * Queues a signaling task so SDP and ICE messages are applied sequentially.
-   */
-  #enqueueSignal<T>(task: () => Promise<T>): Promise<T> {
-    const prev = this.#signalQueue;
-    const run = prev.then(() => task());
-    this.#signalQueue = run.catch(() => {});
-    return run;
-  }
-
-  /**
    * Adds queued ICE candidates after a remote description becomes available.
    */
   async #drainPendingCandidates(): Promise<void> {
@@ -746,11 +736,7 @@ export class RemotePeer {
 
     const pendingCandidates = this.#pendingCandidates.splice(0);
     for (const candidate of pendingCandidates) {
-      try {
-        await this.#addIceCandidate(candidate);
-      } catch {
-        // Ignore errors during pending candidate drain; the connection may be closing.
-      }
+      await this.#addIceCandidate(candidate);
     }
   }
 
@@ -763,7 +749,10 @@ export class RemotePeer {
     try {
       await this.#connection.addIceCandidate(candidate);
     } catch (err) {
-      this.#emitPeerError(err, "ICECANDIDATE_ERROR");
+      this.emit("error", {
+        name: "error",
+        error: new PeerixError(err, "ICECANDIDATE_ERROR"),
+      });
     }
   }
 
@@ -772,13 +761,14 @@ export class RemotePeer {
    */
   #setConnectionState(state: PeerConnectionState): void {
     if (this.#state === state) return;
+
+    log("remote:connection", { id: this.#id, state });
+
     this.#state = state;
     this.emit(["connection", `connection:${state}`], {
       name: `connection:${state}`,
       state,
     });
-
-    log("remote:connection", { id: this.#id, state });
   }
 
   /**
@@ -799,36 +789,32 @@ export class RemotePeer {
   }
 
   /**
-   * Creates a data channel.
+   * Requests or creates a data channel.
    */
-  #createChannel(options: ChannelOptions): void {
+  #requestDataChannel(options: ChannelOptions): void {
     const { label = "default", ...channelOptions } = options ?? {};
     if (this.#dataChannels.has(label)) return;
 
+    log("remote:requestchannel", { id: this.#id, label, ...channelOptions });
+
     try {
       if (this.#polite) {
-        log("remote:requestchannel", {
-          id: this.#id,
-          label,
-          ...channelOptions,
-        });
-
         this.#controlChannel.send(MESSAGE_TYPE.channel, {
           ...channelOptions,
           label,
         });
       } else {
-        log("remote:createchannel", { id: this.#id, label, ...channelOptions });
-
         const channel = this.#connection.createDataChannel(
           label,
           channelOptions,
         );
-
         this.#setupDataChannel(channel);
       }
     } catch (err) {
-      this.#emitPeerError(err, "DATACHANNEL_ERROR");
+      this.emit("error", {
+        name: "error",
+        error: new PeerixError(err, "DATACHANNEL_ERROR"),
+      });
     }
   }
 
@@ -838,14 +824,14 @@ export class RemotePeer {
   async #addStream(streamOptions: StreamOptions): Promise<void> {
     const { stream, audioParameters, videoParameters } = streamOptions;
 
-    try {
-      log("remote:addstream", {
-        id: this.#id,
-        stream,
-        audioParameters,
-        videoParameters,
-      });
+    log("remote:addstream", {
+      id: this.#id,
+      stream,
+      audioParameters,
+      videoParameters,
+    });
 
+    try {
       const tracks = stream.getTracks();
       const senders = this.#connection.getSenders();
 
@@ -863,7 +849,10 @@ export class RemotePeer {
         );
       }
     } catch (err) {
-      this.#emitPeerError(err, "MEDIASTREAM_ERROR");
+      this.emit("error", {
+        name: "error",
+        error: new PeerixError(err, "MEDIASTREAM_ERROR"),
+      });
     }
   }
 
@@ -878,14 +867,14 @@ export class RemotePeer {
     const { stream, audioParameters, videoParameters } = streamOptions;
     const senders = this.#connection.getSenders();
 
-    try {
-      log("remote:updatestream", {
-        id: this.#id,
-        stream,
-        addedTracks,
-        removedTracks,
-      });
+    log("remote:updatestream", {
+      id: this.#id,
+      stream,
+      addedTracks,
+      removedTracks,
+    });
 
+    try {
       for (const track of addedTracks) {
         const removedTrack = removedTracks.find((t) => t.kind === track.kind);
         if (removedTrack) {
@@ -909,7 +898,10 @@ export class RemotePeer {
 
       this.#stopSendonlyTransceivers(removedTracks);
     } catch (err) {
-      this.#emitPeerError(err, "MEDIASTREAM_ERROR");
+      this.emit("error", {
+        name: "error",
+        error: new PeerixError(err, "MEDIASTREAM_ERROR"),
+      });
     }
   }
 
@@ -917,12 +909,16 @@ export class RemotePeer {
    * Removes a media stream from the peer connection.
    */
   async #removeStream(stream: MediaStream): Promise<void> {
-    const existingTracks = stream?.getTracks() ?? [];
+    log("remote:removestream", { id: this.#id, stream });
 
     try {
+      const existingTracks = stream?.getTracks() ?? [];
       this.#stopSendonlyTransceivers(existingTracks);
     } catch (err) {
-      this.#emitPeerError(err, "MEDIASTREAM_ERROR");
+      this.emit("error", {
+        name: "error",
+        error: new PeerixError(err, "MEDIASTREAM_ERROR"),
+      });
     }
   }
 
@@ -972,7 +968,10 @@ export class RemotePeer {
       }
     } catch (err) {
       await this.#rollbackLocalDescription();
-      this.#emitPeerError(err, "NEGOTIATION_ERROR");
+      this.emit("error", {
+        name: "error",
+        error: new PeerixError(err, "NEGOTIATION_ERROR"),
+      });
     } finally {
       this.#makingOffer = false;
     }
@@ -1005,7 +1004,10 @@ export class RemotePeer {
       }
     } catch (err) {
       await this.#rollbackLocalDescription();
-      this.#emitPeerError(err, "NEGOTIATION_ERROR");
+      this.emit("error", {
+        name: "error",
+        error: new PeerixError(err, "NEGOTIATION_ERROR"),
+      });
     } finally {
       this.#pendingAnswer = false;
     }
@@ -1040,13 +1042,40 @@ export class RemotePeer {
     ];
     const { signalingState } = this.#connection;
 
-    log("remote:rollback", { id: this.#id, signalingState });
-
     try {
       if (rollbackStates.includes(signalingState)) {
         await this.#connection.setLocalDescription({ type: "rollback" });
       }
-    } catch {}
+    } catch (error) {
+      log("remote:rollback:error", { id: this.#id, error });
+    }
+  }
+
+  /**
+   * Sets parameters for a media track by updating the sender parameters.
+   */
+  async #setSenderParameters(
+    track: MediaStreamTrack,
+    parameters?: { [key: string]: unknown },
+  ): Promise<void> {
+    if (!parameters) return;
+
+    const senders = this.#connection.getSenders();
+    const sender = senders.find((sender: RTCRtpSender) => {
+      return sender.track && sender.track.id === track.id;
+    });
+
+    if (sender) {
+      log("remote:setparameters", { id: this.#id, track, parameters });
+
+      const params = sender.getParameters() ?? {};
+      if (!params.encodings) return;
+      for (const encoding of params.encodings) {
+        if (!encoding) continue;
+        Object.assign(encoding, parameters);
+      }
+      await sender.setParameters(params);
+    }
   }
 
   /**
@@ -1054,6 +1083,8 @@ export class RemotePeer {
    */
   #setupDataChannel(channel: RTCDataChannel): void {
     const { label = "" } = channel;
+
+    log("remote:setupchannel", { id: this.#id, channel });
 
     if (this.#dataChannels.has(label)) {
       this.#dataChannels.get(label)?.destroy();
@@ -1068,7 +1099,6 @@ export class RemotePeer {
         ...event,
         name,
       } as RemotePeerChannelEvent);
-      log(`remote:${name}`, event);
     };
 
     const dc = new DataChannel({
@@ -1081,8 +1111,9 @@ export class RemotePeer {
           dc.destroy();
         },
         error: (err: unknown) => {
-          const error = new PeerixError(err, "DATACHANNEL_ERROR");
-          emitEvent("channel:error", { error });
+          emitEvent("channel:error", {
+            error: new PeerixError(err, "DATACHANNEL_ERROR"),
+          });
         },
         message: (data: unknown, info?: Record<string, unknown>) => {
           emitEvent("channel:message", { data, info });
@@ -1104,7 +1135,6 @@ export class RemotePeer {
       ...event,
       name: "channel:new",
     });
-    log("remote:channel:new", event);
   }
 
   /**
@@ -1114,17 +1144,17 @@ export class RemotePeer {
   #setupMediaTrack(track: MediaStreamTrack, stream: MediaStream): void {
     const label = this.#streamLabels.get(stream.id) ?? stream.id;
 
+    log("remote:setuptrack", { id: this.#id, stream, track });
+
     const addTrack = () => {
       if (!this.#streams.has(label)) {
         this.#streams.set(label, stream);
         const event = { id: this.#id, stream, label };
         this.emit(["stream", "stream:add"], { ...event, name: "stream:add" });
-        log("remote:stream:add", event);
       }
 
       const event = { id: this.#id, track, stream, label };
       this.emit(["track", "track:add"], { ...event, name: "track:add" });
-      log("remote:track:add", event);
     };
 
     const removeTrack = () => {
@@ -1133,7 +1163,6 @@ export class RemotePeer {
 
       const event = { id: this.#id, track, stream, label };
       this.emit(["track", "track:remove"], { ...event, name: "track:remove" });
-      log("remote:track:remove", event);
 
       if (!stream.active || !stream.getTracks().length) {
         if (this.#streams.has(label)) {
@@ -1143,7 +1172,6 @@ export class RemotePeer {
             ...event,
             name: "stream:remove",
           });
-          log("remote:stream:remove", event);
         }
       }
     };
@@ -1151,33 +1179,6 @@ export class RemotePeer {
     track.addEventListener("ended", removeTrack);
 
     addTrack();
-  }
-
-  /**
-   * Sets parameters for a media track by updating the sender parameters.
-   */
-  async #setSenderParameters(
-    track: MediaStreamTrack,
-    parameters?: { [key: string]: unknown },
-  ): Promise<void> {
-    if (!parameters) return;
-
-    log("remote:setparameters", { id: this.#id, track, parameters });
-
-    const senders = this.#connection.getSenders();
-    const sender = senders.find((sender: RTCRtpSender) => {
-      return sender.track && sender.track.id === track.id;
-    });
-
-    if (sender) {
-      const params = sender.getParameters() ?? {};
-      if (!params.encodings) return;
-      for (const encoding of params.encodings) {
-        if (!encoding) continue;
-        Object.assign(encoding, parameters);
-      }
-      await sender.setParameters(params);
-    }
   }
 }
 

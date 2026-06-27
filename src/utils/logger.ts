@@ -105,7 +105,7 @@ function stringify(value: any): string {
       return v;
     });
   } catch (e) {
-    return value;
+    return String(value);
   }
 }
 

@@ -194,11 +194,6 @@ export class Peer {
         room: this.#room,
         metadata: this.#metadata,
       });
-      log("peer:join", {
-        id: this.#id,
-        room: this.#room,
-        metadata: this.#metadata,
-      });
 
       this.#id = await this.#signaler.register(this.#room, this.#metadata);
     } catch (err) {
@@ -223,11 +218,6 @@ export class Peer {
 
     this.emit(["local", "local:leave"], {
       name: "local:leave",
-      room: this.#room,
-      metadata: this.#metadata,
-    });
-    log("peer:leave", {
-      id: this.#id,
       room: this.#room,
       metadata: this.#metadata,
     });
@@ -309,7 +299,6 @@ export class Peer {
       stream: newStream,
       label,
     });
-    log("peer:share", { id: this.#id, ...newStreamOptions });
 
     await Promise.allSettled(
       Array.from(this.#connections.values()).map((remote) =>
@@ -362,7 +351,6 @@ export class Peer {
       stream,
       label,
     });
-    log("peer:unshare", { id: this.#id, label, stream });
 
     await Promise.allSettled(
       Array.from(this.#connections.values()).map((remote) =>
@@ -399,7 +387,6 @@ export class Peer {
       name: "local:open",
       label,
     });
-    log("peer:open", { id: this.#id, label, ...channelOptions });
 
     await Promise.allSettled(
       Array.from(this.#connections.values()).map((remote) =>
@@ -434,7 +421,6 @@ export class Peer {
       name: "local:close",
       label,
     });
-    log("peer:close", { id: this.#id, label });
 
     await Promise.allSettled(
       Array.from(this.#connections.values()).map((remote) =>
@@ -497,8 +483,6 @@ export class Peer {
         },
       });
     }
-
-    log("peer:send", { id: this.#id, label, info, message });
 
     let streams: ReadableStream[] | undefined;
     if (message instanceof ReadableStream) {

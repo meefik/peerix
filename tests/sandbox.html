@@ -182,12 +182,12 @@
         toggleMediaElement(stream);
       });
 
-      peer.on("share", (e) => {
+      peer.on("local:share", (e) => {
         const { stream } = e;
         toggleMediaElement(stream, true);
       });
 
-      peer.on("unshare", (e) => {
+      peer.on("local:unshare", (e) => {
         const { stream } = e;
         toggleMediaElement(stream, true);
       });
