@@ -47,16 +47,16 @@ export class Signaler {
   #driver: Driver;
   #id: string;
   #room: string;
-  #metadata?: unknown;
+  #metadata?: Record<string, unknown>;
   #namespaceHashing: boolean;
   #signalingCompression: boolean;
   #signalingEncryption: boolean;
   #iceCandidateDebounce: number;
   #createRemotePeer: (options: {
     id: string;
-    metadata?: unknown;
-  }) => Promise<RemotePeer | void>;
-  #getRemotePeer: (id: string) => RemotePeer | void;
+    metadata?: Record<string, unknown>;
+  }) => Promise<RemotePeer | null>;
+  #getRemotePeer: (id: string) => RemotePeer | null;
   #onError: (error: PeerixError) => void;
   #keyPair?: CryptoKeyPair;
   #sharedKeys: Map<string, CryptoKey>;
@@ -87,9 +87,9 @@ export class Signaler {
     iceCandidateDebounce: number;
     createRemotePeer: (options: {
       id: string;
-      metadata?: unknown;
-    }) => Promise<RemotePeer | void>;
-    getRemotePeer: (id: string) => RemotePeer | void;
+      metadata?: Record<string, unknown>;
+    }) => Promise<RemotePeer | null>;
+    getRemotePeer: (id: string) => RemotePeer | null;
     onError: (error: PeerixError) => void;
   }) {
     const {
@@ -142,7 +142,10 @@ export class Signaler {
    * @param metadata Optional metadata associated with the room.
    * @returns The generated ID for the local peer.
    */
-  async register(room: string, metadata?: unknown): Promise<string> {
+  async register(
+    room: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<string> {
     if (this.#active) return this.#id;
     this.#active = true;
 
@@ -499,7 +502,7 @@ export class Signaler {
       }
 
       if (type === MESSAGE_TYPE.invoke) {
-        const [metadata] = message as [unknown];
+        const [metadata] = message as [Record<string, unknown>];
         const remote = await this.#createRemotePeer({ id, metadata });
         if (remote) this.#setupRemotePeer(remote);
 
@@ -509,7 +512,7 @@ export class Signaler {
       if (type === MESSAGE_TYPE.offer) {
         const [description, metadata] = message as [
           RTCSessionDescriptionInit,
-          unknown,
+          Record<string, unknown>,
         ];
         let remote = this.#getRemotePeer(id);
         if (!remote) {

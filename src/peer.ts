@@ -68,30 +68,30 @@ export class Peer {
     return this.#room;
   }
   /** Optional metadata announced to other peers in signaling messages. Undefined until join() is called. */
-  get metadata(): unknown {
+  get metadata(): Record<string, unknown> | undefined {
     return this.#metadata;
   }
   /** Active remote peers indexed by remote peer id. */
-  get connections(): Map<string, RemotePeer> {
+  get connections(): ReadonlyMap<string, RemotePeer> {
     return this.#connections;
   }
   /** Configured local streams indexed by application-level stream label. */
-  get streams(): Map<string, StreamOptions> {
+  get streams(): ReadonlyMap<string, StreamOptions> {
     return this.#streamOptions;
   }
   /** Configured local data channels indexed by channel label. */
-  get channels(): Map<string, ChannelOptions> {
+  get channels(): ReadonlyMap<string, ChannelOptions> {
     return this.#channelOptions;
   }
   /** Attachable extensions. */
-  get addons(): Set<Addon> {
+  get addons(): ReadonlySet<Addon> {
     return this.#addons;
   }
 
   #active: boolean;
   #id: string;
   #room: string;
-  #metadata: unknown;
+  #metadata?: Record<string, unknown>;
   #driver: Driver;
   #connections: Map<string, RemotePeer>;
   #streamOptions: Map<string, StreamOptions>;
@@ -103,7 +103,7 @@ export class Peer {
   #connectionTimeout: number;
   #verify?: (options: {
     id: string;
-    metadata?: unknown;
+    metadata?: Record<string, unknown>;
   }) => Promise<boolean> | boolean;
   #emitter: EventEmitter<PeerEvents>;
   #signaler: Signaler;
@@ -154,13 +154,15 @@ export class Peer {
       createRemotePeer: (options) => this.#createRemotePeer(options),
       getRemotePeer: (id) => this.#getRemotePeer(id),
       onError: (error) => {
-        this.emit("error", { id: this.#id, name: "error", error });
+        this.emit("error", { name: "error", error });
       },
     });
   }
 
   /**
    * Joins a room and starts listening for incoming connections.
+   *
+   * If the peer is already active, this method returns immediately without error.
    *
    * @example
    * ```js
@@ -187,13 +189,18 @@ export class Peer {
       this.#metadata = metadata;
       this.#verify = verify;
 
-      this.#id = await this.#signaler.register(this.#room, this.#metadata);
-
+      this.emit(["local", "local:join"], {
+        name: "local:join",
+        room: this.#room,
+        metadata: this.#metadata,
+      });
       log("peer:join", {
         id: this.#id,
         room: this.#room,
         metadata: this.#metadata,
       });
+
+      this.#id = await this.#signaler.register(this.#room, this.#metadata);
     } catch (err) {
       await this.leave();
       throw err;
@@ -202,6 +209,8 @@ export class Peer {
 
   /**
    * Leaves the current room and closes all active remote connections.
+   *
+   * If the peer is not currently active, this method returns immediately without error.
    *
    * @example
    * ```js
@@ -212,6 +221,11 @@ export class Peer {
   async leave(): Promise<void> {
     if (!this.#active) return;
 
+    this.emit(["local", "local:leave"], {
+      name: "local:leave",
+      room: this.#room,
+      metadata: this.#metadata,
+    });
     log("peer:leave", {
       id: this.#id,
       room: this.#room,
@@ -253,15 +267,15 @@ export class Peer {
    * @param options Stream descriptor or MediaStream instance.
    */
   async share(options: MediaStream | StreamOptions): Promise<void> {
-    if (options instanceof MediaStream) {
-      options = { label: options.id, stream: options };
-    }
-
     const {
       label = "default",
       stream,
       ...opts
-    } = parseOptions<StreamOptions>(options);
+    } = parseOptions<StreamOptions>(
+      options instanceof MediaStream
+        ? { label: options.id, stream: options }
+        : options,
+    );
 
     if (!(stream instanceof MediaStream) || !stream.getTracks().length) {
       throw new Error("MediaStream is invalid or empty");
@@ -290,9 +304,8 @@ export class Peer {
     const newStreamOptions = { ...opts, label, stream: newStream };
     this.#streamOptions.set(label, newStreamOptions);
 
-    this.emit("share", {
-      id: this.#id,
-      name: "share",
+    this.emit(["local", "local:share"], {
+      name: "local:share",
       stream: newStream,
       label,
     });
@@ -324,13 +337,12 @@ export class Peer {
   async unshare(
     options: MediaStream | string | { label?: string },
   ): Promise<void> {
-    if (options instanceof MediaStream) {
-      options = { label: options.id };
-    }
-
-    const { label = "default" } = parseOptions(options, (value) => {
-      return { label: String(value) };
-    });
+    const { label = "default" } = parseOptions<{ label: string }>(
+      options instanceof MediaStream ? { label: options.id } : options,
+      (value) => {
+        return { label: String(value) };
+      },
+    );
 
     const oldStreamOptions = this.#streamOptions.get(label);
     const { stream, managed } = oldStreamOptions ?? {};
@@ -345,7 +357,11 @@ export class Peer {
       }
     }
 
-    this.emit("unshare", { id: this.#id, name: "unshare", stream, label });
+    this.emit(["local", "local:unshare"], {
+      name: "local:unshare",
+      stream,
+      label,
+    });
     log("peer:unshare", { id: this.#id, label, stream });
 
     await Promise.allSettled(
@@ -379,7 +395,10 @@ export class Peer {
 
     this.#channelOptions.set(label, { ...channelOptions, label });
 
-    this.emit("open", { id: this.#id, name: "open", label });
+    this.emit(["local", "local:open"], {
+      name: "local:open",
+      label,
+    });
     log("peer:open", { id: this.#id, label, ...channelOptions });
 
     await Promise.allSettled(
@@ -401,14 +420,20 @@ export class Peer {
    *
    * @param options Channel label or object containing `label`.
    */
-  async close(options: string | { label: string }): Promise<void> {
-    const { label = "default" } = parseOptions(options, (value) => {
-      return { label: String(value) };
-    });
+  async close(options: string | { label?: string }): Promise<void> {
+    const { label = "default" } = parseOptions<{ label: string }>(
+      options,
+      (value) => {
+        return { label: String(value) };
+      },
+    );
 
     this.#channelOptions.delete(label);
 
-    this.emit("close", { id: this.#id, name: "close", label });
+    this.emit(["local", "local:close"], {
+      name: "local:close",
+      label,
+    });
     log("peer:close", { id: this.#id, label });
 
     await Promise.allSettled(
@@ -561,7 +586,7 @@ export class Peer {
 
   /**
    * Emits one or more events.
-   * Usually you would not call this method directly.
+   * Typically, you would not call this method directly.
    *
    * @param event Event name or list of event names.
    * @param args Event payload.
@@ -578,7 +603,15 @@ export class Peer {
    *
    * @returns A serializable representation of the peer.
    */
-  toJSON() {
+  toJSON(): {
+    id: string;
+    room: string;
+    metadata?: Record<string, unknown>;
+    active: boolean;
+    connections: string[];
+    streams: string[];
+    channels: string[];
+  } {
     return {
       id: this.id,
       room: this.room,
@@ -596,15 +629,15 @@ export class Peer {
    */
   async #createRemotePeer(options: {
     id: string;
-    metadata?: unknown;
-  }): Promise<RemotePeer | void> {
+    metadata?: Record<string, unknown>;
+  }): Promise<RemotePeer | null> {
     const { id, metadata } = options;
 
     const existingRemote = this.#getRemotePeer(id);
-    if (existingRemote) return;
+    if (existingRemote) return null;
 
     const verified = await this.#verifyRemotePeer({ id, metadata });
-    if (!verified) return;
+    if (!verified) return null;
 
     const remote = this.#newRemotePeer({ id, metadata });
     this.#bindRemoteLifecycleHandlers(remote);
@@ -616,9 +649,9 @@ export class Peer {
   /**
    * Retrieves an existing remote peer by ID, excluding peers in a closed state.
    */
-  #getRemotePeer(id: string): RemotePeer | void {
+  #getRemotePeer(id: string): RemotePeer | null {
     const remote = this.#connections.get(id);
-    return remote && remote.state !== "closed" ? remote : undefined;
+    return remote && remote.state !== "closed" ? remote : null;
   }
 
   /**
@@ -627,7 +660,7 @@ export class Peer {
    */
   async #verifyRemotePeer(options: {
     id: string;
-    metadata?: unknown;
+    metadata?: Record<string, unknown>;
   }): Promise<boolean> {
     if (typeof this.#verify !== "function") return true;
     return await this.#verify(options);
@@ -636,7 +669,10 @@ export class Peer {
   /**
    * Instantiates a new RemotePeer with the current peer's configuration settings.
    */
-  #newRemotePeer(options: { id: string; metadata?: unknown }): RemotePeer {
+  #newRemotePeer(options: {
+    id: string;
+    metadata?: Record<string, unknown>;
+  }): RemotePeer {
     const { id, metadata } = options;
 
     return new RemotePeer({
@@ -662,23 +698,23 @@ export class Peer {
     });
 
     remote.on("connection", (e) => {
-      this.emit(["connection", e.name], { ...e, id: this.#id, remote });
+      this.emit(["connection", e.name], { ...e, remote });
     });
 
     remote.on("channel", (e) => {
-      this.emit(["channel", e.name], { ...e, id: this.#id, remote });
+      this.emit(["channel", e.name], { ...e, remote });
     });
 
     remote.on("stream", (e) => {
-      this.emit(["stream", e.name], { ...e, id: this.#id, remote });
+      this.emit(["stream", e.name], { ...e, remote });
     });
 
     remote.on("track", (e) => {
-      this.emit(["track", e.name], { ...e, id: this.#id, remote });
+      this.emit(["track", e.name], { ...e, remote });
     });
 
     remote.on("error", (e) => {
-      this.emit("error", { ...e, id: this.#id });
+      this.emit("error", e);
     });
   }
 
@@ -689,7 +725,6 @@ export class Peer {
     this.#connections.set(remote.id, remote);
 
     this.emit(["connection", "connection:new"], {
-      id: this.#id,
       name: "connection:new",
       remote,
       state: "new",
@@ -724,12 +759,7 @@ export type IceTransportPolicy = "all" | "relay";
  * @group Peers
  */
 export type PeerConnectionState =
-  | "new"
-  | "connecting"
-  | "connected"
-  | "disconnected"
-  | "failed"
-  | "closed";
+  "new" | "connecting" | "connected" | "disconnected" | "failed" | "closed";
 
 /**
  * Local stream publication options.
@@ -913,7 +943,7 @@ export interface PeerJoinOptions {
   /**
    * Optional metadata to advertise to remote peers.
    */
-  metadata?: unknown;
+  metadata?: Record<string, unknown>;
   /**
    * Optional callback to accept or reject incoming peer connections.
    *
@@ -924,8 +954,22 @@ export interface PeerJoinOptions {
    */
   verify?: (options: {
     id: string;
-    metadata?: unknown;
+    metadata?: Record<string, unknown>;
   }) => Promise<boolean> | boolean;
+}
+
+/**
+ * Event emitted when a local peer requests to join or leave a room.
+ *
+ * @group Peers
+ */
+export interface LocalJoinLeaveEvent {
+  /** Name of the event. */
+  name: "local:join" | "local:leave";
+  /** The room being joined or left. */
+  room: string;
+  /** The metadata associated with the join/leave operation. */
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -933,11 +977,9 @@ export interface PeerJoinOptions {
  *
  * @group Peers
  */
-export interface PeerShareUnshareEvent {
-  /** Local peer identifier. */
-  id: string;
+export interface LocalShareUnshareEvent {
   /** Name of the event. */
-  name: "share" | "unshare";
+  name: "local:share" | "local:unshare";
   /** The shared media stream. */
   stream: MediaStream;
   /** The label associated with the media stream. */
@@ -949,11 +991,9 @@ export interface PeerShareUnshareEvent {
  *
  * @group Peers
  */
-export interface PeerOpenCloseEvent {
-  /** Local peer identifier. */
-  id: string;
+export interface LocalOpenCloseEvent {
   /** Name of the event. */
-  name: "open" | "close";
+  name: "local:open" | "local:close";
   /** The label associated with the data channel. */
   label: string;
 }
@@ -964,8 +1004,6 @@ export interface PeerOpenCloseEvent {
  * @group Peers
  */
 export interface PeerConnectionEvent {
-  /** Local peer identifier. */
-  id: string;
   /** Name of the event. */
   name:
     | "connection:new"
@@ -988,8 +1026,6 @@ export interface PeerConnectionEvent {
  * @group Peers
  */
 export interface PeerChannelEvent {
-  /** Local peer identifier. */
-  id: string;
   /** Name of the event. */
   name:
     | "channel:new"
@@ -1008,7 +1044,7 @@ export interface PeerChannelEvent {
   /** Received message data for message events. */
   data?: ReadableStream<Uint8Array> & PromiseLike<unknown>;
   /** Error object containing details about the error for error events. */
-  error?: Error;
+  error?: PeerixError;
 }
 
 /**
@@ -1017,8 +1053,6 @@ export interface PeerChannelEvent {
  * @group Peers
  */
 export interface PeerStreamEvent {
-  /** Local peer identifier. */
-  id: string;
   /** Name of the event. */
   name: "stream:add" | "stream:remove";
   /** Remote peer object containing connection details. */
@@ -1035,8 +1069,6 @@ export interface PeerStreamEvent {
  * @group Peers
  */
 export interface PeerTrackEvent {
-  /** Local peer identifier. */
-  id: string;
   /** Name of the event. */
   name: "track:add" | "track:remove";
   /** Remote peer object containing connection details. */
@@ -1055,12 +1087,12 @@ export interface PeerTrackEvent {
  * @group Peers
  */
 export interface PeerErrorEvent {
-  /** Local peer identifier. */
-  id: string;
   /** Name of the event. */
   name: "error";
   /** Error object containing details about the error. */
   error: PeerixError;
+  /** Remote peer associated with the error, if applicable. */
+  remote?: RemotePeer;
 }
 
 /**
@@ -1069,52 +1101,58 @@ export interface PeerErrorEvent {
  * @group Peers
  */
 export interface PeerEvents {
-  /** Peer requests to share a media stream. */
-  share: [PeerShareUnshareEvent];
-  /** Peer requests to unshare a media stream. */
-  unshare: [PeerShareUnshareEvent];
-  /** Peer requests to open a data channel. */
-  open: [PeerOpenCloseEvent];
-  /** Peer requests to close a data channel. */
-  close: [PeerOpenCloseEvent];
-  /** Peer connection state changes. */
+  /** Fired on any local method call. */
+  local: [LocalJoinLeaveEvent | LocalShareUnshareEvent | LocalOpenCloseEvent];
+  /** A peer joins a room. */
+  "local:join": [LocalJoinLeaveEvent];
+  /** A peer leaves the current room. */
+  "local:leave": [LocalJoinLeaveEvent];
+  /** A media stream is shared on this peer. */
+  "local:share": [LocalShareUnshareEvent];
+  /** A media stream is unshared from this peer. */
+  "local:unshare": [LocalShareUnshareEvent];
+  /** A data channel is opened on this peer. */
+  "local:open": [LocalOpenCloseEvent];
+  /** A data channel is closed on this peer. */
+  "local:close": [LocalOpenCloseEvent];
+  /** Fired on any peer connection state change. */
   connection: [PeerConnectionEvent];
-  /** Peer connection is created. */
+  /** A peer connection is created. */
   "connection:new": [PeerConnectionEvent];
-  /** Peer connection is connecting. */
+  /** A peer connection is connecting. */
   "connection:connecting": [PeerConnectionEvent];
-  /** Peer connection is established. */
+  /** A peer connection is established. */
   "connection:connected": [PeerConnectionEvent];
-  /** Peer connection is disconnected. */
+  /** A peer connection is disconnected. */
   "connection:disconnected": [PeerConnectionEvent];
-  /** Peer connection is failed. */
+  /** A peer connection has failed. */
   "connection:failed": [PeerConnectionEvent];
-  /** Peer connection is closed. */
+  /** A peer connection is closed. */
   "connection:closed": [PeerConnectionEvent];
-  /** Stream events occur. */
+  /** Fired on any media stream change from a remote peer. */
   stream: [PeerStreamEvent];
-  /** Remote peer shares a media stream. */
+  /** A remote peer shares a media stream. */
   "stream:add": [PeerStreamEvent];
-  /** Remote peer unshares a media stream. */
+  /** A remote peer unshares a media stream. */
   "stream:remove": [PeerStreamEvent];
-  /** Track events occur. */
+  /** Fired on any media track change from a remote peer. */
   track: [PeerTrackEvent];
-  /** Remote peer adds a media track to a shared stream. */
+  /** A remote peer adds a media track to a shared stream. */
   "track:add": [PeerTrackEvent];
-  /** Remote peer removes a media track from a shared stream. */
+  /** A remote peer removes a media track from a shared stream. */
   "track:remove": [PeerTrackEvent];
-  /** Channel events occur. */
+  /** Fired on any data channel event from a remote peer. */
   channel: [PeerChannelEvent];
-  /** Data channel is created. */
+  /** A data channel is created by a remote peer. */
   "channel:new": [PeerChannelEvent];
-  /** Data channel is opened. */
+  /** A data channel is opened with a remote peer. */
   "channel:open": [PeerChannelEvent];
-  /** Data channel is closed. */
+  /** A data channel is closed with a remote peer. */
   "channel:close": [PeerChannelEvent];
-  /** Message is received on a data channel. */
+  /** A message is received on a data channel from a remote peer. */
   "channel:message": [PeerChannelEvent];
-  /** Error occurs with a data channel. */
+  /** An error occurs on a data channel with a remote peer. */
   "channel:error": [PeerChannelEvent];
-  /** Error occurs in any background operations. */
+  /** An error occurs in any background operation. */
   error: [PeerErrorEvent];
 }

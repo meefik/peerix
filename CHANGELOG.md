@@ -13,8 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add the `share` and `unshare` events that are emitted when `share`/`unshare` methods are called.
-- Add the `open` and `close` events that are emitted when `open`/`close` methods are called.
+- Add the `local:join` and `local:leave` events that are emitted when `join`/`leave` methods are called.
+- Add the `local:share` and `local:unshare` events that are emitted when `share`/`unshare` methods are called.
+- Add the `local:open` and `local:close` events that are emitted when `open`/`close` methods are called.
 
 ### Changed
 
