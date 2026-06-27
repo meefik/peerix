@@ -10,7 +10,7 @@ import type {
   LocalOpenCloseEvent,
 } from "./peer.js";
 import log from "./utils/logger.js";
-import { PeerixError } from "./error.js";
+import { PeerixError, type ErrorCode } from "./error.js";
 import { parseOptions } from "./utils/helpers.js";
 import { EventEmitter } from "./utils/emitter.js";
 import { PromiseLikeReadableStream } from "./utils/stream.js";
@@ -167,10 +167,7 @@ export class RemotePeer {
           this.emit("signal", { name: "candidate", data: candidateInit });
         }
       } catch (err) {
-        this.emit("error", {
-          name: "error",
-          error: new PeerixError(err, "ICECANDIDATE_ERROR"),
-        });
+        this.#emitError(err, "ICECANDIDATE_ERROR");
       }
     });
 
@@ -229,10 +226,7 @@ export class RemotePeer {
           }
         },
         error: (err: unknown) => {
-          this.emit("error", {
-            name: "error",
-            error: new PeerixError(err, "SIGNALING_ERROR"),
-          });
+          this.#emitError(err, "SIGNALING_ERROR");
         },
       },
     });
@@ -294,10 +288,7 @@ export class RemotePeer {
           await this.unshare({ label });
         }
       } catch (err) {
-        this.emit("error", {
-          name: "error",
-          error: new PeerixError(err, "MEDIASTREAM_ERROR"),
-        });
+        this.#emitError(err, "MEDIASTREAM_ERROR");
       }
     };
 
@@ -530,10 +521,7 @@ export class RemotePeer {
             await this.#createAnswer();
           }
         } catch (err) {
-          this.emit("error", {
-            name: "error",
-            error: new PeerixError(err, "NEGOTIATION_ERROR"),
-          });
+          this.#emitError(err, "NEGOTIATION_ERROR");
         }
       } else if ("candidate" in data && data.candidate) {
         if (this.#ignoreOffer) {
@@ -730,10 +718,7 @@ export class RemotePeer {
     try {
       await this.#connection.addIceCandidate(candidate);
     } catch (err) {
-      this.emit("error", {
-        name: "error",
-        error: new PeerixError(err, "ICECANDIDATE_ERROR"),
-      });
+      this.#emitError(err, "ICECANDIDATE_ERROR");
     }
   }
 
@@ -772,6 +757,15 @@ export class RemotePeer {
   }
 
   /**
+   * Logs and emits an error event with the given raw error and context code.
+   */
+  #emitError(err: unknown, code: ErrorCode): void {
+    const error = new PeerixError(err, code);
+    log("remote:error", { id: this.#id, error });
+    this.emit("error", { name: "error", error });
+  }
+
+  /**
    * Requests or creates a data channel.
    */
   #requestDataChannel(options: ChannelOptions): void {
@@ -794,10 +788,7 @@ export class RemotePeer {
         this.#setupDataChannel(channel);
       }
     } catch (err) {
-      this.emit("error", {
-        name: "error",
-        error: new PeerixError(err, "DATACHANNEL_ERROR"),
-      });
+      this.#emitError(err, "DATACHANNEL_ERROR");
     }
   }
 
@@ -832,10 +823,7 @@ export class RemotePeer {
         );
       }
     } catch (err) {
-      this.emit("error", {
-        name: "error",
-        error: new PeerixError(err, "MEDIASTREAM_ERROR"),
-      });
+      this.#emitError(err, "MEDIASTREAM_ERROR");
     }
   }
 
@@ -881,10 +869,7 @@ export class RemotePeer {
 
       this.#stopSendonlyTransceivers(removedTracks);
     } catch (err) {
-      this.emit("error", {
-        name: "error",
-        error: new PeerixError(err, "MEDIASTREAM_ERROR"),
-      });
+      this.#emitError(err, "MEDIASTREAM_ERROR");
     }
   }
 
@@ -898,10 +883,7 @@ export class RemotePeer {
       const existingTracks = stream?.getTracks() ?? [];
       this.#stopSendonlyTransceivers(existingTracks);
     } catch (err) {
-      this.emit("error", {
-        name: "error",
-        error: new PeerixError(err, "MEDIASTREAM_ERROR"),
-      });
+      this.#emitError(err, "MEDIASTREAM_ERROR");
     }
   }
 
@@ -950,10 +932,7 @@ export class RemotePeer {
       }
     } catch (err) {
       await this.#rollbackLocalDescription();
-      this.emit("error", {
-        name: "error",
-        error: new PeerixError(err, "NEGOTIATION_ERROR"),
-      });
+      this.#emitError(err, "NEGOTIATION_ERROR");
     } finally {
       this.#negotiationLock.release();
     }
@@ -986,10 +965,7 @@ export class RemotePeer {
       }
     } catch (err) {
       await this.#rollbackLocalDescription();
-      this.emit("error", {
-        name: "error",
-        error: new PeerixError(err, "NEGOTIATION_ERROR"),
-      });
+      this.#emitError(err, "NEGOTIATION_ERROR");
     } finally {
       this.#negotiationLock.release();
     }
@@ -1029,10 +1005,7 @@ export class RemotePeer {
         await this.#connection.setLocalDescription({ type: "rollback" });
       }
     } catch (err) {
-      this.emit("error", {
-        name: "error",
-        error: new PeerixError(err, "NEGOTIATION_ERROR"),
-      });
+      this.#emitError(err, "NEGOTIATION_ERROR");
     }
   }
 

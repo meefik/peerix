@@ -1,5 +1,4 @@
 import type { Driver } from "./drivers/driver.js";
-import log from "./utils/logger.js";
 import { RemotePeer } from "./remote.js";
 import { MemoryDriver } from "./drivers/memory.js";
 import { PeerixError } from "./error.js";
