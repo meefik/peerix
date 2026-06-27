@@ -37,8 +37,8 @@ export class PeerixError extends Error {
         ? (error as Error)
         : { message: String(error) };
     super(message);
-    this.name = name ?? "Error";
-    this.message = message ?? "Unknown error";
+    this.name = name || "Error";
+    this.message = message || "Unknown error";
     this.code = code ?? "UNKNOWN_ERROR";
     // fix the prototype chain for built-in Error
     Object.setPrototypeOf(this, PeerixError.prototype);
