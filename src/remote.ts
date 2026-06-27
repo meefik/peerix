@@ -15,6 +15,7 @@ import { parseOptions } from "./utils/helpers.js";
 import { EventEmitter } from "./utils/emitter.js";
 import { PromiseLikeReadableStream } from "./utils/stream.js";
 import { Timeout } from "./utils/timeout.js";
+import { IdleLock } from "./utils/idlelock.js";
 import { ControlChannel } from "./control.js";
 import { DataChannel } from "./channel.js";
 
@@ -23,6 +24,9 @@ const MESSAGE_TYPE = {
   signal: 1, // SDP and ICE messages
   channel: 2, // data channel creation messages
 } as const;
+
+/** Maximum time to wait for negotiation to become idle, in milliseconds. */
+const NEGOTIATION_IDLE_TIMEOUT = 5000;
 
 /**
  * Represents a remote peer connection.
@@ -70,9 +74,7 @@ export class RemotePeer {
   #channels: Map<string, RTCDataChannel>;
   #polite: boolean;
   #streamLabels: Map<string, string>;
-  #makingOffer: boolean;
-  #pendingAnswer: boolean;
-  #settingRemoteDescription: boolean;
+  #negotiationLock: IdleLock;
   #ignoreOffer: boolean;
   #signalQueue: Promise<unknown>;
   #streamOptions: Map<string, StreamOptions>;
@@ -117,9 +119,7 @@ export class RemotePeer {
     this.#polite = polite;
     this.#emitter = new EventEmitter(this);
     this.#streamLabels = new Map();
-    this.#makingOffer = false;
-    this.#pendingAnswer = false;
-    this.#settingRemoteDescription = false;
+    this.#negotiationLock = new IdleLock();
     this.#ignoreOffer = false;
     this.#streamOptions = new Map(streams);
     this.#channelOptions = new Map(channels);
@@ -519,7 +519,7 @@ export class RemotePeer {
 
         try {
           if (hasOffer && collision && this.#polite) {
-            await this.#waitForNegotiationIdle();
+            await this.#negotiationLock.waitForIdle(NEGOTIATION_IDLE_TIMEOUT);
             await this.#rollbackLocalDescription();
           }
 
@@ -635,9 +635,7 @@ export class RemotePeer {
     this.#streams.clear();
     this.#pendingCandidates.length = 0;
     this.#streamLabels.clear();
-    this.#makingOffer = false;
-    this.#pendingAnswer = false;
-    this.#settingRemoteDescription = false;
+    this.#negotiationLock.dispose();
     this.#ignoreOffer = false;
   }
 
@@ -675,30 +673,13 @@ export class RemotePeer {
   }
 
   /**
-   * Waits until negotiation-sensitive flags are clear.
-   */
-  async #waitForNegotiationIdle(ms = 5000): Promise<void> {
-    let t = Date.now();
-    while (
-      this.#makingOffer ||
-      this.#pendingAnswer ||
-      this.#settingRemoteDescription
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      if (Date.now() - t > ms) {
-        throw new Error("Negotiation idle timeout");
-      }
-    }
-  }
-
-  /**
    * Adds a sendonly transceiver for a track and applies optional sender parameters.
    */
   async #addTrackAsSender(
     stream: MediaStream,
     track: MediaStreamTrack,
-    audioParameters?: { [key: string]: unknown },
-    videoParameters?: { [key: string]: unknown },
+    audioParameters?: Record<string, unknown>,
+    videoParameters?: Record<string, unknown>,
   ): Promise<void> {
     this.#connection.addTransceiver(track, {
       direction: "sendonly",
@@ -784,8 +765,10 @@ export class RemotePeer {
   /**
    * Serializes a value by calling its `toJSON` method if available; otherwise returns the value unchanged.
    */
-  #serializeJSON<T>(data: any): T {
-    return typeof data?.toJSON === "function" ? data.toJSON() : data;
+  #serializeJSON<T>(data: unknown): T {
+    return data && typeof (data as any).toJSON === "function"
+      ? (data as any).toJSON()
+      : (data as T);
   }
 
   /**
@@ -927,8 +910,7 @@ export class RemotePeer {
    */
   #hasCollision(): boolean {
     const readyForOffer =
-      !this.#makingOffer &&
-      !this.#settingRemoteDescription &&
+      this.#negotiationLock.isIdle &&
       this.#connection.signalingState === "stable";
     return !readyForOffer;
   }
@@ -939,7 +921,7 @@ export class RemotePeer {
    */
   async #createOffer(): Promise<void> {
     try {
-      this.#makingOffer = true;
+      this.#negotiationLock.acquire();
 
       const offer = await this.#connection.createOffer();
       await this.#connection.setLocalDescription(offer);
@@ -973,7 +955,7 @@ export class RemotePeer {
         error: new PeerixError(err, "NEGOTIATION_ERROR"),
       });
     } finally {
-      this.#makingOffer = false;
+      this.#negotiationLock.release();
     }
   }
 
@@ -983,7 +965,7 @@ export class RemotePeer {
    */
   async #createAnswer(): Promise<void> {
     try {
-      this.#pendingAnswer = true;
+      this.#negotiationLock.acquire();
 
       const answer = await this.#connection.createAnswer();
       await this.#connection.setLocalDescription(answer);
@@ -1009,7 +991,7 @@ export class RemotePeer {
         error: new PeerixError(err, "NEGOTIATION_ERROR"),
       });
     } finally {
-      this.#pendingAnswer = false;
+      this.#negotiationLock.release();
     }
   }
 
@@ -1021,13 +1003,13 @@ export class RemotePeer {
   ): Promise<void> {
     log("remote:setdescription", { id: this.#id, description });
 
-    await this.#waitForNegotiationIdle();
+    await this.#negotiationLock.waitForIdle(NEGOTIATION_IDLE_TIMEOUT);
 
     try {
-      this.#settingRemoteDescription = true;
+      this.#negotiationLock.acquire();
       await this.#connection.setRemoteDescription(description);
     } finally {
-      this.#settingRemoteDescription = false;
+      this.#negotiationLock.release();
     }
   }
 
@@ -1046,8 +1028,11 @@ export class RemotePeer {
       if (rollbackStates.includes(signalingState)) {
         await this.#connection.setLocalDescription({ type: "rollback" });
       }
-    } catch (error) {
-      log("remote:rollback:error", { id: this.#id, error });
+    } catch (err) {
+      this.emit("error", {
+        name: "error",
+        error: new PeerixError(err, "NEGOTIATION_ERROR"),
+      });
     }
   }
 
@@ -1056,7 +1041,7 @@ export class RemotePeer {
    */
   async #setSenderParameters(
     track: MediaStreamTrack,
-    parameters?: { [key: string]: unknown },
+    parameters?: Record<string, unknown>,
   ): Promise<void> {
     if (!parameters) return;
 
