@@ -80,6 +80,8 @@ export class NatsDriver extends Driver {
   ): Promise<void> {
     if (!this.#nc) return;
 
+    super.subscribe(namespace, handler);
+
     const subject = this.#getSubject(namespace);
     this.#emitter.on(subject, handler);
 
@@ -105,6 +107,8 @@ export class NatsDriver extends Driver {
   ): Promise<void> {
     if (!this.#nc) return;
 
+    super.unsubscribe(namespace, handler);
+
     const subject = this.#getSubject(namespace);
     this.#emitter.off(subject, handler);
 
@@ -117,6 +121,8 @@ export class NatsDriver extends Driver {
 
   override async publish(namespace: string[], data: number[]): Promise<void> {
     if (!this.#nc) return;
+
+    super.publish(namespace, data);
 
     const subject = this.#getSubject(namespace);
     this.#nc.publish(subject, new Uint8Array(data));

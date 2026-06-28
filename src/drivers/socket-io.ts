@@ -136,6 +136,8 @@ export class SocketIoDriver extends Driver {
   ): Promise<void> {
     if (!this.#socket) return;
 
+    super.subscribe(namespace, handler);
+
     const [event] = namespace.slice(-1);
     const isFirstSubscription = !this.#emitter.has(event);
     this.#emitter.on(event, handler);
@@ -156,6 +158,8 @@ export class SocketIoDriver extends Driver {
   ): Promise<void> {
     if (!this.#socket) return;
 
+    super.unsubscribe(namespace, handler);
+
     const [event] = namespace.slice(-1);
     this.#emitter.off(event, handler);
 
@@ -166,6 +170,8 @@ export class SocketIoDriver extends Driver {
 
   override async publish(namespace: string[], data: number[]): Promise<void> {
     if (!this.#socket) return;
+
+    super.publish(namespace, data);
 
     const [event] = namespace.slice(-1);
     await this.#socketEmit("publish", event, data);

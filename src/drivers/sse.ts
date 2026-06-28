@@ -136,9 +136,12 @@ export class SseDriver extends Driver {
     namespace: string[],
     handler: (data: number[]) => void,
   ): Promise<void> {
+    super.subscribe(namespace, handler);
+
     const [topic] = namespace.slice(-1);
     const hasSubscribers = this.#emitter.has(topic);
     this.#emitter.on(topic, handler);
+
     if (!hasSubscribers) {
       await this.#createEventSource(topic);
     }
@@ -148,8 +151,11 @@ export class SseDriver extends Driver {
     namespace: string[],
     handler: (data: number[]) => void,
   ): Promise<void> {
+    super.unsubscribe(namespace, handler);
+
     const [topic] = namespace.slice(-1);
     this.#emitter.off(topic, handler);
+
     const hasSubscribers = this.#emitter.has(topic);
     if (!hasSubscribers) {
       this.#closeEventSource(topic);
@@ -157,12 +163,15 @@ export class SseDriver extends Driver {
   }
 
   override async publish(namespace: string[], data: number[]): Promise<void> {
+    super.publish(namespace, data);
+
     const [topic] = namespace.slice(-1);
     await this.#send(topic, data);
   }
 
   override destroy(): void {
     super.destroy();
+
     this.#emitter.clear();
 
     for (const topic of this.#eventSources.keys()) {

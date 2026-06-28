@@ -66,6 +66,8 @@ export class SupabaseDriver extends Driver {
   ): Promise<void> {
     if (!this.#supabase) return;
 
+    super.subscribe(namespace, handler);
+
     const [channelName] = namespace;
     const [event] = namespace.slice(-1);
     this.#emitter.on(event, handler);
@@ -84,6 +86,8 @@ export class SupabaseDriver extends Driver {
   ): Promise<void> {
     if (!this.#supabase) return;
 
+    super.unsubscribe(namespace, handler);
+
     const [channelName] = namespace;
     const [event] = namespace.slice(-1);
     this.#emitter.off(event, handler);
@@ -94,6 +98,8 @@ export class SupabaseDriver extends Driver {
   override async publish(namespace: string[], data: number[]): Promise<void> {
     if (!this.#supabase) return;
 
+    super.publish(namespace, data);
+
     const [channelName] = namespace;
     const [event] = namespace.slice(-1);
 
@@ -102,6 +108,7 @@ export class SupabaseDriver extends Driver {
 
   override destroy(): void {
     super.destroy();
+
     this.#emitter.clear();
 
     if (this.#supabase) {

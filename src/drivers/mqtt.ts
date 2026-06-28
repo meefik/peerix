@@ -108,6 +108,8 @@ export class MqttDriver extends Driver {
   ): Promise<void> {
     if (!this.#client) return;
 
+    super.subscribe(namespace, handler);
+
     const topic = this.#getTopic(namespace);
     const isFirstSubscription = !this.#emitter.has(topic);
     this.#emitter.on(topic, handler);
@@ -128,6 +130,8 @@ export class MqttDriver extends Driver {
   ): Promise<void> {
     if (!this.#client) return;
 
+    super.unsubscribe(namespace, handler);
+
     const topic = this.#getTopic(namespace);
     this.#emitter.off(topic, handler);
 
@@ -138,6 +142,8 @@ export class MqttDriver extends Driver {
 
   override async publish(namespace: string[], data: number[]): Promise<void> {
     if (!this.#client) return;
+
+    super.publish(namespace, data);
 
     const topic = this.#getTopic(namespace);
     await this.#mqttPublish(topic, new Uint8Array(data));

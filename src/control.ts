@@ -104,7 +104,7 @@ export class ControlChannel {
     buffer: Uint8Array<ArrayBuffer>,
   ): { event: number; message: object } | null {
     const { event, payload } = decode<Packet>(buffer, PACKET_SCHEMA) ?? {};
-    if (typeof event === "number" && typeof payload !== "undefined") {
+    if (typeof event === "number" && payload !== undefined) {
       const message = JSON.parse(new TextDecoder().decode(payload));
       return { event, message };
     }

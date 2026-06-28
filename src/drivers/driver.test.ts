@@ -1,29 +1,27 @@
-import { suite, test } from "node:test";
+import { suite, test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { setTimeout as wait } from "node:timers/promises";
 import { Driver } from "./driver.js";
 
 suite("drivers/driver", async () => {
-  test("Driver initializes as inactive", async () => {
-    // Arrange
-    const driver = new Driver();
+  let driver: Driver;
 
-    // Act & Assert
+  beforeEach(() => {
+    driver = new Driver();
+  });
+
+  test("initializes as inactive", () => {
+    // Assert
     assert.equal(driver.active, false);
   });
 
-  test("Driver emits active and inactive only on state changes", async () => {
+  test("emits active/inactive only on state changes", async () => {
     // Arrange
-    const driver = new Driver();
-    let activeCalls = 0;
-    let inactiveCalls = 0;
+    let activeCount = 0;
+    let inactiveCount = 0;
 
-    driver.on("active", () => {
-      activeCalls += 1;
-    });
-    driver.on("inactive", () => {
-      inactiveCalls += 1;
-    });
+    driver.on("active", () => activeCount++);
+    driver.on("inactive", () => inactiveCount++);
 
     // Act
     driver.active = true;
@@ -34,82 +32,91 @@ suite("drivers/driver", async () => {
     await wait(0);
 
     // Assert
-    assert.equal(activeCalls, 1);
-    assert.equal(inactiveCalls, 1);
-    assert.equal(driver.active, false);
+    assert.equal(activeCount, 1);
+    assert.equal(inactiveCount, 1);
   });
 
-  test("Driver supports on, off, and emit with payloads", async () => {
+  test("emits error with payload", async () => {
     // Arrange
-    const driver = new Driver();
     const errors: unknown[] = [];
+    const err = new Error("Something went wrong");
 
-    const handler = (error: unknown) => {
-      errors.push(error);
-    };
-
-    driver.on("error", handler);
+    driver.on("error", (err) => errors.push(err));
 
     // Act
-    driver.emit("error", "first");
-    await wait(0);
-
-    driver.off("error", handler);
-    driver.emit("error", "second");
+    driver.emit("error", err);
     await wait(0);
 
     // Assert
-    assert.deepEqual(errors, ["first"]);
+    assert.equal(errors.length, 1);
+    assert.deepEqual(errors, [err]);
   });
 
-  test("Driver exposes no-op async subscribe/unsubscribe/publish methods", async () => {
+  test("subscribe/publish/unsubscribe emit correct events", async () => {
     // Arrange
-    const driver = new Driver();
-    const namespace = ["room", "peer"];
+    const subs: [string[], (...args: any) => void][] = [];
+    const unsubs: [string[], (...args: any) => void][] = [];
+    const pubs: [string[], number[]][] = [];
+
+    driver.on("subscribe", (ns, handler) => subs.push([ns, handler]));
+    driver.on("unsubscribe", (ns, handler) => unsubs.push([ns, handler]));
+    driver.on("publish", (ns, data) => pubs.push([ns, data]));
+
+    // Act
+    const ns = ["room-1", "peer-a"];
     const handler = () => {};
+    driver.subscribe(ns, handler);
+    driver.publish(ns, [42]);
+    driver.unsubscribe(ns, handler);
 
-    // Act & Assert
-    await assert.doesNotReject(driver.subscribe(namespace, handler));
-    await assert.doesNotReject(driver.unsubscribe(namespace, handler));
-    await assert.doesNotReject(driver.publish(namespace, [1, 2, 3]));
+    await wait(0);
+
+    // Assert
+    assert.deepEqual(subs, [[["room-1", "peer-a"], handler]]);
+    assert.deepEqual(pubs, [[["room-1", "peer-a"], [42]]]);
+    assert.deepEqual(unsubs, [[["room-1", "peer-a"], handler]]);
   });
 
-  test("Driver clears handlers on destroy and sets inactive", async () => {
+  test("off removes event handler", async () => {
     // Arrange
-    const driver = new Driver();
-    let activeCalls = 0;
-    let inactiveCalls = 0;
+    let count = 0;
+    const handler = () => count++;
 
-    driver.on("active", () => {
-      activeCalls += 1;
-    });
-    driver.on("inactive", () => {
-      inactiveCalls += 1;
-    });
+    driver.on("active", handler);
 
     // Act
     driver.active = true;
-    await wait(0);
+    driver.off("active", handler);
     driver.active = false;
-    await wait(0);
     driver.active = true;
     await wait(0);
 
     // Assert
-    assert.equal(driver.active, true);
-    assert.equal(activeCalls, 2);
-    assert.equal(inactiveCalls, 1);
+    assert.equal(count, 1);
+  });
 
+  test("destroy sets inactive and clears handlers", async () => {
+    // Arrange
+    let activeCount = 0;
+    let inactiveCount = 0;
+    let activeAfterDestroy: boolean;
+
+    driver.on("active", () => activeCount++);
+    driver.on("inactive", () => inactiveCount++);
+
+    // Act
+    driver.active = true;
     driver.destroy();
     await wait(0);
-
-    assert.equal(driver.active, false);
+    activeAfterDestroy = driver.active;
 
     driver.active = true;
     driver.active = false;
     await wait(0);
 
-    assert.equal(activeCalls, 2);
-    assert.equal(inactiveCalls, 1);
+    // Assert
+    assert.equal(activeAfterDestroy, false);
+    assert.equal(activeCount, 1);
+    assert.equal(inactiveCount, 0);
   });
 });

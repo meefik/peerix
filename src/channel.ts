@@ -426,7 +426,7 @@ export class DataChannel {
     obj: Record<string, unknown> | undefined,
   ): Uint8Array | undefined {
     try {
-      return typeof obj !== "undefined"
+      return obj !== undefined
         ? this.#textEncoder.encode(JSON.stringify(obj))
         : undefined;
     } catch {
@@ -441,7 +441,7 @@ export class DataChannel {
     bytes: Uint8Array | undefined,
   ): Record<string, unknown> | undefined {
     try {
-      return typeof bytes !== "undefined"
+      return bytes !== undefined
         ? JSON.parse(this.#textDecoder.decode(bytes))
         : undefined;
     } catch {

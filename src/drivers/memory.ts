@@ -36,6 +36,7 @@ export class MemoryDriver extends Driver {
     namespace: string[],
     handler: (data: number[]) => void,
   ): Promise<void> {
+    super.subscribe(namespace, handler);
     const [event] = namespace.slice(-1);
     this.#emitter.on(event, handler);
   }
@@ -44,11 +45,13 @@ export class MemoryDriver extends Driver {
     namespace: string[],
     handler: (data: number[]) => void,
   ): Promise<void> {
+    super.unsubscribe(namespace, handler);
     const [event] = namespace.slice(-1);
     this.#emitter.off(event, handler);
   }
 
   override async publish(namespace: string[], data: number[]): Promise<void> {
+    super.publish(namespace, data);
     const [event] = namespace.slice(-1);
     this.#emitter.emit(event, data);
   }

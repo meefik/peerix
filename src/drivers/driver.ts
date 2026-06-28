@@ -23,18 +23,16 @@ import { EventEmitter } from "../utils/emitter.js";
  * @group Drivers
  *
  * @example
- * ```js
+ * ```typescript
  * class MyDriver extends Driver {
- *   async subscribe(namespace, handler) {
- *     // subscribe to messages for the given namespace and call the handler on each message
+ *   async subscribe(namespace: string[], handler: (data: number[]) => void) {
+ *     super.subscribe(namespace, handler);
  *   }
- *
- *   async unsubscribe(namespace, handler) {
- *     // unsubscribe the handler from messages for the given namespace
+ *   async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
+ *     super.unsubscribe(namespace, handler);
  *   }
- *
- *   async publish(namespace, payload) {
- *     // publish a message to the given namespace
+ *   async publish(namespace: string[], data: number[]) {
+ *     super.publish(namespace, data);
  *   }
  * }
  * ```
@@ -106,11 +104,11 @@ export class Driver {
    * @param namespace The namespace to subscribe to.
    * @param handler The handler function to call when a message is received.
    */
-  async subscribe(
+  subscribe(
     namespace: string[],
     handler: (data: number[]) => void,
-  ): Promise<void> {
-    // Base implementation is intentionally empty.
+  ): void | Promise<void> {
+    this.#emitter.emit("subscribe", namespace, handler);
   }
 
   /**
@@ -119,11 +117,11 @@ export class Driver {
    * @param namespace The namespace to unsubscribe from.
    * @param handler The handler function to remove.
    */
-  async unsubscribe(
+  unsubscribe(
     namespace: string[],
     handler: (data: number[]) => void,
-  ): Promise<void> {
-    // Base implementation is intentionally empty.
+  ): void | Promise<void> {
+    this.#emitter.emit("unsubscribe", namespace, handler);
   }
 
   /**
@@ -132,8 +130,8 @@ export class Driver {
    * @param namespace The namespace to publish the message to.
    * @param data The message data to publish.
    */
-  async publish(namespace: string[], data: number[]): Promise<void> {
-    // Base implementation is intentionally empty.
+  publish(namespace: string[], data: number[]): void | Promise<void> {
+    this.#emitter.emit("publish", namespace, data);
   }
 
   /**
@@ -151,12 +149,16 @@ export class Driver {
  * @group Drivers
  */
 export interface DriverEvents {
-  /** Emitted when the driver becomes active. */
+  /** The driver has become active. */
   active: [];
-  /** Emitted when the driver becomes inactive. */
+  /** The driver has become inactive. */
   inactive: [];
-  /** Emitted when an error occurs within the driver. */
+  /** An error occurred within the driver. */
   error: [any];
-  /** Allows for additional custom events. */
-  [event: string]: any[];
+  /** A subscription was added. */
+  subscribe: [string[], (data: number[]) => void];
+  /** A subscription was removed. */
+  unsubscribe: [string[], (data: number[]) => void];
+  /** A message was published. */
+  publish: [string[], number[]];
 }

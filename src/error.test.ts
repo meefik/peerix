@@ -2,7 +2,7 @@ import { suite, test } from "node:test";
 import assert from "node:assert/strict";
 import { PeerixError } from "./error.js";
 
-suite("PeerixError", async () => {
+suite("error", async () => {
   test("wraps an Error object preserving name and message", async () => {
     // Arrange
     const original = new SyntaxError("unexpected token");

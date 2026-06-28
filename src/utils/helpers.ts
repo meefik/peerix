@@ -11,7 +11,7 @@ export function parseOptions<T>(
 ): Partial<T> {
   return typeof options === "object" && options !== null
     ? { ...options }
-    : typeof options !== "undefined" && typeof parser === "function"
+    : options !== undefined && typeof parser === "function"
       ? { ...parser(options) }
       : {};
 }

@@ -1,7 +1,7 @@
 import type { Driver } from "./drivers/driver.js";
 import type { RemotePeer } from "./remote.js";
-import { PeerixError } from "./error.js";
 import log from "./utils/logger.js";
+import { PeerixError } from "./error.js";
 import { IceCandidateBatcher, IceCandidateQueue } from "./utils/ice.js";
 import { base62ToBytes, bytesToBase62 } from "./utils/base62.js";
 import { encode, decode } from "./utils/protobuf.js";
@@ -185,11 +185,6 @@ export class Signaler {
   async unregister(): Promise<void> {
     if (!this.#active) return;
 
-    this.#id = "";
-    this.#room = "";
-    this.#metadata = undefined;
-    this.#keyPair = undefined;
-
     this.#driver.off("active", this.#driverActiveHandler);
     this.#driver.off("error", this.#driverErrorHandler);
 
@@ -200,6 +195,11 @@ export class Signaler {
       this.#candidateBatchers.clear();
       this.#candidateQueue.clear();
       this.#sharedKeys.clear();
+
+      this.#id = "";
+      this.#room = "";
+      this.#metadata = undefined;
+      this.#keyPair = undefined;
 
       this.#active = false;
     }

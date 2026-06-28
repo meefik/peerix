@@ -273,7 +273,7 @@ export class PromiseLikeReadableStream<R = unknown> extends ReadableStream<R> {
     let promise: Promise<unknown | void>;
     const getPromise = (): Promise<unknown | void> => {
       if (promise) return promise;
-      if (typeof type === "undefined") {
+      if (type === undefined) {
         promise = new Promise<void>(async (resolve, reject) => {
           try {
             for await (const _ of this) {

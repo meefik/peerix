@@ -183,17 +183,17 @@ export class Peer {
 
     this.#active = true;
 
+    this.#room = `${room || "default"}`;
+    this.#metadata = metadata;
+    this.#verify = verify;
+
+    this.emit(["local", "local:join"], {
+      name: "local:join",
+      room: this.#room,
+      metadata: this.#metadata,
+    });
+
     try {
-      this.#room = `${room || "default"}`;
-      this.#metadata = metadata;
-      this.#verify = verify;
-
-      this.emit(["local", "local:join"], {
-        name: "local:join",
-        room: this.#room,
-        metadata: this.#metadata,
-      });
-
       this.#id = await this.#signaler.register(this.#room, this.#metadata);
     } catch (err) {
       await this.leave();
@@ -221,17 +221,21 @@ export class Peer {
       metadata: this.#metadata,
     });
 
-    await this.#signaler.unregister();
+    try {
+      await this.#signaler.unregister();
 
-    for (const remote of this.#connections.values()) {
-      remote.dispose();
+      for (const remote of this.#connections.values()) {
+        remote.dispose();
+      }
+    } finally {
+      this.#connections.clear();
+
+      this.#id = "";
+      this.#room = "";
+      this.#metadata = undefined;
+
+      this.#active = false;
     }
-    this.#connections.clear();
-
-    this.#id = "";
-    this.#room = "";
-    this.#metadata = undefined;
-    this.#active = false;
   }
 
   /**
