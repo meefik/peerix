@@ -75,7 +75,7 @@ export class NatsDriver extends Driver {
   }
 
   override async subscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     if (!this.#nc) return;
@@ -83,26 +83,21 @@ export class NatsDriver extends Driver {
     super.subscribe(namespace, handler);
 
     const subject = this.#getSubject(namespace);
-    this.#emitter.on(subject, handler);
-
     if (!this.#subscriptions.has(subject)) {
-      try {
-        const sub = this.#nc.subscribe(subject, {
-          callback: (error: Error, msg: any) => {
-            if (error) return this.emit("error", error);
-            this.#emitter.emit(subject, Array.from(msg?.data ?? []));
-          },
-        });
-        this.#subscriptions.set(subject, sub);
-      } catch (error) {
-        this.#emitter.off(subject, handler);
-        throw error;
-      }
+      const sub = this.#nc.subscribe(subject, {
+        callback: (error: Error, msg: any) => {
+          if (error) return this.emit("error", error);
+          this.#emitter.emit(subject, Array.from(msg?.data ?? []));
+        },
+      });
+      this.#subscriptions.set(subject, sub);
     }
+
+    this.#emitter.on(subject, handler);
   }
 
   override async unsubscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     if (!this.#nc) return;
@@ -119,7 +114,7 @@ export class NatsDriver extends Driver {
     }
   }
 
-  override async publish(namespace: string[], data: number[]): Promise<void> {
+  override async publish(namespace: string, data: number[]): Promise<void> {
     if (!this.#nc) return;
 
     super.publish(namespace, data);
@@ -147,9 +142,8 @@ export class NatsDriver extends Driver {
    * @param namespace The namespace to construct the subject for.
    * @returns The full NATS subject name with the prefix applied.
    */
-  #getSubject(namespace: string[]): string {
-    const [event] = namespace.slice(-1);
-    return `${this.#prefix}${event}`;
+  #getSubject(namespace: string): string {
+    return `${this.#prefix}${namespace}`;
   }
 
   /**

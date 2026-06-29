@@ -10,9 +10,7 @@ async function waitFor(predicate: () => boolean, timeoutMs: number = 300) {
   const started = Date.now();
   while (!predicate()) {
     if (Date.now() - started >= timeoutMs) {
-      throw new Error(
-        "Timed out waiting for broadcast-channel message delivery",
-      );
+      throw new Error("Timed out waiting for predicate");
     }
     await wait(5);
   }
@@ -40,20 +38,16 @@ suite("drivers/broadcast-channel", async () => {
     const payloads: number[][] = [];
 
     try {
-      await subscriber.subscribe(["room"], (data) => {
-        payloads.push(data);
-      });
-      await subscriber.subscribe(["room", "peer"], (data) => {
+      await subscriber.subscribe("room", (data) => {
         payloads.push(data);
       });
 
       // Act
-      await publisher.publish(["room"], [1, 2, 3]);
-      await publisher.publish(["room", "peer"], [4, 5, 6]);
-
-      // Assert
+      await publisher.publish("room", [1, 2, 3]);
+      await publisher.publish("room", [4, 5, 6]);
       await waitFor(() => payloads.length === 2);
 
+      // Assert
       assert.deepEqual(payloads, [
         [1, 2, 3],
         [4, 5, 6],
@@ -75,14 +69,14 @@ suite("drivers/broadcast-channel", async () => {
     };
 
     try {
-      await subscriber.subscribe(["room", "peer"], handler);
+      await subscriber.subscribe("room", handler);
 
       // Act
-      await publisher.publish(["room", "peer"], [1, 2, 3]);
+      await publisher.publish("room", [1, 2, 3]);
       await waitFor(() => payloads.length === 1);
 
-      await subscriber.unsubscribe(["room", "peer"], handler);
-      await publisher.publish(["room", "peer"], [4, 5, 6]);
+      await subscriber.unsubscribe("room", handler);
+      await publisher.publish("room", [4, 5, 6]);
       await wait(50);
 
       // Assert
@@ -101,16 +95,16 @@ suite("drivers/broadcast-channel", async () => {
     const payloads: number[][] = [];
 
     try {
-      await subscriber.subscribe(["room", "peer"], (data) => {
+      await subscriber.subscribe("room", (data) => {
         payloads.push(data);
       });
 
       // Act
-      await publisher.publish(["room", "peer"], [1, 2, 3]);
+      await publisher.publish("room", [1, 2, 3]);
       await waitFor(() => payloads.length === 1);
 
       subscriber.destroy();
-      await publisher.publish(["room", "peer"], [4, 5, 6]);
+      await publisher.publish("room", [4, 5, 6]);
       await wait(50);
 
       // Assert

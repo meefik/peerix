@@ -25,13 +25,13 @@ import { EventEmitter } from "../utils/emitter.js";
  * @example
  * ```typescript
  * class MyDriver extends Driver {
- *   async subscribe(namespace: string[], handler: (data: number[]) => void) {
+ *   async subscribe(namespace: string, handler: (data: number[]) => void) {
  *     super.subscribe(namespace, handler);
  *   }
- *   async unsubscribe(namespace: string[], handler: (data: number[]) => void) {
+ *   async unsubscribe(namespace: string, handler: (data: number[]) => void) {
  *     super.unsubscribe(namespace, handler);
  *   }
- *   async publish(namespace: string[], data: number[]) {
+ *   async publish(namespace: string, data: number[]) {
  *     super.publish(namespace, data);
  *   }
  * }
@@ -105,7 +105,7 @@ export class Driver {
    * @param handler The handler function to call when a message is received.
    */
   subscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): void | Promise<void> {
     this.#emitter.emit("subscribe", namespace, handler);
@@ -118,7 +118,7 @@ export class Driver {
    * @param handler The handler function to remove.
    */
   unsubscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): void | Promise<void> {
     this.#emitter.emit("unsubscribe", namespace, handler);
@@ -130,7 +130,7 @@ export class Driver {
    * @param namespace The namespace to publish the message to.
    * @param data The message data to publish.
    */
-  publish(namespace: string[], data: number[]): void | Promise<void> {
+  publish(namespace: string, data: number[]): void | Promise<void> {
     this.#emitter.emit("publish", namespace, data);
   }
 
@@ -156,9 +156,9 @@ export interface DriverEvents {
   /** An error occurred within the driver. */
   error: [any];
   /** A subscription was added. */
-  subscribe: [string[], (data: number[]) => void];
+  subscribe: [string, (data: number[]) => void];
   /** A subscription was removed. */
-  unsubscribe: [string[], (data: number[]) => void];
+  unsubscribe: [string, (data: number[]) => void];
   /** A message was published. */
-  publish: [string[], number[]];
+  publish: [string, number[]];
 }

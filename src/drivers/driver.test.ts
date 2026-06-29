@@ -54,16 +54,16 @@ suite("drivers/driver", async () => {
 
   test("subscribe/publish/unsubscribe emit correct events", async () => {
     // Arrange
-    const subs: [string[], (...args: any) => void][] = [];
-    const unsubs: [string[], (...args: any) => void][] = [];
-    const pubs: [string[], number[]][] = [];
+    const subs: [string, (...args: any) => void][] = [];
+    const unsubs: [string, (...args: any) => void][] = [];
+    const pubs: [string, number[]][] = [];
 
     driver.on("subscribe", (ns, handler) => subs.push([ns, handler]));
     driver.on("unsubscribe", (ns, handler) => unsubs.push([ns, handler]));
     driver.on("publish", (ns, data) => pubs.push([ns, data]));
 
     // Act
-    const ns = ["room-1", "peer-a"];
+    const ns = "room";
     const handler = () => {};
     driver.subscribe(ns, handler);
     driver.publish(ns, [42]);
@@ -72,9 +72,9 @@ suite("drivers/driver", async () => {
     await wait(0);
 
     // Assert
-    assert.deepEqual(subs, [[["room-1", "peer-a"], handler]]);
-    assert.deepEqual(pubs, [[["room-1", "peer-a"], [42]]]);
-    assert.deepEqual(unsubs, [[["room-1", "peer-a"], handler]]);
+    assert.deepEqual(subs, [[ns, handler]]);
+    assert.deepEqual(pubs, [[ns, [42]]]);
+    assert.deepEqual(unsubs, [[ns, handler]]);
   });
 
   test("off removes event handler", async () => {

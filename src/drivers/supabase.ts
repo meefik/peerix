@@ -61,49 +61,35 @@ export class SupabaseDriver extends Driver {
   }
 
   override async subscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     if (!this.#supabase) return;
 
     super.subscribe(namespace, handler);
 
-    const [channelName] = namespace;
-    const [event] = namespace.slice(-1);
-    this.#emitter.on(event, handler);
-
-    try {
-      this.#subscribeToChannel(channelName);
-    } catch (error) {
-      this.#emitter.off(event, handler);
-      throw error;
-    }
+    this.#subscribeToChannel(namespace);
+    this.#emitter.on(namespace, handler);
   }
 
   override async unsubscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     if (!this.#supabase) return;
 
     super.unsubscribe(namespace, handler);
 
-    const [channelName] = namespace;
-    const [event] = namespace.slice(-1);
-    this.#emitter.off(event, handler);
-
-    this.#unsubscribeFromChannel(channelName);
+    this.#emitter.off(namespace, handler);
+    this.#unsubscribeFromChannel(namespace);
   }
 
-  override async publish(namespace: string[], data: number[]): Promise<void> {
+  override async publish(namespace: string, data: number[]): Promise<void> {
     if (!this.#supabase) return;
 
     super.publish(namespace, data);
 
-    const [channelName] = namespace;
-    const [event] = namespace.slice(-1);
-
-    await this.#sendToChannel(channelName, event, data);
+    await this.#sendToChannels(namespace, data);
   }
 
   override destroy(): void {
@@ -156,25 +142,21 @@ export class SupabaseDriver extends Driver {
   }
 
   /**
-   * Sends a message to the specified Supabase channel to be broadcasted to other clients.
+   * Sends a message to all registered Supabase channels to be broadcasted to other clients.
    *
-   * @param channelName The name of the channel to send the message to.
-   * @param event The event name to emit.
+   * @param namespace The namespace to emit.
    * @param data The data payload to send with the event.
    */
-  async #sendToChannel(
-    channelName: string,
-    event: string,
-    data: number[],
-  ): Promise<void> {
-    const channel = this.#channels.get(channelName);
-    if (!this.#supabase || !channel) return;
+  async #sendToChannels(namespace: string, data: number[]): Promise<void> {
+    if (!this.#supabase) return;
 
-    await channel.send({
-      type: "broadcast",
-      event: "message",
-      payload: [event, data],
-    });
+    for (const channel of this.#channels.values()) {
+      await channel.send({
+        type: "broadcast",
+        event: "message",
+        payload: [namespace, data],
+      });
+    }
   }
 
   /**

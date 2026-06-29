@@ -28,7 +28,7 @@ import { EventEmitter } from "../utils/emitter.js";
  * Running a Centrifugo server locally for testing:
  * ```sh
  * docker run --rm --ulimit nofile=65536:65536 -p 8000:8000 \
- *   -e CENTRIFUGO_CLIENT_ALLOWED_ORIGINS="*" \
+ *   -e CENTRIFUGO_CLIENT_ALLOWED_ORIGINS='*' \
  *   -e CENTRIFUGO_CLIENT_INSECURE=true \
  *   centrifugo/centrifugo centrifugo
  * ```
@@ -91,16 +91,13 @@ export class CentrifugeDriver extends Driver {
   }
 
   override async subscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     if (!this.#centrifuge) return;
 
     const channel = this.#getChannelName(namespace);
-    const isFirstSubscription = !this.#emitter.has(channel);
-    this.#emitter.on(channel, handler);
-
-    if (isFirstSubscription) {
+    if (!this.#emitter.has(channel)) {
       let sub: CentrifugeSubscription | undefined;
       try {
         sub =
@@ -124,10 +121,12 @@ export class CentrifugeDriver extends Driver {
         throw error;
       }
     }
+
+    this.#emitter.on(channel, handler);
   }
 
   override async unsubscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     if (!this.#centrifuge) return;
@@ -144,7 +143,7 @@ export class CentrifugeDriver extends Driver {
     }
   }
 
-  override async publish(namespace: string[], data: number[]): Promise<void> {
+  override async publish(namespace: string, data: number[]): Promise<void> {
     if (!this.#centrifuge) return;
 
     const channel = this.#getChannelName(namespace);
@@ -175,9 +174,8 @@ export class CentrifugeDriver extends Driver {
    * @param namespace The base namespace for the channel.
    * @returns The full channel name with prefix applied.
    */
-  #getChannelName(namespace: string[]): string {
-    const [event] = namespace.slice(-1);
-    return `${this.#prefix}${event}`;
+  #getChannelName(namespace: string): string {
+    return `${this.#prefix}${namespace}`;
   }
 }
 

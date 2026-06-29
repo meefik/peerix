@@ -19,24 +19,16 @@ suite("drivers/memory", async () => {
     const driver = new MemoryDriver();
     const payloads: number[][] = [];
 
-    await driver.subscribe(["room"], (data) => {
-      payloads.push(data);
-    });
-    await driver.subscribe(["room", "peer"], (data) => {
+    await driver.subscribe("room", (data) => {
       payloads.push(data);
     });
 
     // Act
-    await driver.publish(["room"], [1, 2, 3]);
-    await wait(0);
-    await driver.publish(["room", "peer"], [4, 5, 6]);
+    await driver.publish("room", [1, 2, 3]);
     await wait(0);
 
     // Assert
-    assert.deepEqual(payloads, [
-      [1, 2, 3],
-      [4, 5, 6],
-    ]);
+    assert.deepEqual(payloads, [[1, 2, 3]]);
 
     driver.destroy();
   });
@@ -49,11 +41,11 @@ suite("drivers/memory", async () => {
       payloads.push(data);
     };
 
-    await driver.subscribe(["room", "peer"], handler);
+    await driver.subscribe("room", handler);
 
     // Act
-    await driver.unsubscribe(["room", "peer"], handler);
-    await driver.publish(["room", "peer"], [1, 2, 3]);
+    await driver.unsubscribe("room", handler);
+    await driver.publish("room", [1, 2, 3]);
     await wait(0);
 
     // Assert
@@ -67,12 +59,12 @@ suite("drivers/memory", async () => {
     const driver = new MemoryDriver({ delay: 20 });
     let callCount = 0;
 
-    await driver.subscribe(["room", "peer"], () => {
+    await driver.subscribe("room", () => {
       callCount += 1;
     });
 
     // Act
-    await driver.publish(["room", "peer"], [1, 2, 3]);
+    await driver.publish("room", [1, 2, 3]);
 
     // Assert
     await wait(5);
@@ -89,13 +81,13 @@ suite("drivers/memory", async () => {
     const driver = new MemoryDriver();
     const payloads: number[][] = [];
 
-    await driver.subscribe(["room", "peer"], (data) => {
+    await driver.subscribe("room", (data) => {
       payloads.push(data);
     });
 
     // Act
     driver.destroy();
-    await driver.publish(["room", "peer"], [1, 2, 3]);
+    await driver.publish("room", [1, 2, 3]);
     await wait(0);
 
     // Assert

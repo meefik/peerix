@@ -33,9 +33,9 @@ import { EventEmitter } from "../utils/emitter.js";
  * Running a local Mercure server for testing:
  * ```sh
  * docker run --rm -p 8080:80 \
- *   -e SERVER_NAME=":80" \
- *   -e MERCURE_PUBLISHER_JWT_KEY="!ChangeThisMercureHubJWTSecretKey!" \
- *   -e MERCURE_SUBSCRIBER_JWT_KEY="!ChangeThisMercureHubJWTSecretKey!" \
+ *   -e SERVER_NAME=':80' \
+ *   -e MERCURE_PUBLISHER_JWT_KEY='!ChangeThisMercureHubJWTSecretKey!' \
+ *   -e MERCURE_SUBSCRIBER_JWT_KEY='!ChangeThisMercureHubJWTSecretKey!' \
  *   dunglas/mercure:latest caddy run --config /etc/caddy/dev.Caddyfile
  * ```
  *
@@ -133,40 +133,35 @@ export class SseDriver extends Driver {
   }
 
   override async subscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     super.subscribe(namespace, handler);
 
-    const [topic] = namespace.slice(-1);
-    const hasSubscribers = this.#emitter.has(topic);
-    this.#emitter.on(topic, handler);
-
-    if (!hasSubscribers) {
-      await this.#createEventSource(topic);
+    if (!this.#emitter.has(namespace)) {
+      await this.#createEventSource(namespace);
     }
+
+    this.#emitter.on(namespace, handler);
   }
 
   override async unsubscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     super.unsubscribe(namespace, handler);
 
-    const [topic] = namespace.slice(-1);
-    this.#emitter.off(topic, handler);
+    this.#emitter.off(namespace, handler);
 
-    const hasSubscribers = this.#emitter.has(topic);
-    if (!hasSubscribers) {
-      this.#closeEventSource(topic);
+    if (!this.#emitter.has(namespace)) {
+      this.#closeEventSource(namespace);
     }
   }
 
-  override async publish(namespace: string[], data: number[]): Promise<void> {
+  override async publish(namespace: string, data: number[]): Promise<void> {
     super.publish(namespace, data);
 
-    const [topic] = namespace.slice(-1);
-    await this.#send(topic, data);
+    await this.#send(namespace, data);
   }
 
   override destroy(): void {

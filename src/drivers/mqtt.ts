@@ -103,7 +103,7 @@ export class MqttDriver extends Driver {
   }
 
   override async subscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     if (!this.#client) return;
@@ -111,21 +111,15 @@ export class MqttDriver extends Driver {
     super.subscribe(namespace, handler);
 
     const topic = this.#getTopic(namespace);
-    const isFirstSubscription = !this.#emitter.has(topic);
-    this.#emitter.on(topic, handler);
-
-    if (isFirstSubscription) {
-      try {
-        await this.#mqttSubscribe(topic);
-      } catch (error) {
-        this.#emitter.off(topic, handler);
-        throw error;
-      }
+    if (!this.#emitter.has(topic)) {
+      await this.#mqttSubscribe(topic);
     }
+
+    this.#emitter.on(topic, handler);
   }
 
   override async unsubscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     if (!this.#client) return;
@@ -140,7 +134,7 @@ export class MqttDriver extends Driver {
     }
   }
 
-  override async publish(namespace: string[], data: number[]): Promise<void> {
+  override async publish(namespace: string, data: number[]): Promise<void> {
     if (!this.#client) return;
 
     super.publish(namespace, data);
@@ -174,9 +168,8 @@ export class MqttDriver extends Driver {
    * @param namespace The namespace to generate the topic for.
    * @returns The full MQTT topic name with the prefix applied.
    */
-  #getTopic(namespace: string[]): string {
-    const [event] = namespace.slice(-1);
-    return `${this.#prefix}${event}`;
+  #getTopic(namespace: string): string {
+    return `${this.#prefix}${namespace}`;
   }
 
   /**

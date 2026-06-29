@@ -131,50 +131,41 @@ export class SocketIoDriver extends Driver {
   }
 
   override async subscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     if (!this.#socket) return;
 
     super.subscribe(namespace, handler);
 
-    const [event] = namespace.slice(-1);
-    const isFirstSubscription = !this.#emitter.has(event);
-    this.#emitter.on(event, handler);
-
-    if (isFirstSubscription) {
-      try {
-        await this.#socketEmit("subscribe", event);
-      } catch (error) {
-        this.#emitter.off(event, handler);
-        throw error;
-      }
+    if (!this.#emitter.has(namespace)) {
+      await this.#socketEmit("subscribe", namespace);
     }
+
+    this.#emitter.on(namespace, handler);
   }
 
   override async unsubscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     if (!this.#socket) return;
 
     super.unsubscribe(namespace, handler);
 
-    const [event] = namespace.slice(-1);
-    this.#emitter.off(event, handler);
+    this.#emitter.off(namespace, handler);
 
-    if (!this.#emitter.has(event)) {
-      await this.#socketEmit("unsubscribe", event);
+    if (!this.#emitter.has(namespace)) {
+      await this.#socketEmit("unsubscribe", namespace);
     }
   }
 
-  override async publish(namespace: string[], data: number[]): Promise<void> {
+  override async publish(namespace: string, data: number[]): Promise<void> {
     if (!this.#socket) return;
 
     super.publish(namespace, data);
 
-    const [event] = namespace.slice(-1);
-    await this.#socketEmit("publish", event, data);
+    await this.#socketEmit("publish", namespace, data);
   }
 
   override destroy(): void {

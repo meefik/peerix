@@ -32,34 +32,31 @@ export class BroadcastChannelDriver extends Driver {
     this.#emitter = new EventEmitter();
     this.#bc = new BroadcastChannel(channelName);
     this.#bc.onmessage = (e) => {
-      const [event, data] = e.data;
-      this.#emitter.emit(event, data);
+      const [namespace, data] = e.data;
+      this.#emitter.emit(namespace, data);
     };
     this.active = true;
   }
 
   override async subscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     super.subscribe(namespace, handler);
-    const [event] = namespace.slice(-1);
-    this.#emitter.on(event, handler);
+    this.#emitter.on(namespace, handler);
   }
 
   override async unsubscribe(
-    namespace: string[],
+    namespace: string,
     handler: (data: number[]) => void,
   ): Promise<void> {
     super.unsubscribe(namespace, handler);
-    const [event] = namespace.slice(-1);
-    this.#emitter.off(event, handler);
+    this.#emitter.off(namespace, handler);
   }
 
-  override async publish(namespace: string[], data: number[]): Promise<void> {
+  override async publish(namespace: string, data: number[]): Promise<void> {
     super.publish(namespace, data);
-    const [event] = namespace.slice(-1);
-    this.#bc.postMessage([event, data]);
+    this.#bc.postMessage([namespace, data]);
   }
 
   override destroy(): void {
