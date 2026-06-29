@@ -36,4 +36,21 @@ suite("utils/base62", async () => {
       message: "Invalid base62 character",
     });
   });
+
+  test("base62ToBytes with fixed length pads leading zeros", async () => {
+    // Arrange
+    const shortStr = bytesToBase62(new Uint8Array([36]));
+    const fixedLen = 33;
+
+    // Act
+    const result = base62ToBytes(shortStr, fixedLen);
+
+    // Assert
+    assert.equal(result.length, fixedLen);
+    // Leading bytes must be zero padding
+    for (let i = 0; i < fixedLen - 1; i++) {
+      assert.equal(result[i], 0);
+    }
+    assert.equal(result[fixedLen - 1], 36);
+  });
 });

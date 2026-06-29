@@ -46,9 +46,10 @@ export function bytesToBase62(bytes: Uint8Array): string {
  * Converts a Base62 string to a Uint8Array.
  *
  * @param str The Base62 encoded string.
+ * @param len Optional output length. Defaults to the decoded byte count; pad with leading zeros when larger.
  * @returns The decoded byte array.
  */
-export function base62ToBytes(str: string): Uint8Array {
+export function base62ToBytes(str: string, len?: number): Uint8Array {
   if (str.length === 0) return new Uint8Array();
 
   // use little-endian representation (LSB at index 0)
@@ -85,14 +86,16 @@ export function base62ToBytes(str: string): Uint8Array {
     }
   }
 
-  // remove high-order zeros (which are trailing zeros in little-endian)
-  while (bytesLE.length > 1 && bytesLE[bytesLE.length - 1] === 0) bytesLE.pop();
+  // at least one byte if any characters were processed
+  if (bytesLE.length === 0) bytesLE.push(0);
 
-  if (bytesLE.length === 0) return new Uint8Array([0]);
+  // use decoded length if no explicit length provided
+  const outLen = len ?? bytesLE.length;
+  const out = new Uint8Array(outLen);
 
-  // convert to big-endian Uint8Array
-  const out = new Uint8Array(bytesLE.length);
-  for (let i = 0; i < bytesLE.length; i++)
-    out[i] = bytesLE[bytesLE.length - 1 - i];
+  // fill big-endian from last index; empty leading slots stay zero-padded
+  for (let i = Math.min(bytesLE.length, outLen); i > 0; i--)
+    out[outLen - i] = bytesLE[i - 1];
+
   return out;
 }
