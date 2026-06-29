@@ -9,7 +9,8 @@ import {
   mergeStreams,
 } from "./utils/stream.js";
 import { EventEmitter } from "./utils/emitter.js";
-import { Signaler } from "./signaler.js";
+import { IceCandidateQueue } from "./utils/ice.js";
+import { Signaler, SIGNAL_TYPE, type SignalMessage } from "./signaler.js";
 import { Addon } from "./addons/addon.js";
 
 // All peers without a driver will share the same in-memory signaling bus
@@ -62,11 +63,11 @@ export class Peer {
   get id(): string {
     return this.#id;
   }
-  /** Current room name. Empty until join() is called. */
+  /** Current room name. Empty string until join() is called. */
   get room(): string {
     return this.#room;
   }
-  /** Optional metadata announced to other peers in signaling messages. Undefined until join() is called. */
+  /** Optional metadata announced to other peers in signaling messages. `undefined` until join() is called. */
   get metadata(): Record<string, unknown> | undefined {
     return this.#metadata;
   }
@@ -99,6 +100,7 @@ export class Peer {
   #iceServers: IceServer[];
   #iceTransportPolicy: IceTransportPolicy;
   #iceCandidateDebounce: number;
+  #candidateQueue: IceCandidateQueue;
   #connectionTimeout: number;
   #verify?: (options: {
     id: string;
@@ -106,6 +108,7 @@ export class Peer {
   }) => Promise<boolean> | boolean;
   #emitter: EventEmitter<PeerEvents>;
   #signaler: Signaler;
+  #driverActiveHandler?: () => void;
 
   /**
    * Creates a new {@link Peer} instance.
@@ -142,18 +145,20 @@ export class Peer {
     this.#iceServers = iceServers;
     this.#iceTransportPolicy = iceTransportPolicy;
     this.#iceCandidateDebounce = iceCandidateDebounce;
+    this.#candidateQueue = new IceCandidateQueue();
     this.#connectionTimeout = connectionTimeout;
     this.#emitter = new EventEmitter(this);
     this.#signaler = new Signaler({
       driver: this.#driver,
-      namespaceHashing: namespaceHashing,
-      signalingCompression: signalingCompression,
-      signalingEncryption: signalingEncryption,
-      iceCandidateDebounce: this.#iceCandidateDebounce,
-      createRemotePeer: (options) => this.#createRemotePeer(options),
-      getRemotePeer: (id) => this.#getRemotePeer(id),
-      onError: (error) => {
-        this.emit("error", { name: "error", error });
+      namespaceHashing,
+      signalingCompression,
+      signalingEncryption,
+      onMessage: this.#onSignalerMessage.bind(this),
+      onError: (err) => {
+        this.emit("error", {
+          name: "error",
+          error: new PeerixError(err, "SIGNALING_ERROR"),
+        });
       },
     });
   }
@@ -193,12 +198,20 @@ export class Peer {
       metadata: this.#metadata,
     });
 
+    this.#driverActiveHandler = this.#onDriverActive.bind(this);
+    this.#driver.on("active", this.#driverActiveHandler);
+
     try {
-      this.#id = await this.#signaler.register(this.#room, this.#metadata);
+      this.#id = await this.#signaler.subscribe(this.#room);
     } catch (err) {
       await this.leave();
       throw err;
     }
+
+    void this.#signaler.publish({
+      type: SIGNAL_TYPE.announce,
+      id: this.#room,
+    });
   }
 
   /**
@@ -221,19 +234,23 @@ export class Peer {
       metadata: this.#metadata,
     });
 
+    if (this.#driverActiveHandler) {
+      this.#driver.off("active", this.#driverActiveHandler);
+      this.#driverActiveHandler = undefined;
+    }
+
     try {
-      await this.#signaler.unregister();
+      await this.#signaler.unsubscribe(this.#room);
 
       for (const remote of this.#connections.values()) {
         remote.dispose();
       }
     } finally {
       this.#connections.clear();
-
+      this.#candidateQueue.clear();
       this.#id = "";
       this.#room = "";
       this.#metadata = undefined;
-
       this.#active = false;
     }
   }
@@ -251,7 +268,9 @@ export class Peer {
    * @example
    * ```js
    * // get a media stream from the user's camera and microphone
-   * const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+   * const stream = await navigator.mediaDevices.getUserMedia(
+   *   { video: true, audio: true }
+   * );
    *
    * // share a media stream with an explicit label
    * await peer.share({ label: "camera", stream });
@@ -372,7 +391,7 @@ export class Peer {
    *
    * @example
    * ```js
-   * // open a channel with label "chat"
+   * // open a channel with an explicit label
    * await peer.open({ label: "chat" });
    * ```
    *
@@ -404,7 +423,7 @@ export class Peer {
    *
    * @example
    * ```js
-   * // close the channel with label "chat"
+   * // close the channel an explicit label
    * await peer.close({ label: "chat" });
    * ```
    *
@@ -626,9 +645,83 @@ export class Peer {
     const verified = await this.#verifyRemotePeer({ id, metadata });
     if (!verified) return null;
 
-    const remote = this.#newRemotePeer({ id, metadata });
-    this.#bindRemoteLifecycleHandlers(remote);
-    this.#registerRemotePeer(remote);
+    const remote = new RemotePeer({
+      id,
+      metadata,
+      room: this.#room,
+      polite: this.#id > id,
+      iceServers: this.#iceServers,
+      iceTransportPolicy: this.#iceTransportPolicy,
+      connectionTimeout: this.#connectionTimeout,
+      iceCandidateDebounce: this.#iceCandidateDebounce,
+      streams: this.#streamOptions,
+      channels: this.#channelOptions,
+    });
+
+    remote.on("connection:closed", () => {
+      this.#connections.delete(remote.id);
+      this.#signaler.reset(id);
+      this.#candidateQueue.clear(id);
+    });
+
+    remote.on("connection", (e) => {
+      this.emit(["connection", e.name], { ...e, remote });
+    });
+
+    remote.on("channel", (e) => {
+      this.emit(["channel", e.name], { ...e, remote });
+    });
+
+    remote.on("stream", (e) => {
+      this.emit(["stream", e.name], { ...e, remote });
+    });
+
+    remote.on("track", (e) => {
+      this.emit(["track", e.name], { ...e, remote });
+    });
+
+    remote.on("error", (e) => {
+      this.emit("error", e);
+    });
+
+    remote.on("signal", (e) => {
+      const { name, data } = e;
+      if (!name || !this.#room) return;
+
+      let message: unknown[] = [];
+      if (name === "offer") {
+        message.push(data, this.#metadata);
+      } else if (name === "answer") {
+        message.push(data);
+      } else if (name === "candidate") {
+        message.push(...(Array.isArray(data) ? data : [data]));
+      }
+
+      void this.#signaler.publish({ type: SIGNAL_TYPE[name], id, message });
+    });
+
+    remote.on("connection:failed", () => {
+      if (!this.#room) return;
+
+      void this.#signaler.publish(
+        {
+          type: SIGNAL_TYPE.invoke,
+          id,
+          message: [this.#metadata],
+        },
+        {
+          jitter: 1000,
+        },
+      );
+    });
+
+    this.#connections.set(remote.id, remote);
+
+    this.emit(["connection", "connection:new"], {
+      name: "connection:new",
+      remote,
+      state: "new",
+    });
 
     return remote;
   }
@@ -654,68 +747,88 @@ export class Peer {
   }
 
   /**
-   * Instantiates a new RemotePeer with the current peer's configuration settings.
+   * Handles driver activation events by re-broadcasting an announce signal.
+   * This ensures new drivers in the room discover existing peers.
    */
-  #newRemotePeer(options: {
-    id: string;
-    metadata?: Record<string, unknown>;
-  }): RemotePeer {
-    const { id, metadata } = options;
-
-    return new RemotePeer({
-      id,
-      metadata,
-      room: this.#room,
-      polite: this.#id > id,
-      iceServers: this.#iceServers,
-      iceTransportPolicy: this.#iceTransportPolicy,
-      connectionTimeout: this.#connectionTimeout,
-      streams: this.#streamOptions,
-      channels: this.#channelOptions,
+  #onDriverActive() {
+    void this.#signaler.publish({
+      type: SIGNAL_TYPE.announce,
+      id: this.#room,
     });
   }
 
   /**
-   * Attaches event listeners to a remote peer for propagating connection, channel,
-   * stream, track, and error events through the main peer's emitter.
+   * Handles incoming messages from the signaling bus.
    */
-  #bindRemoteLifecycleHandlers(remote: RemotePeer): void {
-    remote.on("connection:closed", () => {
-      this.#connections.delete(remote.id);
-    });
+  async #onSignalerMessage(data: SignalMessage): Promise<void> {
+    const { type, id, message } = data;
 
-    remote.on("connection", (e) => {
-      this.emit(["connection", e.name], { ...e, remote });
-    });
+    // Ignore our own messages
+    if (id === this.#id) return;
 
-    remote.on("channel", (e) => {
-      this.emit(["channel", e.name], { ...e, remote });
-    });
+    // Another peer joined — respond with an invoke carrying our metadata
+    if (type === SIGNAL_TYPE.announce) {
+      void this.#signaler.publish({
+        type: SIGNAL_TYPE.invoke,
+        id,
+        message: this.metadata ? [this.#metadata] : undefined,
+      });
+    }
 
-    remote.on("stream", (e) => {
-      this.emit(["stream", e.name], { ...e, remote });
-    });
+    // Remote peer discovery — create a connection
+    else if (type === SIGNAL_TYPE.invoke) {
+      const [metadata] = message as [Record<string, unknown>];
+      await this.#createRemotePeer({ id, metadata });
+    }
 
-    remote.on("track", (e) => {
-      this.emit(["track", e.name], { ...e, remote });
-    });
+    // Incoming offer from a remote peer
+    else if (type === SIGNAL_TYPE.offer) {
+      const [description, metadata] = message as [
+        RTCSessionDescriptionInit,
+        Record<string, unknown>,
+      ];
+      let remote = this.#getRemotePeer(id);
+      if (!remote) remote = await this.#createRemotePeer({ id, metadata });
+      if (!remote) return;
 
-    remote.on("error", (e) => {
-      this.emit("error", e);
-    });
-  }
+      await remote.signal(description);
 
-  /**
-   * Registers a remote peer in the connections map and emits a connection:new event.
-   */
-  #registerRemotePeer(remote: RemotePeer): void {
-    this.#connections.set(remote.id, remote);
+      // Flush any candidates that arrived before the offer
+      for (const candidate of this.#candidateQueue.pull(id, description)) {
+        await remote.signal(candidate);
+      }
+    }
 
-    this.emit(["connection", "connection:new"], {
-      name: "connection:new",
-      remote,
-      state: "new",
-    });
+    // Incoming answer from a remote peer
+    else if (type === SIGNAL_TYPE.answer) {
+      const [description] = message as [RTCSessionDescriptionInit];
+      const remote = this.#getRemotePeer(id);
+      if (!remote) return;
+
+      await remote.signal(description);
+
+      // Flush any candidates that arrived before the answer
+      for (const candidate of this.#candidateQueue.pull(id, description)) {
+        await remote.signal(candidate);
+      }
+    }
+
+    // ICE candidates from a remote peer
+    else if (type === SIGNAL_TYPE.candidate) {
+      const [...candidates] = message as RTCIceCandidate[];
+
+      const remote = this.#getRemotePeer(id);
+
+      // Queue candidates if the remote description isn't set yet
+      const description = remote?.connection.remoteDescription ?? undefined;
+
+      for (const candidate of candidates) {
+        const queued = this.#candidateQueue.push(id, candidate, description);
+        // Skip if no remote peer or if the candidate was queued
+        if (!remote || queued) continue;
+        await remote.signal(candidate);
+      }
+    }
   }
 }
 

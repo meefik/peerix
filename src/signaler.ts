@@ -1,8 +1,5 @@
 import type { Driver } from "./drivers/driver.js";
-import type { RemotePeer } from "./remote.js";
 import log from "./utils/logger.js";
-import { PeerixError } from "./error.js";
-import { IceCandidateBatcher, IceCandidateQueue } from "./utils/ice.js";
 import { base62ToBytes, bytesToBase62 } from "./utils/base62.js";
 import { encode, decode } from "./utils/protobuf.js";
 import { compress, decompress } from "./utils/compression.js";
@@ -17,15 +14,6 @@ import {
   PUBLIC_KEY_LENGTH,
 } from "./utils/encryption.js";
 
-/** Numeric identifiers for signaling message types. */
-const MESSAGE_TYPE = {
-  announce: 1,
-  invoke: 2,
-  offer: 3,
-  answer: 4,
-  candidate: 5,
-} as const;
-
 /** Protobuf field schema for encoding and decoding signaling packets. */
 const PACKET_SCHEMA: Record<string, { id: number; type: "uint32" | "bytes" }> =
   {
@@ -35,237 +23,170 @@ const PACKET_SCHEMA: Record<string, { id: number; type: "uint32" | "bytes" }> =
     payload: { id: 4, type: "bytes" },
   };
 
+/** Numeric identifiers for signaling message types. */
+export const SIGNAL_TYPE = {
+  announce: 1,
+  invoke: 2,
+  offer: 3,
+  answer: 4,
+  candidate: 5,
+} as const;
+
 /**
  * Manages signaling exchanges between peers over a transport driver.
  *
- * Handles subscribing and publishing on namespaces, encoding and decoding
- * signals with optional compression and encryption, and coordinating ICE
- * candidate batching so they are flushed in order.
+ * Handles subscribing to and publishing on namespaces, encoding and decoding
+ * signals with optional compression and encryption.
  */
 export class Signaler {
   #active: boolean;
-  #driver: Driver;
   #id: string;
-  #room: string;
-  #metadata?: Record<string, unknown>;
+  #driver: Driver;
   #namespaceHashing: boolean;
   #signalingCompression: boolean;
   #signalingEncryption: boolean;
-  #iceCandidateDebounce: number;
-  #createRemotePeer: (options: {
-    id: string;
-    metadata?: Record<string, unknown>;
-  }) => Promise<RemotePeer | null>;
-  #getRemotePeer: (id: string) => RemotePeer | null;
-  #onError: (error: PeerixError) => void;
-  #keyPair?: CryptoKeyPair;
+  #onMessage: (message: SignalMessage) => Promise<void>;
+  #onError: (error: unknown) => void;
+  #keyPair: CryptoKeyPair | null;
   #sharedKeys: Map<string, CryptoKey>;
-  #candidateQueue: IceCandidateQueue;
-  #candidateBatchers: Map<string, IceCandidateBatcher>;
   #signalHandler: (data: number[]) => Promise<void>;
-  #driverActiveHandler: () => void;
-  #driverErrorHandler: (err: unknown) => void;
 
   /**
-   * Creates a new Signaler instance.
+   * Creates a new {@link Signaler} instance.
    *
    * @param options Configuration for the signaler.
-   * @param options.driver Transport driver used to publish and subscribe on signaling namespaces.
-   * @param options.namespaceHashing Whether namespace hashing is enabled.
-   * @param options.signalingCompression Whether signaling payload compression is enabled.
-   * @param options.signalingEncryption Whether signaling payload encryption is enabled.
-   * @param options.iceCandidateDebounce Debounce delay in milliseconds before flushing batched ICE candidates.
-   * @param options.createRemotePeer Creates a remote peer when an incoming offer or invoke is received.
-   * @param options.getRemotePeer Looks up an existing remote peer by ID.
-   * @param options.onError Emits a signaling error back to the owning peer.
    */
-  constructor(options: {
-    driver: Driver;
-    namespaceHashing: boolean;
-    signalingCompression: boolean;
-    signalingEncryption: boolean;
-    iceCandidateDebounce: number;
-    createRemotePeer: (options: {
-      id: string;
-      metadata?: Record<string, unknown>;
-    }) => Promise<RemotePeer | null>;
-    getRemotePeer: (id: string) => RemotePeer | null;
-    onError: (error: PeerixError) => void;
-  }) {
+  constructor(options: SignalerOptions) {
     const {
       driver,
       namespaceHashing,
       signalingCompression,
       signalingEncryption,
-      iceCandidateDebounce,
-      createRemotePeer,
-      getRemotePeer,
+      onMessage,
       onError,
     } = options;
 
     this.#active = false;
     this.#id = "";
-    this.#room = "";
     this.#driver = driver;
     this.#namespaceHashing = namespaceHashing;
     this.#signalingCompression = signalingCompression;
     this.#signalingEncryption = signalingEncryption;
-    this.#iceCandidateDebounce = iceCandidateDebounce;
-    this.#createRemotePeer = createRemotePeer;
-    this.#getRemotePeer = getRemotePeer;
+    this.#onMessage = onMessage;
     this.#onError = onError;
-
+    this.#keyPair = null;
     this.#sharedKeys = new Map();
-    this.#candidateQueue = new IceCandidateQueue();
-    this.#candidateBatchers = new Map();
     this.#signalHandler = this.#handleMessage.bind(this);
-    this.#driverActiveHandler = () => {
-      if (!this.#room) return;
-
-      void this.#publish({
-        type: MESSAGE_TYPE.announce,
-        namespace: [this.#room],
-      });
-    };
-    this.#driverErrorHandler = (err: unknown) => {
-      this.#emitError(err);
-    };
   }
 
   /**
    * Subscribes to signaling namespaces and announces presence.
    *
-   * Registers event listeners on the driver for lifecycle changes, subscribes
-   * to every prefix of `[room, id]`, and publishes an initial announcement.
+   * Registers a message handler on the driver for the room namespace and the local
+   * peer ID namespace, then publishes an initial announcement.
    *
    * @param room The room name to join.
-   * @param metadata Optional metadata associated with the room.
    * @returns The generated ID for the local peer.
    */
-  async register(
-    room: string,
-    metadata?: Record<string, unknown>,
-  ): Promise<string> {
+  async subscribe(room: string): Promise<string> {
+    const id = await this.#generateId();
     if (this.#active) return this.#id;
+
+    this.#id = id;
     this.#active = true;
 
-    this.#id = await this.#generateId();
-    this.#room = room;
-    this.#metadata = metadata;
-
-    this.#driver.on("active", this.#driverActiveHandler);
-    this.#driver.on("error", this.#driverErrorHandler);
-
+    const subscribedNamespaces: string[] = [];
     try {
-      await this.#subscribe();
+      const namespaces = [room, id];
+      for (const namespace of namespaces) {
+        const ns = await this.#escapeNamespace(namespace);
+        log("signaler:subscribe", { id, namespace: ns });
+        await this.#driver.subscribe(ns, this.#signalHandler);
+        subscribedNamespaces.push(ns);
+      }
     } catch (err) {
+      for (const ns of subscribedNamespaces) {
+        try {
+          await this.#driver.unsubscribe(ns, this.#signalHandler);
+        } catch {}
+      }
       this.#id = "";
-      this.#room = "";
-      this.#metadata = undefined;
-
-      this.#driver.off("active", this.#driverActiveHandler);
-      this.#driver.off("error", this.#driverErrorHandler);
-
       this.#active = false;
-
       throw err;
     }
 
-    void this.#publish({
-      type: MESSAGE_TYPE.announce,
-      namespace: [this.#room],
-    });
-
-    return this.#id;
+    return id;
   }
 
   /**
-   * Unsubscribes from all signaling namespaces and removes driver listeners.
+   * Unsubscribes from signaling namespaces and removes driver listeners.
+   *
+   * @param room The room namespace to unsubscribe from alongside the local peer ID namespace.
    */
-  async unregister(): Promise<void> {
+  async unsubscribe(room: string): Promise<void> {
     if (!this.#active) return;
 
-    this.#driver.off("active", this.#driverActiveHandler);
-    this.#driver.off("error", this.#driverErrorHandler);
+    const id = this.#id;
 
     try {
-      await this.#unsubscribe();
+      const namespaces = [room, id];
+      for (const namespace of namespaces) {
+        const ns = await this.#escapeNamespace(namespace);
+        log("signaler:unsubscribe", { id, namespace: ns });
+        await this.#driver.unsubscribe(ns, this.#signalHandler);
+      }
     } finally {
-      this.#candidateBatchers.forEach((batcher) => batcher.clear());
-      this.#candidateBatchers.clear();
-      this.#candidateQueue.clear();
-      this.#sharedKeys.clear();
-
       this.#id = "";
-      this.#room = "";
-      this.#metadata = undefined;
-      this.#keyPair = undefined;
-
+      this.#keyPair = null;
+      this.#sharedKeys.clear();
       this.#active = false;
     }
   }
 
   /**
-   * Binds signal handlers to a remote peer so SDP exchanges and ICE candidates
-   * flow through the signaling channel.
+   * Encodes and publishes a signaling message to the transport driver.
+   *
+   * Applies optional jitter delay before publishing. Silently aborts if
+   * the driver becomes inactive during the delay.
+   *
+   * @param data The signal message to be published.
+   * @param options Optional configuration for the publish operation, including a jitter delay duration in milliseconds.
    */
-  #setupRemotePeer(remote: RemotePeer): void {
-    const { id } = remote;
+  async publish(
+    data: SignalMessage,
+    options?: { jitter: number },
+  ): Promise<void> {
+    const { jitter = 0 } = options ?? {};
+    const { type, id, message } = data;
 
-    const batcher = new IceCandidateBatcher({
-      delay: this.#iceCandidateDebounce,
-      onFlush: (candidates) => {
-        if (remote.state === "closed" || !candidates.length) return;
+    const delay = Math.floor(Math.random() * jitter);
+    if (delay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
 
-        void this.#publish({
-          type: MESSAGE_TYPE.candidate,
-          namespace: [this.#room, id],
-          message: candidates,
-          sender: id,
-        });
-      },
+    if (!this.#active || !this.#driver.active) return;
+
+    const namespace = await this.#escapeNamespace(id);
+    const encryptionKey = this.#sharedKeys.get(id);
+    const buffer = await this.#encode(type, message, encryptionKey);
+
+    log("signaler:publish", {
+      id: this.#id,
+      type,
+      namespace,
+      message,
     });
 
-    this.#candidateBatchers.get(id)?.clear();
-    this.#candidateBatchers.set(id, batcher);
+    await this.#driver.publish(namespace, Array.from(buffer));
+  }
 
-    remote.on("signal", (e) => {
-      const { name, data } = e;
-
-      if (name === "candidate") {
-        batcher.push(data as RTCIceCandidateInit);
-        return;
-      }
-
-      const type = MESSAGE_TYPE[name];
-      if (!type || !this.#room) return;
-
-      void this.#publish({
-        type,
-        namespace: [this.#room, id],
-        message: name === "offer" ? [data, this.#metadata] : [data],
-        sender: id,
-      });
-    });
-
-    remote.on("connection:failed", () => {
-      if (!this.#room) return;
-
-      void this.#publish({
-        type: MESSAGE_TYPE.invoke,
-        namespace: [this.#room, id],
-        message: [this.#metadata],
-        sender: id,
-        jitter: 1000,
-      });
-    });
-
-    remote.on("connection:closed", () => {
-      this.#candidateBatchers.get(id)?.clear();
-      this.#candidateBatchers.delete(id);
-      this.#candidateQueue.clear(id);
-      this.#sharedKeys.delete(id);
-    });
+  /**
+   * Removes a derived shared key for the specified peer.
+   *
+   * @param id The remote peer identifier whose key should be cleared.
+   */
+  reset(id: string) {
+    this.#sharedKeys.delete(id);
   }
 
   /**
@@ -291,10 +212,10 @@ export class Signaler {
    * Applies SHA-256 hashing when namespace hashing is enabled, otherwise
    * replaces non-alphanumeric characters (except `_` and `-`) with underscores.
    */
-  async #escapeNamespace(namespace: string[]): Promise<string[]> {
+  async #escapeNamespace(namespace: string): Promise<string> {
     return this.#namespaceHashing
-      ? await Promise.all(namespace.map((value) => sha256(value)))
-      : namespace.map((value) => value.replace(/[^a-zA-Z0-9_-]/gu, "_"));
+      ? await sha256(namespace)
+      : namespace.replace(/[^a-zA-Z0-9_-]/gu, "_");
   }
 
   /**
@@ -332,7 +253,7 @@ export class Signaler {
       }
     }
 
-    const sender = base62ToBytes(this.#id);
+    const sender = base62ToBytes(this.#id, PUBLIC_KEY_LENGTH);
     const flags = (compressed ? 1 : 0) | (encrypted ? 2 : 0);
 
     const buffer = encode({ type, flags, sender, payload }, PACKET_SCHEMA);
@@ -349,11 +270,11 @@ export class Signaler {
    */
   async #decode(
     data: number[],
-  ): Promise<Partial<{ id: string; type: number; message: unknown[] }>> {
+  ): Promise<{ id: string; type: number; message: unknown[] } | null> {
     const buffer = new Uint8Array(data);
 
     const decoded = decode(buffer, PACKET_SCHEMA);
-    if (!decoded) return {};
+    if (!decoded) throw new Error("Invalid packet");
 
     const { type, flags, sender, payload } = decoded as {
       type: number;
@@ -363,7 +284,7 @@ export class Signaler {
     };
     const id = bytesToBase62(sender);
     // Do not process the packet if it is from ourselves.
-    if (!id || this.#id === id) return {};
+    if (!id || this.#id === id) return null;
 
     const compressed = (flags & 1) !== 0;
     const encrypted = (flags & 2) !== 0;
@@ -400,202 +321,60 @@ export class Signaler {
   }
 
   /**
-   * Subscribes to all prefix namespaces for this peer.
+   * Processes an incoming signaling message from the driver.
    *
-   * For a namespace `[room, id]`, subscribes to `[room]` and `[room, id]`
-   * so that both room-level and peer-level messages are received.
-   */
-  async #subscribe(): Promise<void> {
-    const namespace = [this.#room, this.#id];
-    for (let i = 0; i < namespace.length; i++) {
-      const part = namespace.slice(0, i + 1);
-      const escaped = await this.#escapeNamespace(part);
-
-      log("signal:subscribe", { id: this.#id, namespace: escaped });
-
-      await this.#driver.subscribe(escaped, this.#signalHandler);
-    }
-  }
-
-  /**
-   * Unsubscribes from all prefix namespaces for this peer.
-   */
-  async #unsubscribe(): Promise<void> {
-    const namespace = [this.#room, this.#id];
-    for (let i = 0; i < namespace.length; i++) {
-      const part = namespace.slice(0, i + 1);
-      const escaped = await this.#escapeNamespace(part);
-
-      log("signal:unsubscribe", { id: this.#id, namespace: escaped });
-
-      await this.#driver.unsubscribe(escaped, this.#signalHandler);
-    }
-  }
-
-  /**
-   * Encodes and publishes a signaling message to the transport driver.
-   *
-   * Applies optional jitter delay before publishing. Silently aborts if
-   * the driver becomes inactive during the delay.
-   */
-  async #publish(options: SignalPublishOptions): Promise<void> {
-    if (!this.#id || !this.#driver.active) return;
-
-    try {
-      const { type, namespace, message, jitter = 0, sender } = options;
-
-      const escaped = await this.#escapeNamespace(namespace);
-      const encryptionKey = sender ? this.#sharedKeys.get(sender) : undefined;
-      const buffer = await this.#encode(type, message, encryptionKey);
-
-      const delay = Math.floor(Math.random() * jitter);
-      await new Promise((resolve) => setTimeout(resolve, delay));
-
-      if (!this.#id || !this.#driver.active) return;
-
-      log("signal:publish", {
-        id: this.#id,
-        type,
-        namespace: escaped,
-        message,
-      });
-
-      await this.#driver.publish(escaped, Array.from(buffer));
-    } catch (err) {
-      this.#emitError(err);
-    }
-  }
-
-  /**
-   * Processes an incoming signaling message.
-   *
-   * Decodes the packet and dispatches it based on type: announcements
-   * trigger an invoke reply, invokes create a new remote peer, offers
-   * and answers signal the remote peer and flush queued candidates,
-   * and candidate messages are either queued or signaled directly.
+   * Decodes and validates the packet, then forwards it to the registered
+   * message callback. Errors are caught and passed to the error handler.
    */
   async #handleMessage(data: number[]): Promise<void> {
     if (!this.#id) return;
 
     try {
-      const { id, type, message = [] } = await this.#decode(data);
-      const validType = typeof type === "number";
-      const validMessage = Array.isArray(message);
-      if (!id || !validType || !validMessage) return;
+      const decoded = await this.#decode(data);
+      if (!decoded) return;
 
-      log("signal:receive", {
+      const { id, type, message = [] } = decoded;
+      const validType =
+        typeof type === "number" &&
+        (Object.values(SIGNAL_TYPE) as number[]).includes(type);
+      const validMessage = Array.isArray(message);
+      if (!id || !validType || !validMessage) {
+        throw new Error("Invalid signaling message");
+      }
+
+      const messageType = type as MessageType;
+
+      log("signaler:receive", {
         id: this.#id,
-        type,
+        type: messageType,
         from: id,
         message,
       });
 
-      if (type === MESSAGE_TYPE.announce) {
-        void this.#publish({
-          type: MESSAGE_TYPE.invoke,
-          namespace: [this.#room, id],
-          message: [this.#metadata],
-          sender: id,
-        });
-
-        return;
-      }
-
-      if (type === MESSAGE_TYPE.invoke) {
-        const [metadata] = message as [Record<string, unknown>];
-        const remote = await this.#createRemotePeer({ id, metadata });
-        if (remote) this.#setupRemotePeer(remote);
-
-        return;
-      }
-
-      if (type === MESSAGE_TYPE.offer) {
-        const [description, metadata] = message as [
-          RTCSessionDescriptionInit,
-          Record<string, unknown>,
-        ];
-        let remote = this.#getRemotePeer(id);
-        if (!remote) {
-          remote = await this.#createRemotePeer({ id, metadata });
-          if (!remote) return;
-          this.#setupRemotePeer(remote);
-        }
-
-        await remote.signal(description);
-
-        for (const candidate of this.#candidateQueue.pull(id, description)) {
-          try {
-            await remote.signal(candidate);
-          } catch (err) {
-            this.#emitError(err);
-          }
-        }
-
-        return;
-      }
-
-      if (type === MESSAGE_TYPE.answer) {
-        const [description] = message as [RTCSessionDescriptionInit];
-        const remote = this.#getRemotePeer(id);
-        if (!remote) return;
-
-        await remote.signal(description);
-
-        for (const candidate of this.#candidateQueue.pull(id, description)) {
-          try {
-            await remote.signal(candidate);
-          } catch (err) {
-            this.#emitError(err);
-          }
-        }
-
-        return;
-      }
-
-      if (type === MESSAGE_TYPE.candidate) {
-        const [...candidates] = message as RTCIceCandidateInit[];
-        const remote = this.#getRemotePeer(id);
-
-        const description = remote?.connection.remoteDescription ?? undefined;
-
-        for (const candidate of candidates) {
-          const queued = this.#candidateQueue.push(id, candidate, description);
-          if (!remote || queued) continue;
-          try {
-            await remote.signal(candidate);
-          } catch (err) {
-            this.#emitError(err);
-          }
-        }
-
-        return;
-      }
-    } catch (err) {
-      this.#emitError(err);
+      await this.#onMessage({ type: messageType, id, message });
+    } catch (error) {
+      log("signaler:error", { id: this.#id, error });
+      this.#onError(error);
     }
-  }
-
-  /**
-   * Wraps an error in a PeerixError and emits it to the owning peer.
-   */
-  #emitError(err: unknown): void {
-    const error = new PeerixError(err, "SIGNALING_ERROR");
-    this.#onError(error);
-
-    log("signal:error", { id: this.#id, error });
   }
 }
 
-/** Options for publishing a signaling message. */
-export interface SignalPublishOptions {
-  /** Message type identifier. */
-  type: number;
-  /** Target namespace path segments. */
-  namespace: string[];
-  /** Payload data to send. */
+/** Numeric type value for signaling messages, derived from `SIGNAL_TYPE`. */
+export type MessageType = (typeof SIGNAL_TYPE)[keyof typeof SIGNAL_TYPE];
+
+/** A signaling message sent or received between peers. */
+export interface SignalMessage {
+  type: MessageType;
+  id: string;
   message?: unknown[];
-  /** ID of the intended recipient for encryption key lookup. */
-  sender?: string;
-  /** Random delay in milliseconds before publishing (for jitter). */
-  jitter?: number;
+}
+
+/** Configuration options for constructing a {@link Signaler}. */
+export interface SignalerOptions {
+  driver: Driver;
+  namespaceHashing: boolean;
+  signalingCompression: boolean;
+  signalingEncryption: boolean;
+  onMessage: (message: SignalMessage) => Promise<void>;
+  onError: (error: unknown) => void;
 }

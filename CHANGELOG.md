@@ -13,14 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add the `local:join` and `local:leave` events that are emitted when `join`/`leave` methods are called.
-- Add the `local:share` and `local:unshare` events that are emitted when `share`/`unshare` methods are called.
-- Add the `local:open` and `local:close` events that are emitted when `open`/`close` methods are called.
+- Add the `local:join` and `local:leave` events that are emitted when the `join`/`leave` methods are called.
+- Add the `local:share` and `local:unshare` events that are emitted when the `share`/`unshare` methods are called.
+- Add the `local:open` and `local:close` events that are emitted when the `open`/`close` methods are called.
+- If all tracks in a shared stream are ended, the peer will automatically unshare that stream when the `managed` parameter is not set to `true`.
 
 ### Changed
 
-- **Breaking:** The `share`/`unshare` methods do not return a `MediaStream` anymore. The `managed` parameter now means that the stream is externally managed and should not be stopped automatically.
-- If all tracks in a shared stream are ended, the peer will automatically unshare that stream.
+- **Breaking:** The `namespace` for the signaling drivers is a `string` now instead of `string[]`.
+- **Breaking:** The `share`/`unshare` methods do not return a `MediaStream` anymore.
+- **Breaking:** The `managed` parameter now means that the stream is externally managed and should not be stopped or unshared automatically.
 
 ## [0.5.0] - 2026-06-25
 

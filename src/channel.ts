@@ -228,8 +228,8 @@ export class DataChannel {
           );
         }
       } finally {
-        dataStream?.cancel();
-        if (!failed) progressCtrl.close();
+        if (failed) dataStream?.cancel();
+        else progressCtrl.close();
       }
     });
 
@@ -510,7 +510,6 @@ export class DataChannel {
    * Handles the `bufferedamountlow` event by notifying all waiters that the buffer is available for writing.
    */
   #handleBufferedAmountLow(): void {
-    console.warn("buffer amount low");
     for (const resolve of [...this.#lowBufferResolvers]) {
       resolve();
       this.#lowBufferResolvers.delete(resolve);
@@ -601,6 +600,7 @@ export class DataChannel {
     if (chunk && transfer) {
       if (index !== transfer.index) {
         transfer.abort(new Error("Incorrect message order"));
+        return;
       } else {
         transfer.enqueue(chunk);
       }

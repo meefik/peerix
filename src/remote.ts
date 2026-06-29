@@ -15,7 +15,7 @@ import { parseOptions } from "./utils/helpers.js";
 import { EventEmitter } from "./utils/emitter.js";
 import { PromiseLikeReadableStream } from "./utils/stream.js";
 import { Timeout } from "./utils/timeout.js";
-import { IdleLock } from "./utils/idlelock.js";
+import { IceCandidateBatcher } from "./utils/ice.js";
 import { ControlChannel } from "./control.js";
 import { DataChannel } from "./channel.js";
 
@@ -24,9 +24,6 @@ const MESSAGE_TYPE = {
   signal: 1, // SDP and ICE messages
   channel: 2, // data channel creation messages
 } as const;
-
-/** Maximum time to wait for negotiation to become idle, in milliseconds. */
-const NEGOTIATION_IDLE_TIMEOUT = 5000;
 
 /**
  * Represents a remote peer connection.
@@ -74,7 +71,6 @@ export class RemotePeer {
   #channels: Map<string, RTCDataChannel>;
   #polite: boolean;
   #streamLabels: Map<string, string>;
-  #negotiationLock: IdleLock;
   #ignoreOffer: boolean;
   #signalQueue: Promise<unknown>;
   #streamOptions: Map<string, StreamOptions>;
@@ -83,6 +79,7 @@ export class RemotePeer {
   #dataChannels: Map<string, DataChannel>;
   #timeout: Timeout;
   #pendingCandidates: RTCIceCandidateInit[];
+  #iceCandidateBatcher: IceCandidateBatcher;
 
   /**
    * Creates a {@link RemotePeer} instance.
@@ -97,10 +94,11 @@ export class RemotePeer {
       id,
       metadata,
       room,
-      polite,
+      polite = false,
       iceServers = [],
       iceTransportPolicy = "all",
       connectionTimeout = 15,
+      iceCandidateDebounce = 50,
       streams,
       channels,
     } = options;
@@ -119,7 +117,6 @@ export class RemotePeer {
     this.#polite = polite;
     this.#emitter = new EventEmitter(this);
     this.#streamLabels = new Map();
-    this.#negotiationLock = new IdleLock();
     this.#ignoreOffer = false;
     this.#streamOptions = new Map(streams);
     this.#channelOptions = new Map(channels);
@@ -130,6 +127,13 @@ export class RemotePeer {
     }, connectionTimeout * 1000);
     this.#pendingCandidates = [];
     this.#signalQueue = Promise.resolve();
+    this.#iceCandidateBatcher = new IceCandidateBatcher({
+      delay: iceCandidateDebounce,
+      onFlush: (candidates) => {
+        if (this.state === "closed" || !candidates.length) return;
+        this.emit("signal", { name: "candidate", data: candidates });
+      },
+    });
 
     connection.addEventListener("iceconnectionstatechange", () => {
       const { iceConnectionState } = connection;
@@ -164,7 +168,7 @@ export class RemotePeer {
         if (this.#controlChannel.active) {
           this.#controlChannel.send(MESSAGE_TYPE.signal, [candidateInit]);
         } else {
-          this.emit("signal", { name: "candidate", data: candidateInit });
+          this.#iceCandidateBatcher.push(candidateInit);
         }
       } catch (err) {
         this.#emitError(err, "ICECANDIDATE_ERROR");
@@ -172,8 +176,14 @@ export class RemotePeer {
     });
 
     connection.addEventListener("negotiationneeded", () => {
-      if (connection.signalingState !== "stable") return;
-      this.#createOffer();
+      void this.#enqueueTask(async () => {
+        if (connection.signalingState !== "stable") return;
+        try {
+          await this.#createOffer();
+        } catch (err) {
+          this.#emitError(err, "NEGOTIATION_ERROR");
+        }
+      });
     });
 
     connection.addEventListener("signalingstatechange", () => {
@@ -493,12 +503,13 @@ export class RemotePeer {
    * @returns Promise that resolves when the description is applied and ICE candidates are added.
    */
   signal(data: RTCSessionDescriptionInit | RTCIceCandidateInit): Promise<void> {
-    return this.#enqueueSignal(async () => {
+    return this.#enqueueTask(async () => {
       if (this.#state === "closed") return;
 
       if ("sdp" in data && data.type && data.sdp) {
         const hasOffer = data.type === "offer";
-        const collision = hasOffer && this.#hasCollision();
+        const collision =
+          hasOffer && this.#connection.signalingState !== "stable";
 
         this.#ignoreOffer = !this.#polite && collision;
 
@@ -510,7 +521,6 @@ export class RemotePeer {
 
         try {
           if (hasOffer && collision && this.#polite) {
-            await this.#negotiationLock.waitForIdle(NEGOTIATION_IDLE_TIMEOUT);
             await this.#rollbackLocalDescription();
           }
 
@@ -622,8 +632,8 @@ export class RemotePeer {
     this.#channels.clear();
     this.#streams.clear();
     this.#pendingCandidates.length = 0;
+    this.#iceCandidateBatcher.clear();
     this.#streamLabels.clear();
-    this.#negotiationLock.dispose();
     this.#ignoreOffer = false;
   }
 
@@ -653,7 +663,7 @@ export class RemotePeer {
   /**
    * Queues a signaling task so SDP and ICE messages are applied sequentially.
    */
-  #enqueueSignal<T>(task: () => Promise<T>): Promise<T> {
+  #enqueueTask<T>(task: () => Promise<T>): Promise<T> {
     const prev = this.#signalQueue;
     const run = prev.then(() => task());
     this.#signalQueue = run.catch(() => {});
@@ -661,86 +671,23 @@ export class RemotePeer {
   }
 
   /**
-   * Adds a sendonly transceiver for a track and applies optional sender parameters.
+   * Generates a map of stream IDs to their corresponding labels from the current stream options.
    */
-  async #addTrackAsSender(
-    stream: MediaStream,
-    track: MediaStreamTrack,
-    audioParameters?: Record<string, unknown>,
-    videoParameters?: Record<string, unknown>,
-  ): Promise<void> {
-    this.#connection.addTransceiver(track, {
-      direction: "sendonly",
-      streams: [stream],
-    });
-    await this.#setSenderParameters(
-      track,
-      track.kind === "audio" ? audioParameters : videoParameters,
+  #getStreamLabels(): Record<string, string> {
+    return Array.from(this.#streamOptions.keys()).reduce(
+      (acc, label) => {
+        const { stream } = this.#streamOptions.get(label) ?? {};
+        if (stream) acc[stream.id] = label;
+        return acc;
+      },
+      {} as Record<string, string>,
     );
-  }
-
-  /**
-   * Stops sendonly transceivers that have no track or whose track matches one of the provided tracks.
-   */
-  #stopSendonlyTransceivers(tracks: MediaStreamTrack[]): void {
-    for (const transceiver of this.#connection.getTransceivers()) {
-      if (transceiver.direction !== "sendonly") continue;
-      const readyToStop =
-        !transceiver.sender.track ||
-        tracks.some((track) => track.id === transceiver.sender.track?.id);
-      if (readyToStop) transceiver.stop();
-    }
-  }
-
-  /**
-   * Adds queued ICE candidates after a remote description becomes available.
-   */
-  async #drainPendingCandidates(): Promise<void> {
-    if (
-      !this.#connection.remoteDescription ||
-      !this.#pendingCandidates.length
-    ) {
-      return;
-    }
-
-    const pendingCandidates = this.#pendingCandidates.splice(0);
-    for (const candidate of pendingCandidates) {
-      await this.#addIceCandidate(candidate);
-    }
-  }
-
-  /**
-   * Adds an ICE candidate to the peer connection.
-   */
-  async #addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
-    log("remote:addcandidate", { id: this.#id, candidate });
-
-    try {
-      await this.#connection.addIceCandidate(candidate);
-    } catch (err) {
-      this.#emitError(err, "ICECANDIDATE_ERROR");
-    }
-  }
-
-  /**
-   * Updates the connection state.
-   */
-  #setConnectionState(state: PeerConnectionState): void {
-    if (this.#state === state) return;
-
-    log("remote:connection", { id: this.#id, state });
-
-    this.#state = state;
-    this.emit(["connection", `connection:${state}`], {
-      name: `connection:${state}`,
-      state,
-    });
   }
 
   /**
    * Sets custom labels for remote media streams based on their stream ids.
    */
-  #setStreamLabels(labels: { [key: string]: string }): void {
+  #setStreamLabels(labels: Record<string, string>): void {
     this.#streamLabels.clear();
     for (const streamId in labels) {
       this.#streamLabels.set(streamId, labels[streamId]);
@@ -846,27 +793,43 @@ export class RemotePeer {
     });
 
     try {
-      for (const track of addedTracks) {
-        const removedTrack = removedTracks.find((t) => t.kind === track.kind);
-        if (removedTrack) {
-          const sender = senders.find((s) => s.track?.id === removedTrack.id);
-          if (sender) {
-            await sender.replaceTrack(track);
-            await this.#setSenderParameters(
-              track,
-              track.kind === "audio" ? audioParameters : videoParameters,
-            );
-            continue;
-          }
+      const usedAddedTracks = new Set<MediaStreamTrack>();
+
+      // 1. Try to replace tracks for senders that are no longer sending their current track
+      for (const sender of senders) {
+        const currentTrack = sender.track;
+        if (!currentTrack || !removedTracks.includes(currentTrack)) {
+          continue;
         }
-        await this.#addTrackAsSender(
-          stream,
-          track,
-          audioParameters,
-          videoParameters,
+
+        // Find a replacement track of the same kind that hasn't been used yet
+        const replacement = addedTracks.find(
+          (t) => t.kind === currentTrack.kind && !usedAddedTracks.has(t),
         );
+
+        if (replacement) {
+          await sender.replaceTrack(replacement);
+          await this.#setSenderParameters(
+            replacement,
+            replacement.kind === "audio" ? audioParameters : videoParameters,
+          );
+          usedAddedTracks.add(replacement);
+        }
       }
 
+      // 2. Add any remaining tracks that weren't used as replacements as new senders
+      for (const track of addedTracks) {
+        if (!usedAddedTracks.has(track)) {
+          await this.#addTrackAsSender(
+            stream,
+            track,
+            audioParameters,
+            videoParameters,
+          );
+        }
+      }
+
+      // 3. Stop transceivers that were not replaced and are in the removed list
       this.#stopSendonlyTransceivers(removedTracks);
     } catch (err) {
       this.#emitError(err, "MEDIASTREAM_ERROR");
@@ -888,13 +851,82 @@ export class RemotePeer {
   }
 
   /**
-   * Checks for a signaling collision with the remote peer.
+   * Adds a sendonly transceiver for a track and applies optional sender parameters.
    */
-  #hasCollision(): boolean {
-    const readyForOffer =
-      this.#negotiationLock.isIdle &&
-      this.#connection.signalingState === "stable";
-    return !readyForOffer;
+  async #addTrackAsSender(
+    stream: MediaStream,
+    track: MediaStreamTrack,
+    audioParameters?: Record<string, unknown>,
+    videoParameters?: Record<string, unknown>,
+  ): Promise<void> {
+    this.#connection.addTransceiver(track, {
+      direction: "sendonly",
+      streams: [stream],
+    });
+    await this.#setSenderParameters(
+      track,
+      track.kind === "audio" ? audioParameters : videoParameters,
+    );
+  }
+
+  /**
+   * Stops sendonly transceivers that have no track or whose track matches one of the provided tracks.
+   */
+  #stopSendonlyTransceivers(tracks: MediaStreamTrack[]): void {
+    for (const transceiver of this.#connection.getTransceivers()) {
+      if (transceiver.direction !== "sendonly") continue;
+      const readyToStop =
+        !transceiver.sender.track ||
+        tracks.some((track) => track.id === transceiver.sender.track?.id);
+      if (readyToStop) transceiver.stop();
+    }
+  }
+
+  /**
+   * Adds queued ICE candidates after a remote description becomes available.
+   */
+  async #drainPendingCandidates(): Promise<void> {
+    if (
+      !this.#connection.remoteDescription ||
+      !this.#pendingCandidates.length
+    ) {
+      return;
+    }
+
+    const pendingCandidates = this.#pendingCandidates.splice(0);
+    for (const candidate of pendingCandidates) {
+      await this.#addIceCandidate(candidate);
+    }
+  }
+
+  /**
+   * Adds an ICE candidate to the peer connection.
+   */
+  async #addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
+    if (this.#state === "closed") return;
+
+    log("remote:addcandidate", { id: this.#id, candidate });
+
+    try {
+      await this.#connection.addIceCandidate(candidate);
+    } catch (err) {
+      this.#emitError(err, "ICECANDIDATE_ERROR");
+    }
+  }
+
+  /**
+   * Updates the connection state.
+   */
+  #setConnectionState(state: PeerConnectionState): void {
+    if (this.#state === state) return;
+
+    log("remote:connection", { id: this.#id, state });
+
+    this.#state = state;
+    this.emit(["connection", `connection:${state}`], {
+      name: `connection:${state}`,
+      state,
+    });
   }
 
   /**
@@ -902,40 +934,19 @@ export class RemotePeer {
    * then sends it to the remote peer (including stream labels when available).
    */
   async #createOffer(): Promise<void> {
-    try {
-      this.#negotiationLock.acquire();
+    const offer = await this.#connection.createOffer();
+    await this.#connection.setLocalDescription(offer);
+    const description = this.#serializeJSON<RTCSessionDescriptionInit>(
+      this.#connection.localDescription,
+    );
 
-      const offer = await this.#connection.createOffer();
-      await this.#connection.setLocalDescription(offer);
-      const description = this.#serializeJSON<RTCSessionDescriptionInit>(
-        this.#connection.localDescription,
-      );
-
-      if (!description) {
-        throw new Error("Failed to set local offer description");
-      }
-
-      log("remote:createoffer", { id: this.#id, description });
-
-      if (this.#controlChannel.active) {
-        const labels = Array.from(this.#streamOptions.keys()).reduce(
-          (acc, label) => {
-            const { stream } = this.#streamOptions.get(label) ?? {};
-            if (stream) acc[stream.id] = label;
-            return acc;
-          },
-          {} as { [key: string]: string },
-        );
-        this.#controlChannel.send(MESSAGE_TYPE.signal, [description, labels]);
-      } else {
-        this.emit("signal", { name: "offer", data: description });
-      }
-    } catch (err) {
-      await this.#rollbackLocalDescription();
-      this.#emitError(err, "NEGOTIATION_ERROR");
-    } finally {
-      this.#negotiationLock.release();
+    if (!description) {
+      throw new Error("Failed to set local offer description");
     }
+
+    log("remote:createoffer", { id: this.#id, description });
+
+    this.#transmitSdp("offer", description, this.#getStreamLabels());
   }
 
   /**
@@ -943,32 +954,19 @@ export class RemotePeer {
    * then sends it to the remote peer.
    */
   async #createAnswer(): Promise<void> {
-    try {
-      this.#negotiationLock.acquire();
+    const answer = await this.#connection.createAnswer();
+    await this.#connection.setLocalDescription(answer);
+    const description = this.#serializeJSON<RTCSessionDescriptionInit>(
+      this.#connection.localDescription,
+    );
 
-      const answer = await this.#connection.createAnswer();
-      await this.#connection.setLocalDescription(answer);
-      const description = this.#serializeJSON<RTCSessionDescriptionInit>(
-        this.#connection.localDescription,
-      );
-
-      if (!description) {
-        throw new Error("Failed to set local answer description");
-      }
-
-      log("remote:createanswer", { id: this.#id, description });
-
-      if (this.#controlChannel.active) {
-        this.#controlChannel.send(MESSAGE_TYPE.signal, [description]);
-      } else {
-        this.emit("signal", { name: "answer", data: description });
-      }
-    } catch (err) {
-      await this.#rollbackLocalDescription();
-      this.#emitError(err, "NEGOTIATION_ERROR");
-    } finally {
-      this.#negotiationLock.release();
+    if (!description) {
+      throw new Error("Failed to set local answer description");
     }
+
+    log("remote:createanswer", { id: this.#id, description });
+
+    this.#transmitSdp("answer", description);
   }
 
   /**
@@ -978,15 +976,7 @@ export class RemotePeer {
     description: RTCSessionDescriptionInit,
   ): Promise<void> {
     log("remote:setdescription", { id: this.#id, description });
-
-    await this.#negotiationLock.waitForIdle(NEGOTIATION_IDLE_TIMEOUT);
-
-    try {
-      this.#negotiationLock.acquire();
-      await this.#connection.setRemoteDescription(description);
-    } finally {
-      this.#negotiationLock.release();
-    }
+    await this.#connection.setRemoteDescription(description);
   }
 
   /**
@@ -994,18 +984,30 @@ export class RemotePeer {
    * Suppresses errors that occur during rollback.
    */
   async #rollbackLocalDescription(): Promise<void> {
-    const rollbackStates: RTCSignalingState[] = [
-      "have-local-offer",
-      "have-remote-pranswer",
-    ];
-    const { signalingState } = this.#connection;
-
     try {
-      if (rollbackStates.includes(signalingState)) {
+      if (this.#connection.signalingState !== "stable") {
         await this.#connection.setLocalDescription({ type: "rollback" });
       }
-    } catch (err) {
-      this.#emitError(err, "NEGOTIATION_ERROR");
+    } catch {
+      /* rollback errors are benign, suppress */
+    }
+  }
+
+  /**
+   * Transmits an SDP offer or answer to the remote peer via the control channel,
+   * or emits a signal event if the control channel is not active.
+   */
+  #transmitSdp(
+    type: "offer" | "answer",
+    description: RTCSessionDescriptionInit,
+    labels?: Record<string, string>,
+  ): void {
+    if (this.#controlChannel.active) {
+      const data: any[] = [description];
+      if (labels) data.push(labels);
+      this.#controlChannel.send(MESSAGE_TYPE.signal, data);
+    } else {
+      this.emit("signal", { name: type, data: description });
     }
   }
 
@@ -1156,11 +1158,13 @@ export interface RemotePeerOptions {
   /** Indicates if this peer should be polite during negotiation. */
   polite: boolean;
   /** Optional ICE servers for NAT traversal. */
-  iceServers?: IceServer[];
+  iceServers: IceServer[];
   /** Policy for ICE transport. */
-  iceTransportPolicy?: IceTransportPolicy;
+  iceTransportPolicy: IceTransportPolicy;
   /** Timeout in seconds for connection establishment. */
-  connectionTimeout?: number;
+  connectionTimeout: number;
+  /** Debounce time (ms) for aggregating ICE candidates before sending them. */
+  iceCandidateDebounce: number;
   /** Map of streams indexed by label. */
   streams: Map<string, StreamOptions>;
   /** Map of data channels indexed by label. */
@@ -1178,7 +1182,7 @@ export interface RemoteSignalEvent {
   /** Name of the event. */
   name: "offer" | "answer" | "candidate";
   /** Signal data, which can be an offer, answer, or ICE candidate. */
-  data: RTCSessionDescriptionInit | RTCIceCandidateInit;
+  data: RTCSessionDescriptionInit | RTCIceCandidateInit[];
   /** Stream labels associated with the offer. */
   labels?: Record<string, string>;
 }
