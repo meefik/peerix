@@ -19,9 +19,9 @@ export type ErrorCode =
  */
 export class PeerixError extends Error {
   /** The name of the error, typically `Error` or a specific error type. */
-  readonly name: string;
+  override name: string;
   /** The error message providing details about the error. */
-  readonly message: string;
+  override message: string;
   /** An error code for categorizing the error. */
   readonly code: ErrorCode;
 

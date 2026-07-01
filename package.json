@@ -1,7 +1,7 @@
 {
   "name": "peerix",
   "version": "0.5.0",
-  "description": "A library for creating peer-to-peer WebRTC applications with custom signaling drivers and add-ons.",
+  "description": "A front-end library for creating peer-to-peer WebRTC applications with pluggable signaling drivers and add-ons.",
   "author": "Peerix <info@peerix.dev>",
   "license": "Apache-2.0",
   "homepage": "https://peerix.dev",

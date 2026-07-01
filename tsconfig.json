@@ -11,6 +11,7 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
+    "noImplicitOverride": true,
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "*.config.ts"],
   "exclude": ["node_modules", "dist"],
