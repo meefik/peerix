@@ -1,7 +1,8 @@
 import type { Driver } from "./drivers/driver.js";
+import log from "./utils/logger.js";
+import { PeerixError, type ErrorCode } from "./error.js";
 import { RemotePeer } from "./remote.js";
 import { MemoryDriver } from "./drivers/memory.js";
-import { PeerixError } from "./error.js";
 import { parseOptions } from "./utils/helpers.js";
 import {
   teeStream,
@@ -300,6 +301,16 @@ export class Peer {
     const currentTracks = newStream.getTracks();
     const incomingTrackIds = new Set(incomingTracks.map((track) => track.id));
     const currentTrackIds = new Set(currentTracks.map((track) => track.id));
+    const endedHandler = async (track: MediaStreamTrack) => {
+      try {
+        newStream.removeTrack(track);
+        if (!newStream.active) {
+          await this.unshare({ label });
+        }
+      } catch (err) {
+        this.#emitError(err, "MEDIASTREAM_ERROR");
+      }
+    };
 
     for (const track of currentTracks) {
       if (!incomingTrackIds.has(track.id)) {
@@ -310,6 +321,11 @@ export class Peer {
     for (const track of incomingTracks) {
       if (!currentTrackIds.has(track.id)) {
         newStream.addTrack(track);
+        if (!managed) {
+          track.addEventListener("ended", () => endedHandler(track), {
+            once: true,
+          });
+        }
       }
     }
 
@@ -627,6 +643,15 @@ export class Peer {
       streams: Array.from(this.#streamOptions.keys()),
       channels: Array.from(this.#channelOptions.keys()),
     };
+  }
+
+  /**
+   * Logs and emits an error event with the given raw error and context code.
+   */
+  #emitError(err: unknown, code: ErrorCode): void {
+    const error = new PeerixError(err, code);
+    log("peer:error", { id: this.#id, error });
+    this.emit("error", { name: "error", error });
   }
 
   /**
