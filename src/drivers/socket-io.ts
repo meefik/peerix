@@ -11,6 +11,19 @@ import { EventEmitter } from "../utils/emitter.js";
  * - Client -> Server: `prefix:subscribe`, `prefix:unsubscribe`, `prefix:publish`
  * - Server -> Client: `prefix:message`
  *
+ * This is the typical signaling flow:
+ * ```mermaid
+ * sequenceDiagram
+ *     participant A as Peer A
+ *     participant S as Socket.IO Server
+ *     participant B as Peer B
+ *     A->>S: peerix:subscribe(namespace)
+ *     B->>S: peerix:subscribe(namespace)
+ *     A->>S: peerix:publish(namespace, payload)
+ *     S->>B: peerix:message(namespace, payload)
+ *     B->>S: peerix:unsubscribe(namespace)
+ * ```
+ *
  * > This driver requires the [`socket.io-client`](https://www.npmjs.com/package/socket.io-client)
  * > module in the browser and the [`socket.io`](https://www.npmjs.com/package/socket.io)
  * > module for server-side use in Node.js.

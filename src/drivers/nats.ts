@@ -7,6 +7,8 @@ import { EventEmitter } from "../utils/emitter.js";
  * This driver uses [NATS](https://nats.io/) as the underlying messaging system,
  * enabling distributed signaling across multiple browsers and devices.
  *
+ * For testing, you can use the public server at `wss://demo.nats.io:8443`.
+ *
  * > This driver requires the [`@nats-io/nats-core`](https://www.npmjs.com/package/@nats-io/nats-core)
  * > module for WebSocket-based NATS connections directly in the browser.
  *

@@ -10,6 +10,19 @@ import { EventEmitter } from "../utils/emitter.js";
  * updates from the server. To send messages to the server, it uses standard HTTP POST
  * requests. This protocol can be used as an alternative to WebSocket-based transport.
  *
+ * ```mermaid
+ * sequenceDiagram
+ *   participant A as Peer A
+ *   participant S as SSE Server
+ *   participant B as Peer B
+ *   A->>S: GET /.well-known/mercure?topic=... (open SSE stream)
+ *   B->>S: GET /.well-known/mercure?topic=... (open SSE stream)
+ *   A->>S: POST /.well-known/mercure?topic=... (signal payload)
+ *   S-->>B: SSE event: data: payload
+ *   B->>S: POST /.well-known/mercure?topic=... (signal payload)
+ *   S-->>A: SSE event: data: payload
+ * ```
+ *
  * > This driver requires a [Mercure](https://mercure.rocks/) server or compatible
  * > server-side implementation to work.
  *
@@ -28,6 +41,11 @@ import { EventEmitter } from "../utils/emitter.js";
  *     },
  *   },
  * });
+ * ```
+ *
+ * You can use this JWT publisher key with the Mercure server's default configuration for testing purposes:
+ * ```
+ * eyJhbGciOiJIUzI1NiJ9.eyJtZXJjdXJlIjp7InB1Ymxpc2giOlsiKiJdLCJzdWJzY3JpYmUiOlsiKiJdfX0.bVXdlWXwfw9ySx7-iV5OpUSHo34RkjUdVzDLBcc6l_g
  * ```
  *
  * Running a local Mercure server for testing:

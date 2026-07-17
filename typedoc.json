@@ -12,7 +12,7 @@
     "readme": false
   },
   "entryPoints": ["./src/index.ts"],
-  "plugin": ["typedoc-plugin-markdown"],
+  "plugin": ["typedoc-plugin-markdown", "typedoc-plugin-mermaid"],
   "outputs": [
     {
       "name": "html",

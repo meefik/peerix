@@ -8,6 +8,8 @@ import { EventEmitter } from "../utils/emitter.js";
  * system, allowing signaling messages to be exchanged through an MQTT broker
  * such as [Mosquitto](https://mosquitto.org/).
  *
+ * For testing, you can use the public server at `wss://broker.emqx.io:8084/mqtt`.
+ *
  * > This driver requires the [`mqtt`](https://www.npmjs.com/package/mqtt)
  * > module in the browser.
  *
