@@ -4,11 +4,11 @@ Peerix is a JavaScript library for peer-to-peer room-based media and data sharin
 
 Read the full documentation and API reference on the official websites:
 
-- 📚 [Documentation](https://peerix.dev/docs)
+- 📖 [Documentation](https://peerix.dev/docs)
 - 📑 [API Reference](https://api.peerix.dev)
-- 💻 [Source Code](https://github.com/peerix-dev/peerix)
-- 👾 [Issues](https://github.com/peerix-dev/peerix/issues)
-- 💬 [Discussions](https://github.com/peerix-dev/peerix/discussions)
+- 🧑‍💻 [Source Code](https://github.com/meefik/peerix)
+- 👾 [Issues](https://github.com/meefik/peerix/issues)
+- 💬 [Discussions](https://github.com/meefik/peerix/discussions)
 
 ## How It Works
 
@@ -64,7 +64,7 @@ peer.on("error", (e) => {
 // join a room
 await peer.join({
   room: "room-id",
-  metadata: { /* optional metadata */ },
+  metadata: {/* optional metadata */},
 });
 
 // later, if you want to leave the room
@@ -79,7 +79,7 @@ Work with data channels to exchange messages with other peers:
 // listen for open channel event
 peer.on("channel:open", (e) => {
   const { remote, label } = e;
-  console.log(`Channel "${label}" opened with peer "${remote.id}"`);
+  console.log(`Channel ${label} opened with peer ${remote.id}`);
   // send a message to the remote peer
   remote.send("Hello, peer!", { label });
 });
@@ -87,7 +87,7 @@ peer.on("channel:open", (e) => {
 // listen for close channel event
 peer.on("channel:close", (e) => {
   const { remote, label } = e;
-  console.log(`Channel "${label}" closed with peer "${remote.id}"`);
+  console.log(`Channel ${label} closed with peer ${remote.id}`);
 });
 
 // listen for incoming messages
@@ -95,7 +95,7 @@ peer.on("channel:message", async (e) => {
   const { remote, label, data } = e;
   // you must await the `data` to read its content
   const message = await data;
-  console.log(`Message from peer "${remote.id}" on channel "${label}":`, message);
+  console.log(`Msg from ${remote.id} on ${label}:`, message);
 });
 
 // open a data channel with a specific label
@@ -132,13 +132,13 @@ Receiving the file and tracking its progress:
 peer.on("channel:message", async (e) => {
   const { remote, label, data, info } = e;
   let current = 0;
-  const chunks = []
+  const chunks = [];
   // read data by chunks
   for await (const chunk of data) {
     chunks.push(chunk);
     current += chunk.length;
     const percent = Math.round((current / info.size) * 100);
-    console.log(`[${remote.id}:${label}] Receiving... ${percent}%`)
+    console.log(`[${remote.id}:${label}] Receiving... ${percent}%`);
   }
   const file = new File(chunks, info.name);
   console.log("Received:", file);
@@ -153,13 +153,13 @@ Work with media streams to share audio and video with other peers:
 // listen for a remote peer sharing a stream
 peer.on("stream:add", (e) => {
   const { remote, stream, label } = e;
-  console.log(`Peer "${remote.id}" shared stream "${stream.id}" with label "${label}"`);
+  console.log(`${remote.id} shared ${stream.id} (${label})`);
 });
 
 // listen for a remote peer unsharing a stream
 peer.on("stream:remove", (e) => {
   const { remote, stream, label } = e;
-  console.log(`Peer "${remote.id}" unshared stream "${stream.id}" with label "${label}"`);
+  console.log(`${remote.id} unshared ${stream.id} (${label})`);
 });
 
 // get a media stream from the user's camera and microphone
@@ -183,17 +183,13 @@ In addition to stream-level events, you can also listen for track-level events t
 // listen for a remote peer adding a track to the stream
 peer.on("track:add", (e) => {
   const { remote, stream, track, label } = e;
-  console.log(
-    `Peer "${remote.id}" added track "${track.id}" to stream "${stream.id}" with label "${label}"`,
-  );
+  console.log(`${remote.id}: added track ${track.id} to stream ${stream.id} (${label})`);
 });
 
 // listen for a remote peer removing a track from the stream
 peer.on("track:remove", (e) => {
   const { remote, stream, track, label } = e;
-  console.log(
-    `Peer "${remote.id}" removed track "${track.id}" from stream "${stream.id}" with label "${label}"`,
-  );
+  console.log(`${remote.id}: removed track ${track.id} from stream ${stream.id} (${label})`);
 });
 ```
 
@@ -214,19 +210,29 @@ In this case, the tracks from the old stream will be removed and replaced with t
 
 > Peerix automatically resolves all collisions and race conditions that may occur when multiple peers share streams or open data channels at the same time.
 
+By default, Peerix manages the lifecycle of shared stream tracks: when a stream is unshared or replaced, the tracks are stopped automatically. You can opt out of this behavior by setting `managed` to `true`, which tells Peerix that the stream is managed externally and its tracks should not be stopped or cleaned up automatically:
+
+```js
+// share a stream without Peerix managing its tracks
+await peer.share({ label: "camera", stream, managed: true });
+```
+
+When a shared stream's tracks all end naturally (e.g. the camera is disconnected), Peerix automatically unshares the stream unless `managed` is set to `true`.
+
 Peerix emits various lifecycle events that allow you to track the state of peer connections, media streams, and data channels. You can listen for these events to manage your application's behavior based on the connection state and media availability.
 
 Lifecycle events include:
 
-- `share`/`unshare`: fired when a media stream is requested or revoked.
-- `open`/`close`: fired when a data channel is requested or revoked.
+- `local:join`/`local:leave`: fired when the local peer joins or leaves a room.
+- `local:share`/`local:unshare`: fired when a media stream is shared or unshared on the local peer.
+- `local:open`/`local:close`: fired when a data channel is opened or closed on the local peer.
 - `connection[:new,:connecting,:connected,:disconnected,:failed,:closed]`: fired when a peer's connection state changes.
 - `channel[:new,:open,:close,:message,:error]`: fired for data channel state changes and incoming messages.
 - `stream[:add,:remove]`: fired when a remote peer shares or unshares a media stream.
 - `track[:add,:remove]`: fired when a track is added or removed from a media stream.
 - `error`: fired when an error occurs with a peer connection, media stream, data channel, or signaling.
 
-You can subscribe to either group events or individual events using the `:event` suffix.
+You can subscribe to group events (e.g. `local`, `connection`, `channel`, `stream`, `track`) to receive all events in a category, or subscribe to individual events using the `:event` suffix.
 
 ## Signaling Drivers
 
@@ -260,13 +266,13 @@ import { Driver } from "peerix";
 
 class MyDriver extends Driver {
   async subscribe(namespace, handler) {
-    // implement subscription logic for the given namespace and handler
+    // subscribe to the given namespace (string) and call handler on messages
   }
   async unsubscribe(namespace, handler) {
-    // implement unsubscription logic for the given namespace and handler
+    // unsubscribe from the given namespace and remove the handler
   }
   async publish(namespace, message) {
-    // implement publish logic for the given namespace and message
+    // publish a binary message (number array) to the given namespace
   }
 }
 ```

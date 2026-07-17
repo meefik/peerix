@@ -1,7 +1,3 @@
----
-title: Changelog
----
-
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -11,99 +7,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-17
+
 ### Added
 
-- Add the `local:join` and `local:leave` events that are emitted when the `join`/`leave` methods are called.
-- Add the `local:share` and `local:unshare` events that are emitted when the `share`/`unshare` methods are called.
-- Add the `local:open` and `local:close` events that are emitted when the `open`/`close` methods are called.
-- If all tracks in a shared stream are ended, the peer will automatically unshare that stream when the `managed` parameter is not set to `true`.
+- `local:join` and `local:leave` events emitted when `join()` / `leave()` methods are called.
+- `local:share` and `local:unshare` events emitted when `share()` / `unshare()` methods are called.
+- `local:open` and `local:close` events emitted when `open()` / `close()` methods are called.
+- Streams with all tracks ended are automatically unshared (unless `managed` is `true`).
 
 ### Changed
 
-- **Breaking:** The `namespace` for the signaling drivers is a `string` now instead of `string[]`.
-- **Breaking:** The `share`/`unshare` methods do not return a `MediaStream` anymore.
-- **Breaking:** The `managed` parameter now means that the stream is externally managed and should not be stopped or unshared automatically.
+- **Breaking:** `namespace` option in signaling drivers is now a `string` instead of `string[]`.
+- **Breaking:** `share()` / `unshare()` no longer return a `MediaStream`.
+- **Breaking:** `managed` now means the stream is externally managed and will not be stopped or unshared automatically.
 
 ## [0.5.0] - 2026-06-25
 
 ### Added
 
-- Add support for `ReadableStream` data in the `send` method.
-- Add unit tests for utilities and some drivers.
-- Add optional metadata (`info` field) when sending messages.
-- Add abort signal handling to stop message transmission early.
-- Add `toJSON` method to serialize peer information for local and remote peers.
-- Add `AGENTS.md` file with rules for AI agents interacting with this project.
+- Support for `ReadableStream` data in the `send()` method.
+- Optional metadata (`info` field) when sending messages.
+- Abort signal support to stop message transmission early.
+- `toJSON()` method on peer classes to serialize peer information.
 
 ### Changed
 
-- Update the `send` method API to return an async iterator that can be used to track data transmission progress or a `Promise` that resolves when the data is delivered.
-- Chunk and buffer large messages during transmission via data channels, supporting larger payloads out of the box.
-- **Breaking:** Change incoming data to be either a `ReadableStream` or a `Promise`. Read the stream to track receiving progress; use the Promise to get a specific data type when the full message is received.
-- **Breaking:** Send data through only one data channel instead of multiple. If the `label` is omitted, it uses the `default` label.
+- **Breaking:** `send()` now returns an async iterator (for tracking transmission progress) or a `Promise` (for delivery confirmation).
+- **Breaking:** Incoming data is now delivered as a `ReadableStream` or a `Promise` — read the stream to track receiving progress, or await the Promise to receive the full message.
+- Chunking and buffering for large message payloads via data channels.
+- Data is sent through a single data channel (using the `default` label when `label` is omitted).
 
 ## [0.4.0] - 2026-05-28
 
 ### Added
 
-- Add `MqttDriver` for signaling using MQTT over WebSockets.
-- Add `CentrifugeDriver` for signaling using a Centrifuge-based backend.
-- Add `ackTimeout` option to `SocketIoDriver` to specify the timeout for acknowledgments from the server.
-- Add `iceCandidateDebounce` option to `Peer` to specify the debounce time for sending ICE candidates via signaling.
-- Add example code snippets showing how to run some backends locally for testing using Docker.
+- `MqttDriver` for signaling over MQTT via WebSockets.
+- `CentrifugeDriver` for signaling with a Centrifuge backend.
+- `ackTimeout` option in `SocketIoDriver` to configure server acknowledgment timeout.
+- `iceCandidateDebounce` option in `Peer` to configure ICE candidate debounce interval.
 
 ### Changed
 
-- Rename `dispatch` method to `publish` in the `Driver` interface for better clarity and consistency with common messaging terminology.
-- Rename `publish` and `unpublish` methods in the `Peer` and `RemotePeer` classes to `share` and `unshare` respectively to avoid confusion with the `publish` method in the `Driver` interface.
-- The `SseDriver` uses a Mercure-compatible endpoint by default (`/.well-known/mercure`).
-- The `active` property in the `Driver` class defaults to `false`.
-- The `room` property is escaped when namespace hashing is disabled.
-- Most drivers use peer or room identifiers as event names instead of concatenating them, which simplifies implementation and shortens event names.
-- Some drivers use empty prefixes by default, so if you want to use a prefix, you need to specify one in the options.
-- Some drivers with a `prefix` property add an additional string to the beginning of the event name without any separators, so if you want to separate the prefix from the event name, you need to include a separator in the prefix.
-- Use a Protobuf-like format for signaling messages instead of a custom binary format.
+- **Breaking:** Renamed `dispatch` to `publish` in the `Driver` interface for consistency with messaging terminology.
+- **Breaking:** Renamed `publish` / `unpublish` to `share` / `unshare` in `Peer` and `RemotePeer` to avoid confusion with the driver `publish()` method.
+- Signaling messages now use a Protobuf-like format instead of the previous custom binary format.
+- `SseDriver` defaults to a Mercure-compatible endpoint (`/.well-known/mercure`).
+- `active` property in drivers defaults to `false`.
+- Room property is escaped when namespace hashing is disabled.
+- Drivers use peer or room identifiers as event names instead of concatenated strings, simplifying event names.
+- Some drivers use empty prefixes by default — specify a prefix explicitly if needed.
+- Some drivers with a `prefix` option concatenate it directly to the event name without a separator — include a separator in the prefix if desired.
 
 ## [0.3.0] - 2026-05-23
 
 ### Added
 
-- Add `SseDriver` for signaling using Server-Sent Events (SSE).
-- Add debouncing for ICE candidates sent via signaling to reduce the number of messages.
+- `SseDriver` for signaling via Server-Sent Events (SSE).
+- Debouncing for ICE candidates sent via signaling to reduce message volume.
 
 ### Changed
 
-- Use derived encryption keys for signaling instead of manually specified secret keys.
-- Enable signaling encryption by default.
-- Use the compressed public key as the peer ID.
-- The minimum build target is ES2020 to allow the use of modern JavaScript features such as BigInt.
-- Rename `signalingHashing` to `namespaceHashing` for clarity.
-- The license has been changed from GPL-3.0 to Apache-2.0 to allow more permissive use of the library in both open-source and commercial projects.
+- Encryption keys are now derived automatically instead of using manually specified secrets.
+- Signaling encryption is enabled by default.
+- Peer IDs use the compressed public key format.
+- Minimum build target is ES2020 to support modern JavaScript features such as `BigInt`.
+- Renamed `signalingHashing` option to `namespaceHashing`.
+- License changed from GPL-3.0 to Apache-2.0.
 
 ## [0.2.0] - 2026-05-13
 
 ### Added
 
-- Add `SocketIoDriver` for signaling using Socket.IO.
-- Add `SupabaseDriver` for signaling using Supabase Realtime.
-- Add a `destroy` method to some drivers.
+- `SocketIoDriver` for signaling via Socket.IO.
+- `SupabaseDriver` for signaling via Supabase Realtime.
+- `destroy()` method in supported drivers.
 
 ### Changed
 
-- Update the NATS driver to use `nats-core` instead of `nats.ws`.
-- Refactor error codes for clarity.
-- Refactor the driver interface to use plain arrays instead of typed arrays for improved serialization.
-- Enable namespace hashing by default to improve privacy and avoid issues with unsupported characters in namespaces.
+- NATS driver updated to use `nats-core` instead of `nats.ws`.
+- Namespace hashing is enabled by default for improved privacy and compatibility.
+- Refactored error codes for clarity.
+- Driver interface uses plain arrays instead of TypedArrays for improved serialization.
 
 ## [0.1.0] - 2026-05-06
 
 ### Added
 
-- Initial release of the project.
-- TypeScript support.
-- Core functionality: peer connections, signaling, media streams, and data channels.
-- Basic documentation and API reference.
-- Automated tests for core features.
-- Logging for better debugging.
-- CI/CD pipeline for automated testing and deployment.
-- Example code snippets and usage examples.
+- Initial release.
+- Core WebRTC peer connections, signaling, media streams, and data channels.
+- Pluggable signaling drivers with a unified interface.
+
+---
+
+[unreleased]: https://github.com/meefik/peerix/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/meefik/peerix/compare/v0.5.0...v0.6.0
+[0.5.0]: https://github.com/meefik/peerix/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/meefik/peerix/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/meefik/peerix/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/meefik/peerix/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/meefik/peerix/releases/tag/v0.1.0
