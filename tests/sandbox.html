@@ -68,7 +68,6 @@
     <main>
       <label>
         <legend>Room</legend>
-        <input type="text" id="room" placeholder="Room ID" value="demo" />
         <input type="text" id="metadata" placeholder="Metadata" />
         <button data-action="join">Join</button>
         <button data-action="leave">Leave</button>
@@ -118,35 +117,36 @@
     </footer>
 
     <script type="module">
-      import { Peer, BroadcastChannelDriver } from "../src/index.js";
+      import { Room, BroadcastChannelDriver } from "../src/index.js";
 
-      const driver = new BroadcastChannelDriver("peerix-demo");
-      const peer = new Peer({ driver });
+      const driver = new BroadcastChannelDriver("peerix-sandbox");
+      const room = new Room({ id: "peerix-sandbox", driver });
 
-      // Log peer events
-      peer.on("connection", (e) => {
-        const { name, remote, state } = e;
+      // Log events
+      room.on("connection", (e) => {
+        const { name, peer, state } = e;
         const details = [];
-        if (remote) details.push(`remote: ${remote.id}`);
+        if (peer) details.push(`peer: ${peer.id}`);
         if (state) details.push(`state: ${state}`);
-        if (remote?.metadata) details.push(`metadata: ${remote.metadata}`);
+        if (peer?.metadata)
+          details.push(`metadata: ${JSON.stringify(peer.metadata)}`);
         log(`[${name}] ${details.join(", ")}`);
       });
 
-      peer.on("channel", async (e) => {
-        const { name, remote, channel, data, error } = e;
+      room.on("channel", async (e) => {
+        const { name, peer, channel, data, error } = e;
         const details = [];
-        if (remote) details.push(`remote: ${remote.id}`);
+        if (peer) details.push(`peer: ${peer.id}`);
         if (channel) details.push(`channel: ${channel.label}`);
         if (data) details.push(`data: ${await data}`);
         if (error) details.push(`error: ${error}`);
         log(`[${name}] ${details.join(", ")}`);
       });
 
-      peer.on("stream", (e) => {
-        const { name, remote, stream, label } = e;
+      room.on("stream", (e) => {
+        const { name, peer, stream, label } = e;
         const details = [];
-        if (remote) details.push(`remote: ${remote.id}`);
+        if (peer) details.push(`peer: ${peer.id}`);
         if (stream)
           details.push(
             `stream: ${label} (${stream.active ? "active" : "inactive"})`,
@@ -154,67 +154,51 @@
         log(`[${name}] ${details.join(", ")}`);
       });
 
-      peer.on("track", (e) => {
-        const { name, remote, stream, track, label } = e;
+      room.on("track", (e) => {
+        const { name, peer, stream, track, label } = e;
         const details = [];
-        if (remote) details.push(`remote: ${remote.id}`);
+        if (peer) details.push(`peer: ${peer.id}`);
         if (stream)
           details.push(
             `stream: ${label} (${stream.active ? "active" : "inactive"})`,
           );
         if (track) details.push(`track: ${track.kind} (${track.readyState})`);
         log(`[${name}] ${details.join(", ")}`);
+
+        toggleMediaElement(stream, !peer);
       });
 
-      peer.on("error", (e) => {
+      room.on("error", (e) => {
         const { name, error } = e;
         log(`[${name}] ${error}`);
         console.error(error);
       });
 
-      peer.on("track:add", (e) => {
-        const { stream } = e;
-        toggleMediaElement(stream);
-      });
-
-      peer.on("track:remove", (e) => {
-        const { stream } = e;
-        toggleMediaElement(stream);
-      });
-
-      peer.on("local:share", (e) => {
-        const { stream } = e;
-        toggleMediaElement(stream, true);
-      });
-
-      peer.on("local:unshare", (e) => {
-        const { stream } = e;
-        toggleMediaElement(stream, true);
-      });
-
       // Action handlers
       const handlers = {
-        join: () => {
-          const room = document.getElementById("room").value;
-          const metadata = document.getElementById("metadata").value;
-          peer.join({ room, metadata });
+        join: async () => {
+          const name = document.getElementById("metadata").value;
+          const me = await room.join({ name });
+          if (me) {
+            log(`[me] id: ${me.id}, metadata: ${JSON.stringify(me.metadata)}`);
+          }
         },
         leave: () => {
-          peer.leave();
+          room.leave();
         },
         open: () => {
           const label = document.getElementById("channel").value || "default";
-          peer.open({ label });
+          room.open({ label });
         },
         close: () => {
           const label = document.getElementById("channel").value || "default";
-          peer.close({ label });
+          room.close({ label });
         },
         send: () => {
           const message = document.getElementById("message").value;
           const label =
             document.getElementById("send-channel").value || "default";
-          peer.send(message, { label });
+          room.send(message, { label });
         },
         share: () => {
           const stream = createSyntheticMediaStream({
@@ -223,12 +207,12 @@
           });
           const label =
             document.getElementById("stream-label").value || "default";
-          peer.share({ label, stream });
+          room.share({ label, stream });
         },
         unshare: () => {
           const label =
             document.getElementById("stream-label").value || "default";
-          peer.unshare({ label });
+          room.unshare({ label });
         },
       };
 
@@ -325,7 +309,7 @@
         return syntheticStream;
       }
 
-      window.peer = peer;
+      window.room = room;
     </script>
   </body>
 </html>

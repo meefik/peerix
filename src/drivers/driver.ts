@@ -3,22 +3,35 @@ import { EventEmitter } from "../utils/emitter.js";
 /**
  * Base class for signaling drivers.
  *
- * Drivers are responsible for sending and receiving signaling messages
- * between peers. They should implement the subscribe, unsubscribe, and
- * publish methods to handle message routing based on namespaces.
+ * Drivers route signaling messages between peers over any transport
+ * (MQTT, NATS, SSE, etc.). Implement `subscribe`, `unsubscribe`, and
+ * `publish` to handle message routing by namespace. The `active`
+ * property reflects the connection state.
  *
- * A namespace is an array of strings representing the hierarchical path
- * for routing messages between peers. It looks like this:
- * `["room-id", "peer-id"]`.
+ * Peerix minimizes signaling overhead by migrating connections to a
+ * dedicated data channel after handshake, using binary messages,
+ * debouncing ICE candidates, compressing payloads, and supporting
+ * built-in namespace hashing and end-to-end encryption (E2EE).
  *
- * Drivers typically use a string event name instead of an array. Since
- * each part of the namespace is globally unique, drivers can simply use
- * the last part of the namespace as the event name for routing messages
- * to minimize the event name length. In complex cases, drivers can also
- * use other parts of the namespace or concatenate multiple parts.
+ * ```mermaid
+ * sequenceDiagram
+ *   Peer A -->> Peer B: broadcast announce
+ *   Peer B ->> Peer A: invoke
+ *   Peer A ->> Peer B: SDP offer
+ *   Peer B ->> Peer A: SDP answer
+ *   Peer B <<->> Peer A: ICE candidates
+ * ```
  *
- * The active property indicates whether the driver is currently connected
- * to the signaling backend and able to send/receive messages.
+ * This flow runs automatically. Connecting two peers takes about
+ * **4 messages** per peer, roughly **1 KB** with compression and
+ * encryption enabled.
+ *
+ * | Signaling Type         | Sent Size  | Overhead |
+ * | ---------------------- | ---------- | -------- |
+ * | Raw Signaling          | 1468 bytes | 0%       |
+ * | Encrypted Signaling    | 1551 bytes | +5%      |
+ * | Compressed Signaling   | 806 bytes  | -45%     |
+ * | Compressed & Encrypted | 891 bytes  | -40%     |
  *
  * @group Drivers
  *

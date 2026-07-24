@@ -1,9 +1,9 @@
-import type { PeerEvents, PeerOptions } from "../src/index.js";
-import { Peer } from "../src/index.js";
+import type { RoomEvents, RoomOptions } from "../src/index.js";
+import { Room } from "../src/index.js";
 
-type PeerEventName = keyof PeerEvents;
+type EventName = keyof RoomEvents;
 
-type PeerCall =
+type RoomCall =
   | "open"
   | "close"
   | "send"
@@ -13,14 +13,14 @@ type PeerCall =
   | "leave";
 
 type CallStep = {
-  peer: string;
-  call: PeerCall;
+  room: string;
+  call: RoomCall;
   args?: readonly any[];
 };
 
 type WaitStep = {
-  peer: string;
-  wait: PeerEventName;
+  room: string;
+  wait: EventName;
   where?: Record<string, any>;
   count?: number;
   timeout?: number;
@@ -32,7 +32,7 @@ type Scenario = {
   id: string;
   title?: string;
   defaults?: Record<string, any>;
-  peers?: Record<string, PeerOptions>;
+  rooms?: Record<string, RoomOptions>;
   steps: readonly Step[];
 };
 
@@ -45,10 +45,10 @@ type SyntheticStreamParams = {
 };
 
 export class TestRunner {
-  private peers: Record<string, Peer> = {};
-  private eventStore: Record<string, Map<PeerEventName, any[]>> = {};
-  private cursors: Record<string, Map<PeerEventName, number>> = {};
-  private waiters: Record<string, Map<PeerEventName, (() => void)[]>> = {};
+  private rooms: Record<string, Room> = {};
+  private eventStore: Record<string, Map<EventName, any[]>> = {};
+  private cursors: Record<string, Map<EventName, number>> = {};
+  private waiters: Record<string, Map<EventName, (() => void)[]>> = {};
 
   constructor(options?: { debug?: string }) {
     if (options?.debug) localStorage.debug = options.debug;
@@ -153,18 +153,18 @@ export class TestRunner {
     return stream;
   }
 
-  private setupEvents(events: PeerEventName[]): void {
-    for (const peerId of Object.keys(this.peers)) {
-      this.eventStore[peerId] = new Map();
-      this.cursors[peerId] = new Map();
-      this.waiters[peerId] = new Map();
+  private setupEvents(events: EventName[]): void {
+    for (const room of Object.keys(this.rooms)) {
+      this.eventStore[room] = new Map();
+      this.cursors[room] = new Map();
+      this.waiters[room] = new Map();
       for (const event of events) {
-        this.eventStore[peerId].set(event, []);
-        this.cursors[peerId].set(event, 0);
-        this.waiters[peerId].set(event, []);
-        this.peers[peerId].on(event, (payload: any) => {
-          this.eventStore[peerId].get(event)?.push(payload);
-          const queue = this.waiters[peerId].get(event) ?? [];
+        this.eventStore[room].set(event, []);
+        this.cursors[room].set(event, 0);
+        this.waiters[room].set(event, []);
+        this.rooms[room].on(event, (payload: any) => {
+          this.eventStore[room].get(event)?.push(payload);
+          const queue = this.waiters[room].get(event) ?? [];
           for (const wake of queue) wake();
         });
       }
@@ -185,8 +185,8 @@ export class TestRunner {
   }
 
   private waitForEvent(
-    peerId: string,
-    event: PeerEventName,
+    room: string,
+    event: EventName,
     where: Record<string, any> | undefined,
     count: number,
     timeout: number,
@@ -194,8 +194,8 @@ export class TestRunner {
     const started = Date.now();
     return new Promise<any[]>((resolve, reject) => {
       const scan = async () => {
-        const from = this.cursors[peerId].get(event) ?? 0;
-        const queue = this.eventStore[peerId].get(event) ?? [];
+        const from = this.cursors[room].get(event) ?? 0;
+        const queue = this.eventStore[room].get(event) ?? [];
         const tail = queue.slice(from);
         const matched: any[] = [];
         for (const payload of tail) {
@@ -206,7 +206,7 @@ export class TestRunner {
 
         if (matched.length >= count) {
           if (where === undefined) {
-            this.cursors[peerId].set(event, from + count);
+            this.cursors[room].set(event, from + count);
           } else {
             // Remove only matched events so out-of-order payloads stay available for later waits.
             let remaining = count;
@@ -222,10 +222,10 @@ export class TestRunner {
               }
             }
             const nextCursor = Math.min(
-              this.cursors[peerId].get(event) ?? 0,
+              this.cursors[room].get(event) ?? 0,
               queue.length,
             );
-            this.cursors[peerId].set(event, nextCursor);
+            this.cursors[room].set(event, nextCursor);
           }
 
           cleanup();
@@ -233,7 +233,7 @@ export class TestRunner {
         } else if (Date.now() - started > timeout) {
           cleanup();
           reject(
-            new Error(`Timeout waiting for "${event}" on peer "${peerId}"`),
+            new Error(`Timeout waiting for "${event}" on room "${room}"`),
           );
         }
       };
@@ -242,20 +242,20 @@ export class TestRunner {
       const timer = setInterval(() => scan(), 25);
       const cleanup = () => {
         clearInterval(timer);
-        const list = this.waiters[peerId].get(event) ?? [];
+        const list = this.waiters[room].get(event) ?? [];
         const idx = list.indexOf(wake);
         if (idx >= 0) list.splice(idx, 1);
       };
 
-      this.waiters[peerId].get(event)?.push(wake);
+      this.waiters[room].get(event)?.push(wake);
       scan();
     });
   }
 
   async run(scenario: Scenario) {
-    for (const id in scenario.peers) {
-      const options = scenario.peers[id];
-      this.peers[id] = new Peer(options);
+    for (const room in scenario.rooms) {
+      const options = scenario.rooms[room];
+      this.rooms[room] = new Room(options);
     }
 
     const events = [
@@ -270,13 +270,13 @@ export class TestRunner {
 
     for (const step of scenario.steps) {
       if (this.isCallStep(step)) {
-        const peer = this.peers[step.peer];
-        const call = (peer as any)[step.call];
+        const room = this.rooms[step.room];
+        const call = (room as any)[step.call];
         const args = this.normalizeCallArgs(step);
-        await call.apply(peer, args);
+        await call.apply(room, args);
       } else if (this.isWaitStep(step)) {
         await this.waitForEvent(
-          step.peer,
+          step.room,
           step.wait,
           step.where,
           step.count ?? 1,

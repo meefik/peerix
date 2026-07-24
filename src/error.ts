@@ -12,6 +12,18 @@ export type ErrorCode =
   | "DATACHANNEL_ERROR";
 
 /**
+ * Event emitted when an error occurs in any background operations.
+ *
+ * @group Errors
+ */
+export interface ErrorEvent {
+  /** Name of the event. */
+  name: "error";
+  /** Error object containing details about the error. */
+  error: PeerixError;
+}
+
+/**
  * Custom error class for Peerix-related errors.
  * Extends the built-in Error class and adds a `code` property.
  *

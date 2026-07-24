@@ -1,4 +1,4 @@
-import type { Peer } from "../peer.js";
+import type { Room } from "../room.js";
 import { EventEmitter } from "../utils/emitter.js";
 
 /**
@@ -63,9 +63,9 @@ export class Addon {
    * Attaches the addon to a Peer instance. This method is called when the addon is
    * added to a peer using `peer.attach(addon)`.
    *
-   * @param peer The Peer instance to attach to.
+   * @param room The Room instance to attach to.
    */
-  async attach(peer: Peer): Promise<void> {
+  async attach(room: Room): Promise<void> {
     // Base implementation is intentionally empty.
   }
 
@@ -73,9 +73,9 @@ export class Addon {
    * Detaches the addon from a Peer instance. This method is called when the addon is
    * removed from a peer using `peer.detach(addon)`.
    *
-   * @param peer The Peer instance to detach from.
+   * @param room The Room instance to detach from.
    */
-  async detach(peer: Peer): Promise<void> {
+  async detach(room: Room): Promise<void> {
     // Base implementation is intentionally empty.
   }
 }

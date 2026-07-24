@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Room` class as the top-level entry point for managing a room and its peers.
+- `me` object returned by the `join()` method contains the `id` and `metadata` of the local peer.
+
+### Changed
+
+- **Breaking:** Room identifier is now set via `id` option in the `Room` constructor instead of passed to `join()`.
+- **Breaking:** `join()` no longer accepts a room name and now returns local peer information (`{ id, metadata }`).
+- **Breaking:** `Peer` class replaced the previous `RemotePeer` — it is now a peer connection handler created by `Room`.
+- **Breaking:** `remote` property on event payloads renamed to `peer` across all events.
+- **Breaking:** Stream and track events emitted from `Room` for local sharing have an undefined `peer`, allowing consumers to distinguish local from remote updates.
+- **Breaking:** `connections` property renamed to `peers`.
+
+### Removed
+
+- **Breaking:** Local events (`local:join`, `local:leave`, `local:share`, `local:unshare`, `local:open`, `local:close`). Use the `stream` and `track` events without a `peer` property for local stream sharing instead.
+
 ## [0.6.0] - 2026-07-17
 
 ### Added
