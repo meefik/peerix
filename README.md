@@ -2,10 +2,11 @@
 
 Peerix is a JavaScript library for peer-to-peer room-based media and data sharing over WebRTC. It abstracts the complexity of WebRTC into a simple API for building real-time applications, handling peer discovery and connection management through pluggable signaling drivers without vendor lock-in.
 
-Read the full documentation and API reference on the official websites:
+**Try it out**: [Peerix Talk](https://talk.peerix.dev) | [Source](https://github.com/meefik/peerix-talk)
 
-- 📖 [Documentation](https://peerix.dev/docs)
-- 📑 [API Reference](https://api.peerix.dev)
+Read the full documentation and access the source code:
+
+- 📖 [Documentation](https://peerix.dev)
 - 🧑‍💻 [Source Code](https://github.com/meefik/peerix)
 - 👾 [Issues](https://github.com/meefik/peerix/issues)
 - 💬 [Discussions](https://github.com/meefik/peerix/discussions)
@@ -329,7 +330,7 @@ const room = new Room({
 
 ## License
 
-Copyright (C) 2026 Peerix
+Copyright (C) 2026 Anton Skshidlevsky (aka meefik)
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

@@ -5,8 +5,8 @@
   "hideBreadcrumbs": true,
   "includeVersion": true,
   "excludeInternal": true,
-  "customFooterHtml": "<a href=\"https://peerix.dev\" title=\"Peerix website\" target=\"_blank\">peerix.dev</a> <sup>↗</sup> | <a href=\"https://github.com/peerix-dev/peerix\" title=\"Peerix GitHub repository\" target=\"_blank\">GitHub</a> <sup>↗</sup> | <a href=\"/llms-full.txt\" title=\"Full documentation for LLM context\" target=\"_blank\">AI-Ready Docs</a> <sup>↗</sup>",
-  "favicon": "https://peerix.dev/favicon.ico",
+  "customFooterHtml": "<a href=\"/llms-full.txt\" target=\"_blank\">AI-Ready Docs</a> <sup>↗</sup> | <a href=\"https://talk.peerix.dev\" target=\"_blank\">Demo</a> <sup>↗</sup> | <a href=\"https://github.com/meefik/peerix\" target=\"_blank\">Source Code</a> <sup>↗</sup>",
+  "favicon": "logo.svg",
   "hostedBaseUrl": "https://api.peerix.dev/",
   "headings": {
     "readme": false

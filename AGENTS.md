@@ -8,7 +8,7 @@ TypeScript library for peer-to-peer WebRTC applications with pluggable signaling
 - Node.js LTS (build/tooling only)
 - Vite (UMD + ESM lib build)
 - `node:test` + `node:assert` (unit), Playwright (E2E: Chromium/Firefox/WebKit)
-- TypeDoc (HTML + Markdown, deployed to `api.peerix.dev`)
+- TypeDoc (HTML + Markdown)
 
 ## Zero-Dependency Rule (CRITICAL)
 
@@ -24,16 +24,16 @@ TypeScript library for peer-to-peer WebRTC applications with pluggable signaling
 
 ## Commands
 
-| Script              | Description                                  |
-| ------------------- | -------------------------------------------- |
-| `npm install`       | Install dev dependencies                     |
-| `npm run dev`       | Vite dev server (`localhost:3000`)           |
-| `npm run build`     | Vite build + TSC declarations                |
-| `npm run typecheck` | Type check                                   |
-| `npm run test:unit` | Unit tests (`node:test` via `tsx`)           |
-| `npm run test:e2e`  | Playwright E2E suite                         |
-| `npm run test`      | Runs unit + E2E tests                        |
-| `npm run docs`      | Generate TypeDoc docs + LLM context files    |
+| Script              | Description                               |
+| ------------------- | ----------------------------------------- |
+| `npm install`       | Install dev dependencies                  |
+| `npm run dev`       | Vite dev server (`localhost:3000`)        |
+| `npm run build`     | Vite build + TSC declarations             |
+| `npm run typecheck` | Type check                                |
+| `npm run test:unit` | Unit tests (`node:test` via `tsx`)        |
+| `npm run test:e2e`  | Playwright E2E suite                      |
+| `npm run test`      | Runs unit + E2E tests                     |
+| `npm run docs`      | Generate TypeDoc docs + LLM context files |
 
 CI runs Playwright tests on tag pushes.
 
