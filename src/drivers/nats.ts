@@ -12,8 +12,6 @@ import { EventEmitter } from "../utils/emitter.js";
  * > This driver requires the [`@nats-io/nats-core`](https://www.npmjs.com/package/@nats-io/nats-core)
  * > module for WebSocket-based NATS connections directly in the browser.
  *
- * @group Drivers
- *
  * @example
  * ```js
  * import { wsconnect } from "@nats-io/nats-core";

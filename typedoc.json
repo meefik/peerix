@@ -1,25 +1,32 @@
 {
   "name": "peerix",
-  "cleanOutputDir": false,
   "hideGenerator": true,
-  "hideBreadcrumbs": true,
   "includeVersion": true,
   "excludeInternal": true,
-  "customFooterHtml": "<a href=\"/llms-full.txt\" target=\"_blank\">AI-Ready Docs</a> <sup>↗</sup> | <a href=\"https://talk.peerix.dev\" target=\"_blank\">Demo</a> <sup>↗</sup> | <a href=\"https://github.com/meefik/peerix\" target=\"_blank\">Source Code</a> <sup>↗</sup>",
+  "customFooterHtml": "Peerix © 2026",
   "favicon": "logo.svg",
-  "hostedBaseUrl": "https://api.peerix.dev/",
+  "hostedBaseUrl": "https://peerix.dev",
   "headings": {
     "readme": false
   },
-  "entryPoints": ["./src/index.ts"],
-  "plugin": ["typedoc-plugin-markdown", "typedoc-plugin-mermaid"],
+  "navigationLinks": {
+    "Demo": "https://talk.peerix.dev",
+    "GitHub": "https://github.com/meefik/peerix"
+  },
+  "llmsTxt": true,
+  "llmsTxtOutDir": "./docs",
+  "projectDocuments": ["CHANGELOG.md"],
+  "entryPoints": [
+    "./src/room.ts",
+    "./src/peer.ts",
+    "./src/error.ts",
+    "./src/drivers/index.ts",
+    "./src/addons/index.ts"
+  ],
+  "plugin": ["typedoc-plugin-mermaid", "@skillit/typedoc"],
   "outputs": [
     {
       "name": "html",
-      "path": "./docs"
-    },
-    {
-      "name": "markdown",
       "path": "./docs"
     }
   ]

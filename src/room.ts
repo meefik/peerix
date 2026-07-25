@@ -1,3 +1,119 @@
+/**
+ * Room-based WebRTC peer-to-peer communication with pluggable signaling drivers.
+ *
+ * The {@link Room} class manages peer connections, media streams, and data channels,
+ * coordinating signaling through a driver backend (NATS, MQTT, SSE, etc.) and
+ * supporting extendable add-ons for additional capabilities.
+ *
+ * The following diagram provides a high-level overview of the Peerix
+ * architecture and its components:
+ *
+ * ```mermaid
+ * graph TD
+ *   PX{{Room}} --> SD(Signaling Drivers)
+ *   SD --> SS[Signaling Servers]
+ *   PX --> ICE[STUN/TURN Servers]
+ *   PX --> PC(Peers)
+ *   PC --> LCE(Lifecycle Events)
+ *   PC --> MS(Media Streams)
+ *   PC --> DC(Data Channels)
+ *   PX --> ADD(Add-ons)
+ * ```
+ *
+ * **Signaling drivers** extend {@link Driver} to bridge Peerix with a messaging
+ * backend (MQTT, NATS, SSE, SocketIo, Centrifuge, Supabase, BroadcastChannel,
+ * or in-memory). Drivers receive a pre-configured client via the constructor and
+ * never import external libraries. Signaling messages are protobuf-encoded with
+ * optional compression and AES-GCM encryption, exchanged over two namespaces —
+ * one for broadcast peer discovery and one scoped to each peer ID.
+ *
+ * ```js
+ * import { MqttDriver } from "peerix";
+ * import { connect } from "mqtt";
+ * const client = connect("ws://localhost:9001/mqtt");
+ * const driver = new MqttDriver({ client });
+ * ```
+ *
+ * **Peer connections** are represented by {@link Peer} instances that wrap
+ * `RTCPeerConnection`. The Room creates them automatically on peer discovery,
+ * handling SDP negotiation, ICE candidate exchange with configurable debouncing,
+ * and offer-collision resolution using polite semantics. Connections transition
+ * through states — `new`, `connecting`, `connected`, `disconnected`,
+ * `failed`, `closed` — with an optional timeout for failure recovery.
+ *
+ * ```js
+ * import { Room } from "peerix";
+ * const room = new Room({ id: "my-room", driver });
+ * await room.join({ name: "Alice" });
+ * // await room.leave();
+ * ```
+ *
+ * **Data channels** provide reliable, ordered messaging over `RTCDataChannel`.
+ * Large payloads are chunked (~16 KB MTU) and reassembled transparently. Four
+ * payload types are supported — text, JSON, Blob/File, and raw bytes — with
+ * back-pressure management, transfer progress tracking, and abort support via
+ * `AbortSignal`. Channels are opened via {@link Room.open} and use string
+ * labels for identification.
+ *
+ * ```js
+ * await room.open({ label: "chat" });
+ * await room.send("Hello, world!", { label: "chat" });
+ * ```
+ *
+ * **Media streams** are published by label using {@link Room.share}. You can
+ * configure encoding parameters (bitrate, framerate, scale factor, priority) and
+ * control track lifecycle with the `managed` flag. Stream replacements trigger
+ * re-negotiation so remote peers receive updated media seamlessly.
+ *
+ * ```js
+ * const stream = await navigator.mediaDevices.getUserMedia({
+ *   video: true, audio: true
+ * });
+ * await room.share({ stream, label: "camera" });
+ * // await room.unshare({ label: "camera" });
+ * ```
+ *
+ * **Lifecycle events** cover connection state changes (`connection:connected`,
+ * `connection:closed`, etc.), data channel activity (`channel:open`,
+ * `channel:message`, etc.), stream modifications (`stream:add`, `stream:remove`),
+ * track changes (`track:add`, `track:remove`), and errors. Each event carries a
+ * {@link Peer} reference for easy correlation.
+ *
+ * ```js
+ * room.on("connection", (e) => {
+ *   const { peer, state } = e;
+ *   console.log(peer, state);
+ * });
+ * room.on("stream", (e) => {
+ *   const { peer, stream, label } = e;
+ *   console.log(peer, stream, label);
+ * });
+ * room.on("channel:message", async (e) => {
+ *   const { peer, data } = e;
+ *   const message = await data;
+ *   console.log(peer, message);
+ * });
+ * ```
+ *
+ * **ICE servers** (STUN/TURN) are used for NAT traversal and peer discovery.
+ * STUN servers help peers discover their public address, while TURN servers
+ * relay media when direct connections fail. Pass an array of server configs
+ * via the `iceServers` option — without them, only local network connections
+ * are possible. Use `iceTransportPolicy: "relay"` to force TURN usage.
+ *
+ * ```js
+ * const room = new Room({
+ *   id: "my-room",
+ *   iceServers: [
+ *     { urls: "stun:stun.l.google.com:19302" },
+ *   ],
+ *   iceTransportPolicy: "all",
+ * });
+ * ```
+ *
+ * @module Rooms
+ */
+
 import type { Driver } from "./drivers/driver.js";
 import type {
   IceServer,
@@ -28,55 +144,6 @@ const defaultDriver = new MemoryDriver();
 
 /**
  * Manages WebRTC peer connections, media streams, and data channels.
- *
- * The following diagram provides a high-level overview of the Peerix
- * architecture and its components:
- *
- * ```mermaid
- * graph TD
- *   PX{{Room}} --> SD(Signaling Drivers)
- *   SD --> SS[Signaling Servers]
- *   PX --> ICE[STUN/TURN Servers]
- *   PX --> PC(Peers)
- *   PC --> LCE(Lifecycle Events)
- *   PC --> MS(Media Streams)
- *   PC --> DC(Data Channels)
- *   PX --> ADD(Add-ons)
- * ```
- *
- * @group Room
- * @example
- * ```js
- * // create a room using default in-memory signaling driver
- * const room = new Room({ id: "my-room" });
- *
- * // listen for connection state changes
- * room.on("connection", (e) => {
- *   const { peer, state } = e;
- *   console.log(`Peer "${peer.id}" state changed to "${state}"`);
- * });
- *
- * // listen for open channel event
- * room.on("channel:open", (e) => {
- *   const { peer, label } = e;
- *   console.log(`Channel "${label}" opened with peer "${peer.id}"`);
- *   // send a message to the remote peer
- *   peer.send("Hello, peer!", { label });
- * });
- *
- * // listen for incoming messages
- * room.on("channel:message", async (e) => {
- *   const { peer, data, label } = e;
- *   const message = await data;
- *   console.log(`Message from peer "${peer.id}" on channel "${label}":`, message);
- * });
- *
- * // open a data channel
- * await room.open({ label: "default" });
- *
- * // join a room with optional metadata
- * await room.join({ name: "Alice" });
- * ```
  */
 export class Room {
   /** Indicates whether the peer is currently active (joined a room). */
@@ -125,12 +192,12 @@ export class Room {
   #driverActiveHandler?: () => void;
 
   /**
-   * Creates a new {@link Peer} instance.
+   * Creates a new {@link Room} instance.
    *
    * @example
    * ```js
-   * // create a new peer with default options
-   * const peer = new Peer();
+   * // create a new room with default options
+   * const room = new Room();
    * ```
    *
    * @param options Room configuration options.
@@ -187,11 +254,12 @@ export class Room {
    * @example
    * ```js
    * // join a room with optional metadata
-   * const me = await peer.join({ name: "Alice" });
+   * const me = await room.join({ name: "Alice" });
    * console.log(`I am ${me.metadata.name} (ID: ${me.id})`);
    * ```
    *
    * @param metadata Metadata to associate with the peer.
+   * @returns The local peer object with `id` and optional `metadata`, or `null` if already active.
    */
   async join(
     metadata?: Record<string, unknown>,
@@ -221,12 +289,12 @@ export class Room {
   /**
    * Leaves the current room and closes all active connections.
    *
-   * If the peer is not currently active, this method returns immediately without error.
+   * If the room is not currently active, this method returns immediately without error.
    *
    * @example
    * ```js
    * // leave the current room
-   * await peer.leave();
+   * await room.leave();
    * ```
    */
   async leave(): Promise<void> {
@@ -269,7 +337,7 @@ export class Room {
    * );
    *
    * // share a media stream with an explicit label
-   * await peer.share({ label: "camera", stream });
+   * await room.share({ label: "camera", stream });
    * ```
    *
    * @param options Stream descriptor or MediaStream instance.
@@ -374,7 +442,7 @@ export class Room {
    * @example
    * ```js
    * // unshare a media stream with an explicit label
-   * await peer.unshare({ label: "camera" });
+   * await room.unshare({ label: "camera" });
    * ```
    *
    * @param options A stream label, MediaStream instance, or an object containing a label.
@@ -416,9 +484,7 @@ export class Room {
     });
 
     await Promise.allSettled(
-      Array.from(this.#peers.values()).map((peer) =>
-        peer.unshare({ label }),
-      ),
+      Array.from(this.#peers.values()).map((peer) => peer.unshare({ label })),
     );
   }
 
@@ -433,7 +499,7 @@ export class Room {
    * @example
    * ```js
    * // open a channel with an explicit label
-   * await peer.open({ label: "chat" });
+   * await room.open({ label: "chat" });
    * ```
    *
    * @param options Channel options or channel label.
@@ -459,8 +525,8 @@ export class Room {
    *
    * @example
    * ```js
-   * // close the channel an explicit label
-   * await peer.close({ label: "chat" });
+   * // close the channel with an explicit label
+   * await room.close({ label: "chat" });
    * ```
    *
    * @param options Channel label or object containing `label`.
@@ -476,9 +542,7 @@ export class Room {
     this.#channelOptions.delete(label);
 
     await Promise.allSettled(
-      Array.from(this.#peers.values()).map((peer) =>
-        peer.close({ label }),
-      ),
+      Array.from(this.#peers.values()).map((peer) => peer.close({ label })),
     );
   }
 
@@ -494,10 +558,10 @@ export class Room {
    * @example
    * ```js
    * // send a message to default channel
-   * await peer.send("Hello, all peers!");
+   * await room.send("Hello, all peers!");
    * // send large data with a progress handler
    * const file = new File([new Uint8Array(1024 * 1024)], "example.dat");
-   * const transfer = peer.send(file, {
+   * const transfer = room.send(file, {
    *   label: "chat", // channel label
    *   info: { filename: file.name }, // metadata
    *   signal: AbortSignal.timeout(10000), // abort signal
@@ -545,9 +609,7 @@ export class Room {
 
     const targetPeers = to ? (Array.isArray(to) ? to : [to]) : null;
     const sources: PromiseLikeReadableStream<TransferProgress>[] = [];
-    for (const [index, peer] of Array.from(
-      this.#peers.values(),
-    ).entries()) {
+    for (const [index, peer] of Array.from(this.#peers.values()).entries()) {
       if (targetPeers && !targetPeers.includes(peer.id)) continue;
       const data = streams ? streams[index] : message;
       const progress = peer.send(data, { label, info, signal });
@@ -558,7 +620,7 @@ export class Room {
   }
 
   /**
-   * Attaches an addon/extension to the peer instance.
+   * Attaches an addon/extension to the Room instance.
    *
    * @param addon Addon instance to attach.
    */
@@ -568,7 +630,7 @@ export class Room {
   }
 
   /**
-   * Detaches a previously attached addon/extension from the peer instance.
+   * Detaches a previously attached addon/extension from the Room instance.
    *
    * @param addon Addon instance to detach.
    */
@@ -578,12 +640,12 @@ export class Room {
   }
 
   /**
-   * Subscribes to one or more peer events.
+   * Subscribes to one or more room events.
    *
    * @example
    * ```js
    * // subscribe to the "connection" event
-   * peer.on("connection", (e) => {
+   * room.on("connection", (e) => {
    *   console.log("Connection state has changed:", e.state);
    * });
    * ```
@@ -639,9 +701,9 @@ export class Room {
   }
 
   /**
-   * Serializes the peer to a JSON-compatible object.
+   * Serializes the room to a JSON-compatible object.
    *
-   * @returns A serializable representation of the peer.
+   * @returns A serializable representation of the room.
    */
   toJSON(): {
     id: string;
@@ -871,9 +933,7 @@ export class Room {
 }
 
 /**
- * Configuration options for creating a {@link Peer} instance.
- *
- * @group Room
+ * Configuration options for creating a {@link Room} instance.
  */
 export interface RoomOptions {
   /**
@@ -950,7 +1010,5 @@ export interface RoomOptions {
 
 /**
  * Events emitted by a {@link Room} instance.
- *
- * @group Room
  */
 export interface RoomEvents extends PeerEvents {}

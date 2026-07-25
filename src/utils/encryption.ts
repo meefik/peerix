@@ -1,6 +1,6 @@
 import { bytesToBase62 } from "./base62.js";
 
-// Public key length in bytes
+/** Public key length in bytes for ECDH P-256 compressed format. */
 export const PUBLIC_KEY_LENGTH = 33;
 
 // Cached curve parameters
@@ -175,7 +175,7 @@ function decompressPublicKey(compressedKey: Uint8Array): Uint8Array {
         .join(""),
   );
 
-  // P-256 Curve Constants (cached locally)
+  // P-256 curve constants (cached for reuse across calls)
   const p =
     P ??
     BigInt(
@@ -187,7 +187,7 @@ function decompressPublicKey(compressedKey: Uint8Array): Uint8Array {
       "0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b",
     );
   const a = A ?? p - 3n; // In P-256, a is always -3
-  // Cache them for subsequent calls
+  // Cache values for subsequent calls
   P = p;
   B = b;
   A = a;

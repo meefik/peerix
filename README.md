@@ -1,6 +1,6 @@
 # Peerix
 
-Peerix is a JavaScript library for peer-to-peer room-based media and data sharing over WebRTC. It abstracts the complexity of WebRTC into a simple API for building real-time applications, handling peer discovery and connection management through pluggable signaling drivers without vendor lock-in.
+Peerix is a TypeScript library for peer-to-peer room-based media and data sharing over WebRTC. It abstracts WebRTC complexity into a simple API, handling peer discovery and connection management through pluggable signaling drivers without vendor lock-in.
 
 **Try it out**: [Peerix Talk](https://talk.peerix.dev) | [Source](https://github.com/meefik/peerix-talk)
 
@@ -11,314 +11,303 @@ Read the full documentation and access the source code:
 - 👾 [Issues](https://github.com/meefik/peerix/issues)
 - 💬 [Discussions](https://github.com/meefik/peerix/discussions)
 
-## How It Works
+## Features
 
-Peerix is a front-end library that runs entirely in the browser, allowing low-latency media streaming and data sharing between peers. It is designed to work in a decentralized manner, allowing peers to connect directly to each other without relying on a central server for media relay. However, it does require a signaling server for peers to discover each other and establish connections. You can use various built-in signaling drivers, or you can implement a custom driver to fit your application's needs.
-
-Peerix is composed of several key components:
-
-- **Rooms and Peers**: The core components that manage connections between peers, including:
-  - **Lifecycle Events**: Events for peer connections, data channels, media streams, and tracks.
-  - **Media Streams**: Handle audio and video streaming between peers.
-  - **Data Channels**: Enable message exchange and data sharing between peers.
-- **Signaling Drivers**: Facilitate peer discovery and connection management through various signaling servers (MQTT, NATS, SSE, SocketIO, and more).
-- **STUN/TURN servers**: Enable NAT traversal and media relay in restrictive network environments.
-- **Add-ons**: Optional extensions and utilities for enhanced functionality.
-
-Together, these components work to abstract the complexities of WebRTC and provide a simple API for building real-time peer-to-peer web applications.
-
-Peerix uses ICE (Interactive Connectivity Establishment) to establish peer-to-peer connections. Public STUN servers can be used for NAT traversal, but for better connectivity and performance—especially in restrictive network environments—you should use your own TURN server or a reputable third-party TURN service.
-
-Peerix is not an SFU (Selective Forwarding Unit) or MCU (Multipoint Control Unit), and it does not provide server-side media processing or routing capabilities. Instead, it focuses on enabling direct peer-to-peer communication between clients, allowing you to build applications that leverage the full potential of WebRTC without the need for a central media server.
+- **Pluggable signaling drivers** — MQTT, NATS, SSE, SocketIO, Centrifuge, Supabase, BroadcastChannel, Memory — or write your own
+- **Room & state management** out of the box for complex peer-to-peer applications
+- **Single peer connection** — multiplexed media streams and data channels over one RTCPeerConnection
+- **End-to-end encryption & compression** for all signaling data (enabled by default)
+- **Zero dependencies**, fully typed, cross-browser compatible
 
 ## Quick Start
 
-Install the Peerix library via NPM:
+Install the library:
 
 ```sh
 npm install peerix
 ```
 
-Use the library in your JavaScript or TypeScript code to create peer-to-peer connections, exchange messages, and share media streams:
+Create a room, listen for messages, and join:
 
 ```js
 import { Room, BroadcastChannelDriver } from "peerix";
 
-// create a signaling driver
 const driver = new BroadcastChannelDriver();
-
-// create the Room instance
 const room = new Room({ id: "my-room", driver });
 
-// listen for peer connection state changes
-room.on("connection", (e) => {
-  const { peer, state } = e;
-  console.log(`Peer "${peer.id}" state changed to "${state}"`);
+room.on("channel:message", async (e) => {
+  const message = await e.data;
+  console.log(`Message from ${e.peer.id}:`, message);
 });
 
-// listen for errors
-room.on("error", (e) => {
-  const { error } = e;
-  console.error("Error:", error);
-});
+await room.join({ name: "Alice" });
 
-// join a room
-const me = await room.join({/* optional metadata */});
-// me: { id, metadata }
-
-// later, if you want to leave the room
-// await room.leave();
-```
-
-> The room identifier can be any string, but it should be the same for all peers that want to connect with each other.
-
-Work with data channels to exchange messages with other peers:
-
-```js
-// listen for open channel event
 room.on("channel:open", (e) => {
-  const { peer, label } = e;
-  console.log(`Channel ${label} opened with peer ${peer.id}`);
-  // send a message to the peer
-  peer.send("Hello, peer!", { label });
+  e.peer.send("Hello!", { label: e.label });
 });
 
-// listen for close channel event
-room.on("channel:close", (e) => {
-  const { peer, label } = e;
-  console.log(`Channel ${label} closed with peer ${peer.id}`);
-});
-
-// listen for incoming messages
-room.on("channel:message", async (e) => {
-  const { peer, label, data } = e;
-  // you must await the `data` to read its content
-  const message = await data;
-  console.log(`Msg from ${peer.id} on ${label}:`, message);
-});
-
-// open a data channel with a specific label
 await room.open({ label: "chat" });
-
-// later, if you want to close the data channel
-// await room.close({ label: "chat" });
 ```
 
-The `channel:message` event fires when the first chunk of data is received on a channel. The `data` is a `ReadableStream` but it also can be consumed as a promise. The `send` method returns an iterable transfer object to track its progress and a promise that resolves when the data is received by the remote peer.
-
-Sending a large file via a data channel and tracking its progress:
-
-```js
-const file = new File([new Uint8Array(1024 * 1024)], "example.dat");
-const transfer = room.send(file, {
-  label: "chat", // channel label
-  info: { name: file.name, size: file.size }, // metadata
-  signal: AbortSignal.timeout(10000), // abort signal
-});
-// track the progress of the transfer
-for await (const progress of transfer) {
-  const { id, label, current, total } = progress;
-  const percent = Math.round((current / total) * 100);
-  console.log(`[${id}:${label}] Sending... ${percent}%`);
-}
-```
-
-You can use `AbortSignal` to abort the transfer after a specified time or cancel it manually with an abort controller.
-
-Receiving the file and tracking its progress:
-
-```js
-room.on("channel:message", async (e) => {
-  const { peer, label, data, info } = e;
-  let current = 0;
-  const chunks = [];
-  // read data by chunks
-  for await (const chunk of data) {
-    chunks.push(chunk);
-    current += chunk.length;
-    const percent = Math.round((current / info.size) * 100);
-    console.log(`[${peer.id}:${label}] Receiving... ${percent}%`);
-  }
-  const file = new File(chunks, info.name);
-  console.log("Received:", file);
-});
-```
-
-> The channel label can be any string and should be unique for each data channel.
-
-Work with media streams to share audio and video with other peers:
-
-```js
-// listen for a peer sharing a stream
-room.on("stream:add", (e) => {
-  const { peer, stream, label } = e;
-  const who = peer ? peer.id : "you";
-  console.log(`${who} shared ${stream.id} (${label})`);
-});
-
-// listen for a peer unsharing a stream
-room.on("stream:remove", (e) => {
-  const { peer, stream, label } = e;
-  const who = peer ? peer.id : "you";
-  console.log(`${who} unshared ${stream.id} (${label})`);
-});
-
-// get a media stream from the user's camera and microphone
-const stream = await navigator.mediaDevices.getUserMedia({
-  video: true,
-  audio: true,
-});
-
-// start sharing the stream with the room
-await room.share({ label: "camera", stream });
-
-// later, if you no longer want to share the stream, you can unshare it
-// await room.unshare({ label: "camera" });
-```
-
-> The stream label can be any string and should be unique for each media stream.
-
-In addition to stream-level events, you can also listen for track-level events to get more granular information about the media tracks being added or removed from the stream:
-
-```js
-// listen for a peer adding a track to the stream
-room.on("track:add", (e) => {
-  const { peer, stream, track, label } = e;
-  const who = peer ? peer.id : "you";
-  console.log(`${who}: added track ${track.id} to stream ${stream.id} (${label})`);
-});
-
-// listen for a peer removing a track from the stream
-room.on("track:remove", (e) => {
-  const { peer, stream, track, label } = e;
-  const who = peer ? peer.id : "you";
-  console.log(`${who}: removed track ${track.id} from stream ${stream.id} (${label})`);
-});
-```
-
-You can reshare a new stream with the same label to update the media being shared with other peers:
-
-```js
-// get a new media stream from the user's camera without microphone
-const newStream = await navigator.mediaDevices.getUserMedia({
-  video: true,
-  audio: false,
-});
-
-// reshare the new stream with the same label to update the media
-await room.share({ label: "camera", stream: newStream });
-```
-
-In this case, the tracks from the old stream will be removed and replaced with the tracks from the new stream for all connected peers and new peers that join the room. On the remote peers, you will receive a `track:remove` event for the old tracks and a `track:add` event for the new tracks. This allows you to easily switch between different media sources or update the media being shared without having to manage individual tracks manually.
-
-> Peerix automatically resolves all collisions and race conditions that may occur when multiple peers share streams or open data channels at the same time.
-
-By default, Peerix manages the lifecycle of shared stream tracks: when a stream is unshared or replaced, the tracks are stopped automatically. You can opt out of this behavior by setting `managed` to `true`, which tells Peerix that the stream is managed externally and its tracks should not be stopped or cleaned up automatically:
-
-```js
-// share a stream without Peerix managing its tracks
-await room.share({ label: "camera", stream, managed: true });
-```
-
-When a shared stream's tracks all end naturally (e.g. the camera is disconnected), Peerix automatically unshares the stream unless `managed` is set to `true`.
-
-Peerix emits various lifecycle events that allow you to track the state of peer connections, media streams, and data channels. You can listen for these events to manage your application's behavior based on the connection state and media availability.
-
-Lifecycle events include:
-
-- `connection[:new,:connecting,:connected,:disconnected,:failed,:closed]`: fired when a peer's connection state changes.
-- `channel[:new,:open,:close,:message,:error]`: fired for data channel state changes and incoming messages.
-- `stream[:add,:remove]`: fired when a peer shares or unshares a media stream.
-- `track[:add,:remove]`: fired when a track is added or removed from a media stream.
-- `error`: fired when an error occurs with a peer connection, media stream, data channel, or signaling.
-
-You can subscribe to group events (e.g. `connection`, `channel`, `stream`, `track`) to receive all events in a category, or subscribe to individual events using the `:event` suffix.
+The room `id` must be the same for all peers that want to connect with each other. `BroadcastChannelDriver` works across tabs in the same browser; see [Signaling Drivers](#signaling-drivers) for cross-device options.
 
 ## Signaling Drivers
 
-Signaling is a crucial part of establishing peer-to-peer connections in WebRTC. It involves the exchange of messages between peers to negotiate connection parameters, exchange ICE candidates, and manage the connection lifecycle. Peerix provides a flexible signaling mechanism that allows you to choose from several built-in drivers or implement your own custom driver.
+Drivers handle peer discovery and initial connection setup. After the handshake, each peer connection negotiates its own data channel for signaling, so the external backend is only needed during discovery. Messages use a compact binary format with compression and end-to-end encryption.
 
-Peerix uses several techniques to secure and minimize the number and size of signaling messages required to establish and maintain peer connections while negotiating multiple media streams and data channels:
+### Built-in Drivers
 
-- Each peer connection negotiates a data channel for signaling after the initial connection is established, eliminating the need for a signaling server for the lifetime of the connection.
-- Uses a binary format instead of JSON for signaling messages, minimizing message overhead.
-- Reduces the frequency of candidate exchanges and the number of signaling messages by debouncing ICE candidates.
-- Uses compression to reduce the size of signaling messages, further lowering overhead and load on the signaling server.
-- Provides built-in namespace hashing and E2EE for signaling messages to protect sensitive information during transmission.
+| Driver                   | Use Case                  | Backend Required                       |
+| ------------------------ | ------------------------- | -------------------------------------- |
+| `MemoryDriver`           | Single-page testing       | None                                   |
+| `BroadcastChannelDriver` | Multi-tab communication   | Same browser origin                    |
+| `NatsDriver`             | Distributed / performance | [NATS](https://nats.io/)               |
+| `MqttDriver`             | Lightweight broker        | [MQTT broker](https://mqtt.org/)       |
+| `CentrifugeDriver`       | Real-time messaging       | [Centrifuge](https://centrifugal.dev/) |
+| `SseDriver`              | Server-Sent Events + POST | [Mercure](https://mercure.rocks/)      |
+| `SupabaseDriver`         | Database + real-time      | [Supabase](https://supabase.com/)      |
+| `SocketIoDriver`         | WebSocket-based signaling | [Socket.IO](https://socket.io/) server |
 
-Peerix supports multiple signaling drivers for peer discovery and negotiation purposes. You can choose the driver that best fits your application's needs:
+If no driver is specified, the default is `MemoryDriver`, which only works within a single page. Drivers require their respective client libraries to be installed by you — Peerix itself has zero runtime dependencies.
 
-- `MemoryDriver`: A simple in-memory driver for testing and development. It allows several peer instances to discover each other within one browser page.
-- `BroadcastChannelDriver`: Uses [BroadcastChannel API](https://developer.mozilla.org/docs/Web/API/BroadcastChannel) for communication between tabs in the same browser.
-- `NatsDriver`: Uses [NATS](https://nats.io/) messaging system for communication between peers across different browsers and devices over the internet.
-- `MqttDriver`: Uses [MQTT](https://mqtt.org/) protocol for communication between peers through an MQTT broker.
-- `CentrifugeDriver`: Uses [Centrifuge](https://centrifugal.dev/) real-time messaging server for communication between peers.
-- `SseDriver`: Uses [Server-Sent Events (SSE)](https://developer.mozilla.org/docs/Web/API/Server-sent_events) and POST requests for communication between peers through a [Mercure](https://mercure.rocks/) compatible server.
-- `SupabaseDriver`: Uses [Supabase](https://supabase.com/) database and real-time features for communication between peers.
-- `SocketIoDriver`: Uses [Socket.IO](https://socket.io/) client for communication between peers through a Socket.IO server.
+### Custom Driver
 
-If no driver is provided when creating a `Room`, Peerix uses the built-in MemoryDriver by default, which is useful for single-page development and quick tests. For multi-tab testing, use `BroadcastChannelDriver`. For production server-side signaling, use `SocketIoDriver`, `SseDriver`, or your own custom driver; for distributed signaling, use `NatsDriver`, `MqttDriver`, or `CentrifugeDriver`.
-
-You can implement your own custom signaling driver by extending the `Driver` class and implementing the required methods:
+Extend `Driver` and implement three methods:
 
 ```js
 import { Driver } from "peerix";
 
 class MyDriver extends Driver {
   async subscribe(namespace, handler) {
-    // subscribe to the given namespace (string) and call handler on messages
+    /* listen for messages */
   }
   async unsubscribe(namespace, handler) {
-    // unsubscribe from the given namespace and remove the handler
+    /* stop listening */
   }
   async publish(namespace, message) {
-    // publish a binary message (number array) to the given namespace
+    /* send binary message as number array */
   }
 }
 ```
 
-This driver interface allows you to integrate Peerix with any signaling mechanism you prefer.
-
-If you do not want to create your own signaling server, you may prefer to use one of the built-in drivers. For example, you can use the NATS driver. Using NATS allows you to use Peerix without writing any backend code, as all signaling is handled through NATS servers directly from the browser.
-
-Here's how you can set up the NATS driver:
+### Example: NATS Driver
 
 ```js
 import { NatsDriver } from "peerix";
 import { wsconnect } from "@nats-io/nats-core";
 
-// connect to a NATS server (e.g. the public demo server)
 const nc = await wsconnect({
   servers: ["wss://demo.nats.io:8443"],
   noEcho: true,
 });
 
-// create a new driver instance
 const driver = new NatsDriver({ nc });
 ```
 
-You should install the [`@nats-io/nats-core`](https://www.npmjs.com/package/@nats-io/nats-core) package to use the NATS driver.
+## Room Configuration
+
+Create a `Room` and configure connection behavior:
+
+```js
+import { Room } from "peerix";
+
+const room = new Room({
+  id: "my-room",
+  driver,
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+});
+
+await room.join();
+```
+
+### Options
+
+| Option                 | Default        | Description                                              |
+| ---------------------- | -------------- | -------------------------------------------------------- |
+| `id`                   | `"default"`    | Room identifier                                          |
+| `driver`               | `MemoryDriver` | Signaling driver instance                                |
+| `iceServers`           | `[]`           | STUN/TURN servers for NAT traversal                      |
+| `iceTransportPolicy`   | `"all"`        | Set to `"relay"` to enforce TURN-only connectivity       |
+| `connectionTimeout`    | `15`           | Seconds before disconnecting failed peers (`0` disables) |
+| `iceCandidateDebounce` | `50`           | Milliseconds to batch ICE candidates                     |
+| `namespaceHashing`     | `true`         | Hash room namespaces in signaling for privacy            |
+| `signalingCompression` | `true`         | Compress signaling messages                              |
+| `signalingEncryption`  | `true`         | Encrypt signaling with AES-GCM                           |
+| `verify`               | —              | Callback to accept or reject incoming peers              |
+
+Peerix handles collision resolution internally when two peers initiate connection simultaneously, using a polite/rude negotiation strategy.
+
+### Accessing Peers via `room.peers`
+
+After joining, connected peers are available through `room.peers`, a read-only `Map<string, Peer>` indexed by peer ID. Each `Peer` exposes:
+
+- **`id`** — unique identifier (the Map key)
+- **`metadata`** — optional metadata shared at join time
+- **`state`** — connection state (`new`, `connecting`, `connected`, `disconnected`, `failed`, `closed`)
+- **`connection`** — the underlying `RTCPeerConnection`
+- **`send()`** — direct messaging to that peer (bypasses broadcast)
+- **`share()` / `unshare()`** — per-peer stream control
+- **`on()` / `off()`** — subscribe to peer-specific events
+
+```js
+// iterate over all connected peers
+for (const [id, peer] of room.peers) {
+  if (peer.state === "connected") {
+    console.log(`Peer ${id} is online`);
+  }
+}
+
+// look up a specific peer by ID and send directly
+const target = room.peers.get(somePeerId);
+if (target && target.metadata?.name) {
+  await target.send(`Hello, ${target.metadata.name}!`, { label: "chat" });
+}
+```
+
+## Data Channels
+
+Data channels provide reliable messaging between peers. Open a channel with `room.open()`, send messages with `room.send()` (broadcast) or `peer.send()` (direct), and close with `room.close()`:
+
+```js
+await room.open({ label: "chat" });
+
+room.on("channel:message", async (e) => {
+  const message = await e.data;
+  console.log(`Msg from ${e.peer.id}:`, message);
+});
+```
+
+Messages are automatically decoded based on the sender's type: strings, JSON objects, Blobs, or raw bytes. Use `to` to target specific peers instead of broadcasting:
+
+```js
+await room.send("Hello!", { label: "chat", to: "peer.id" });
+```
+
+### File Transfer with Progress Tracking
+
+`send()` returns a stream you can iterate over to track upload progress. On the receiving side, binary data arrives as chunks:
+
+```js
+// sender
+const transfer = room.send(file, {
+  label: "chat",
+  info: { name: file.name, size: file.size },
+  signal: AbortSignal.timeout(60_000),
+});
+
+for await (const p of transfer) {
+  console.log(`${Math.round((p.current / p.total) * 100)}%`);
+}
+```
+
+```js
+// receiver — reassemble file from chunks
+room.on("channel:message", async (e) => {
+  const chunks = [];
+  for await (const chunk of e.data) chunks.push(chunk);
+  const file = new File(chunks, e.info?.name);
+  console.log(file);
+});
+```
+
+## Media Streams
+
+Share camera, microphone, screen capture, or any `MediaStream` with peers using `room.share()`. Each stream is identified by a label:
+
+```js
+const stream = await navigator.mediaDevices.getUserMedia({
+  video: true,
+  audio: true,
+});
+await room.share({ label: "camera", stream });
+```
+
+Listen for remote stream changes:
+
+```js
+room.on("stream:add", (e) => {
+  document.getElementById("remote-video").srcObject = e.stream;
+});
+
+room.on("stream:remove", (e) => {
+  console.log(`${e.peer.id} stopped sharing`);
+});
+```
+
+Call `share()` again with the same label to replace a stream. Old tracks are removed and new ones added automatically across all connected peers. Call `unshare()` to stop sharing entirely:
+
+```js
+await room.unshare({ label: "camera" });
+```
+
+### Encoding Parameters
+
+Control codec settings per stream:
+
+```js
+await room.share({
+  label: "camera",
+  stream,
+  audioParameters: { maxBitrate: 16_000 },
+  videoParameters: { maxBitrate: 128_000, maxFramerate: 15 },
+});
+```
+
+## Addons
+
+Addons are modular extensions that attach to a Room for additional functionality. Create custom addons by extending `Addon`:
+
+```js
+import { Addon } from "peerix";
+
+class MyAddon extends Addon {
+  async attach(room) {
+    /* setup */
+  }
+  async detach(room) {
+    /* cleanup */
+  }
+}
+
+const addon = new MyAddon();
+await room.attach(addon);
+// await room.detach(addon); // later, if needed
+```
+
+## Lifecycle Events
+
+Peerix emits typed events for all state changes. Subscribe using `room.on()` with a group prefix (e.g., `"connection"` matches any connection event) or a specific name:
+
+| Prefix       | Suffix          | Meaning                           |
+| ------------ | --------------- | --------------------------------- |
+| `connection` | `:new`          | New peer detected                 |
+|              | `:connecting`   | Negotiation in progress           |
+|              | `:connected`    | Peer connection established       |
+|              | `:disconnected` | Peer disconnected (may reconnect) |
+|              | `:failed`       | Connection attempt failed         |
+|              | `:closed`       | Connection permanently closed     |
+| `channel`    | `:new`          | Data channel created              |
+|              | `:open`         | Channel ready for messaging       |
+|              | `:close`        | Channel closed                    |
+|              | `:message`      | Message received                  |
+|              | `:error`        | Channel error occurred            |
+| `stream`     | `:add`          | Peer shared a media stream        |
+|              | `:remove`       | Peer stopped sharing a stream     |
+| `track`      | `:add`          | Track added to a shared stream    |
+|              | `:remove`       | Track removed from a stream       |
+
+The `"error"` event catches general signaling and connection failures. Subscribe with `room.on("error", ...)`.
 
 ## ICE Servers
 
-ICE (Interactive Connectivity Establishment) is a framework used in WebRTC to find the best path to connect peers. It involves using STUN (Session Traversal Utilities for NAT) servers for NAT traversal and TURN (Traversal Using Relays around NAT) servers for relaying media when direct peer-to-peer connections are not possible.
-
-> Use TURN servers for better connectivity in restrictive network environments.
-
-Peerix allows you to specify ICE servers for better connectivity and performance, especially in restrictive network environments. Use the `iceServers` option when creating the `Room` instance to provide a list of STUN and TURN servers:
+STUN servers help peers discover their public address, while TURN servers relay traffic when direct connection is not possible. Use TURN for better connectivity in restrictive networks:
 
 ```js
-// create the Room instance with custom ICE servers
 const room = new Room({
-  // specify the room identifier
   id: "my-room",
-  // use signaling driver, such as NATS
   driver,
-  // specify custom ICE servers for better connectivity
   iceServers: [
-    // public STUN server
     { urls: "stun:stun.l.google.com:19302" },
-    // custom TURN server (replace with your own server)
     {
       urls: "turn:turn.example.com:3478",
       username: "user",
@@ -327,6 +316,24 @@ const room = new Room({
   ],
 });
 ```
+
+Set `iceTransportPolicy` to `"relay"` to force traffic through TURN servers only, enforcing privacy in sensitive environments. No ICE servers limits connections to the local network.
+
+## Troubleshooting
+
+**Peers cannot connect across networks.** — Add STUN/TURN servers via `iceServers`.
+
+**I get a `SIGNALING_ERROR`.** — The driver failed to send or receive messages. Verify your signaling client is connected before creating the Room. Listen on `room.on("error", ...)` for details.
+
+**Camera/microphone access fails.** — Ensure the page is served over HTTPS (or localhost). Check that no other tab holds an exclusive lock on the device.
+
+**`send()` throws before I can message a peer.** — Wait for the `channel:open` event before calling `peer.send(...)`.
+
+**Peers disconnect during negotiation.** — Increase `connectionTimeout` (default 15 seconds), or set it to `0` to disable.
+
+**Two peers in the same room don't see each other.** — Verify both use the same driver connected to the same backend, call `room.join()` on both sides, and that the room `id` matches exactly. BroadcastChannel only works within the same origin.
+
+**Signaling messages fail after disabling encryption.** — Encryption is enabled by default. If you disable it (`signalingEncryption: false`), all peers in the room must use the same setting.
 
 ## License
 

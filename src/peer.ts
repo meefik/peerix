@@ -1,3 +1,14 @@
+/**
+ * Manages WebRTC peer-to-peer connections between two peers.
+ * Each {@link Peer} instance wraps an `RTCPeerConnection` and provides
+ * methods to exchange data through data channels and share media streams.
+ *
+ * **Do not create {@link Peer} instances manually.** They are created automatically
+ * by {@link Rooms} when a remote peer is discovered via a signaling driver.
+ *
+ * @module Peers
+ */
+
 import log from "./utils/logger.js";
 import { PeerixError, type ErrorCode, type ErrorEvent } from "./error.js";
 import { parseOptions } from "./utils/helpers.js";
@@ -17,8 +28,6 @@ const MESSAGE_TYPE = {
 /**
  * Represents a peer connection.
  * Do not create Peer instances manually.
- *
- * @group Peers
  */
 export class Peer {
   /** Peer identifier. */
@@ -1128,7 +1137,6 @@ export class Peer {
  * Options for creating a {@link Peer} instance.
  *
  * @internal
- * @group Peers
  */
 export interface PeerOptions {
   /** Unique peer identifier. */
@@ -1153,8 +1161,6 @@ export interface PeerOptions {
 
 /**
  * ICE server configuration for peer connections.
- *
- * @group Peers
  */
 export type IceServer = {
   /** ICE server URL(s) */
@@ -1167,23 +1173,17 @@ export type IceServer = {
 
 /**
  * ICE transport policy for peer connections.
- *
- * @group Peers
  */
 export type IceTransportPolicy = "all" | "relay";
 
 /**
  * Peer connection state.
- *
- * @group Peers
  */
 export type ConnectionState =
   "new" | "connecting" | "connected" | "disconnected" | "failed" | "closed";
 
 /**
  * Local stream publication options.
- *
- * @group Streams and Channels
  */
 export interface StreamOptions {
   /** Stream label. If omitted, the `default` label will be used. */
@@ -1217,8 +1217,6 @@ export interface StreamOptions {
 
 /**
  * Options used to create negotiated RTCDataChannel instances.
- *
- * @group Streams and Channels
  */
 export interface ChannelOptions {
   /** Channel label. If omitted, the `default` label will be used. */
@@ -1235,8 +1233,6 @@ export interface ChannelOptions {
 
 /**
  * Options for sending a message through a data channel.
- *
- * @group Streams and Channels
  */
 export interface SendOptions {
   /** Channel label. If omitted, `default` is used. */
@@ -1251,8 +1247,6 @@ export interface SendOptions {
 
 /**
  * Progress information for a transfer operation on a channel.
- *
- * @group Streams and Channels
  */
 export interface TransferProgress {
   /** Peer ID. */
@@ -1272,7 +1266,6 @@ export interface TransferProgress {
  * such as an offer, answer, or ICE candidate.
  *
  * @internal
- * @group Peers
  */
 export interface SignalEvent {
   /** Name of the event. */
@@ -1285,8 +1278,6 @@ export interface SignalEvent {
 
 /**
  * Event emitted on peer connection state changes.
- *
- * @group Peers
  */
 export interface ConnectionEvent {
   /** Name of the event. */
@@ -1307,8 +1298,6 @@ export interface ConnectionEvent {
  * Emitted when a data channel is created or received from a peer,
  * when a data channel is opened or closed, when a message is received on a
  * data channel, or when an error occurs.
- *
- * @group Peers
  */
 export interface ChannelEvent {
   /** Name of the event. */
@@ -1334,8 +1323,6 @@ export interface ChannelEvent {
 
 /**
  * Emitted when a peer shares or unshares a media stream.
- *
- * @group Peers
  */
 export interface StreamEvent {
   /** Name of the event. */
@@ -1350,8 +1337,6 @@ export interface StreamEvent {
 
 /**
  * Emitted when a peer adds a media track to or removes one from a shared stream.
- *
- * @group Peers
  */
 export interface TrackEvent {
   /** Name of the event. */
@@ -1368,8 +1353,6 @@ export interface TrackEvent {
 
 /**
  * Events emitted by {@link Peer} instances.
- *
- * @group Peers
  */
 export interface PeerEvents {
   /** SDP offer, answer, or ICE candidate is exchanged. @internal */

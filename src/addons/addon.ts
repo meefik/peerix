@@ -3,11 +3,6 @@ import { EventEmitter } from "../utils/emitter.js";
 
 /**
  * Base class for Peerix addons.
- *
- * Addons are modular extensions that can be attached to a Peer instance to
- * provide additional functionality or integrate with external services.
- *
- * @group Addons
  */
 export class Addon {
   #emitter: EventEmitter<Record<string, any[]>>;
@@ -60,8 +55,8 @@ export class Addon {
   }
 
   /**
-   * Attaches the addon to a Peer instance. This method is called when the addon is
-   * added to a peer using `peer.attach(addon)`.
+   * Attaches the addon to a Room instance. This method is called when the addon is
+   * added using `room.attach(addon)`.
    *
    * @param room The Room instance to attach to.
    */
@@ -70,8 +65,8 @@ export class Addon {
   }
 
   /**
-   * Detaches the addon from a Peer instance. This method is called when the addon is
-   * removed from a peer using `peer.detach(addon)`.
+   * Detaches the addon from a Room instance. This method is called when the addon is
+   * removed using `room.detach(addon)`.
    *
    * @param room The Room instance to detach from.
    */

@@ -11,8 +11,6 @@ import { EventEmitter } from "../utils/emitter.js";
  * It is useful for testing and debugging purposes, but is not suitable
  * for production use due to its limitations (e.g., same-origin restrictions).
  *
- * @group Drivers
- *
  * @example
  * ```js
  * const driver = new BroadcastChannelDriver("peerix");

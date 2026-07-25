@@ -1,7 +1,10 @@
 /**
  * Normalizes options into a plain object.
  *
- * @param options The options to parse. If an object, it is shallow-copied; otherwise the parser is applied.
+ * If the input is an object, it is shallow-copied. Otherwise, the optional
+ * parser function is invoked to derive an object from the raw value.
+ *
+ * @param options The options to parse.
  * @param parser A transformer invoked when the input is not an object.
  * @returns The normalized options as a plain object.
  */

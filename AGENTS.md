@@ -40,17 +40,17 @@ CI runs Playwright tests on tag pushes.
 ## Testing
 
 - **Unit tests** co-locate with source (`src/**/*.test.ts`). Prefix Node built-ins with `node:`. Use `mock.method()` for mocking — no external mock libraries. Follow Arrange → Act → Assert.
-- **E2E tests** live in `tests/`, target `localhost:3000/tests/` via Playwright.
+- **E2E tests** live in `tests/`, target dev server at `localhost:3000` via Playwright.
 
 ## Docs
 
 1. Add TypeDoc to public exports before releasing changes.
-2. `npm run docs` generates HTML/Markdown into `docs/` and LLM context files (`llms.txt`, `llms-full.txt`).
+2. `npm run docs` generates HTML and LLM context files (`llms.txt`, `llms-full.txt`) into `docs/`, and the `peerix` skill into `skills/`.
 
 ## Releases
 
-- Semver via `npm version [major|minor|patch]`. Changelog in `CHANGELOG.md`.
-- Conventional Commits: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
+- **Commits**: Conventional Commits (`feat|fix|docs|refactor|test|chore`).
+- **Semver**: `npm version [major|minor|patch]`. Changelog in `CHANGELOG.md`.
 
 ## Dev Checklist
 

@@ -2,8 +2,7 @@ import { Driver } from "./driver.js";
 import { EventEmitter } from "../utils/emitter.js";
 
 /**
- * Server-Sent Events ([SSE](https://developer.mozilla.org/docs/Web/API/Server-sent_events))
- * signaling driver.
+ * Server-Sent Events (SSE) signaling driver.
  *
  * SSE is a unidirectional communication protocol that allows servers to push real-time
  * updates to clients over a single HTTP connection. This driver uses SSE to receive
@@ -25,8 +24,6 @@ import { EventEmitter } from "../utils/emitter.js";
  *
  * > This driver requires a [Mercure](https://mercure.rocks/) server or compatible
  * > server-side implementation to work.
- *
- * @group Drivers
  *
  * @example
  *

@@ -15,7 +15,7 @@ const CHUNK_SIZE = 16 * 1024 - HEADER_SIZE;
 const BUFFERED_AMOUNT_LOW = 32 * 1024;
 /** Upper bound on buffered bytes before back-pressure kicks in. */
 const BUFFERED_AMOUNT_MAX = 256 * 1024;
-/** How long to wait for the channel buffer to drain or the remote answers before giving up. */
+/** How long to wait for the channel buffer to drain or the remote peer to respond before giving up. */
 const ASK_TIMEOUT = 10 * 1000;
 /** Maximum 16-bit unsigned integer used for transfer IDs (wraps around). */
 const MAX_TRANSFER_ID = 0xffff;

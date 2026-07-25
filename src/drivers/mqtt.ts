@@ -13,8 +13,6 @@ import { EventEmitter } from "../utils/emitter.js";
  * > This driver requires the [`mqtt`](https://www.npmjs.com/package/mqtt)
  * > module in the browser.
  *
- * @group Drivers
- *
  * @example
  * ```js
  * import { connect } from "mqtt";

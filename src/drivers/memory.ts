@@ -1,3 +1,4 @@
+
 import { Driver } from "./driver.js";
 import { EventEmitter } from "../utils/emitter.js";
 
@@ -6,8 +7,6 @@ import { EventEmitter } from "../utils/emitter.js";
  *
  * This driver is useful for testing and debugging purposes, but is not suitable
  * for production use due to its limitations (e.g., a single-process scope).
- *
- * @group Drivers
  *
  * @example
  * ```js

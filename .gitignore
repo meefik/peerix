@@ -5,6 +5,7 @@ logs
 node_modules
 /dist/
 /docs/
+/skills/
 
 # Playwright
 /test-results/

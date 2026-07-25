@@ -1,7 +1,15 @@
 /**
- * Error codes for categorizing Peerix-related errors.
+ * Custom error types for Peerix.
  *
- * @group Errors
+ * Provides {@link PeerixError}, a typed error class with categorized
+ * {@link ErrorCode} values, and the {@link ErrorEvent} interface used
+ * by the library's event system to report failures.
+ *
+ * @module Errors
+ */
+
+/**
+ * Error codes for categorizing Peerix-related errors.
  */
 export type ErrorCode =
   | "UNKNOWN_ERROR"
@@ -13,8 +21,6 @@ export type ErrorCode =
 
 /**
  * Event emitted when an error occurs in any background operations.
- *
- * @group Errors
  */
 export interface ErrorEvent {
   /** Name of the event. */
@@ -26,8 +32,6 @@ export interface ErrorEvent {
 /**
  * Custom error class for Peerix-related errors.
  * Extends the built-in Error class and adds a `code` property.
- *
- * @group Errors
  */
 export class PeerixError extends Error {
   /** The name of the error, typically `Error` or a specific error type. */
@@ -52,7 +56,7 @@ export class PeerixError extends Error {
     this.name = name || "Error";
     this.message = message || "Unknown error";
     this.code = code ?? "UNKNOWN_ERROR";
-    // fix the prototype chain for built-in Error
+    // fix prototype chain so `instanceof` works correctly
     Object.setPrototypeOf(this, PeerixError.prototype);
   }
 }

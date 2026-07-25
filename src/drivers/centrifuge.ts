@@ -11,8 +11,6 @@ import { EventEmitter } from "../utils/emitter.js";
  * > This driver requires the [`centrifuge`](https://www.npmjs.com/package/centrifuge)
  * > module in the browser.
  *
- * @group Drivers
- *
  * @example
  * ```js
  * import { Centrifuge } from "centrifuge";
@@ -183,7 +181,6 @@ export class CentrifugeDriver extends Driver {
  * Interface representing a Centrifuge client instance.
  *
  * @internal
- * @group Drivers
  */
 export interface CentrifugeClient {
   on: (event: string, handler: (ctx: any) => void) => void;
@@ -198,7 +195,6 @@ export interface CentrifugeClient {
  * Interface representing a Centrifuge subscription.
  *
  * @internal
- * @group Drivers
  */
 export interface CentrifugeSubscription {
   on: (event: string, handler: (ctx: any) => void) => void;

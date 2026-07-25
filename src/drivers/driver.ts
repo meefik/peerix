@@ -1,54 +1,7 @@
 import { EventEmitter } from "../utils/emitter.js";
 
 /**
- * Base class for signaling drivers.
- *
- * Drivers route signaling messages between peers over any transport
- * (MQTT, NATS, SSE, etc.). Implement `subscribe`, `unsubscribe`, and
- * `publish` to handle message routing by namespace. The `active`
- * property reflects the connection state.
- *
- * Peerix minimizes signaling overhead by migrating connections to a
- * dedicated data channel after handshake, using binary messages,
- * debouncing ICE candidates, compressing payloads, and supporting
- * built-in namespace hashing and end-to-end encryption (E2EE).
- *
- * ```mermaid
- * sequenceDiagram
- *   Peer A -->> Peer B: broadcast announce
- *   Peer B ->> Peer A: invoke
- *   Peer A ->> Peer B: SDP offer
- *   Peer B ->> Peer A: SDP answer
- *   Peer B <<->> Peer A: ICE candidates
- * ```
- *
- * This flow runs automatically. Connecting two peers takes about
- * **4 messages** per peer, roughly **1 KB** with compression and
- * encryption enabled.
- *
- * | Signaling Type         | Sent Size  | Overhead |
- * | ---------------------- | ---------- | -------- |
- * | Raw Signaling          | 1468 bytes | 0%       |
- * | Encrypted Signaling    | 1551 bytes | +5%      |
- * | Compressed Signaling   | 806 bytes  | -45%     |
- * | Compressed & Encrypted | 891 bytes  | -40%     |
- *
- * @group Drivers
- *
- * @example
- * ```typescript
- * class MyDriver extends Driver {
- *   async subscribe(namespace: string, handler: (data: number[]) => void) {
- *     super.subscribe(namespace, handler);
- *   }
- *   async unsubscribe(namespace: string, handler: (data: number[]) => void) {
- *     super.unsubscribe(namespace, handler);
- *   }
- *   async publish(namespace: string, data: number[]) {
- *     super.publish(namespace, data);
- *   }
- * }
- * ```
+ * Base class for Peerix signaling drivers.
  */
 export class Driver {
   #active: boolean;
@@ -116,6 +69,7 @@ export class Driver {
    *
    * @param namespace The namespace to subscribe to.
    * @param handler The handler function to call when a message is received.
+   * @returns Nothing directly; resolves once the subscription is established (async drivers may return a promise).
    */
   subscribe(
     namespace: string,
@@ -129,6 +83,7 @@ export class Driver {
    *
    * @param namespace The namespace to unsubscribe from.
    * @param handler The handler function to remove.
+   * @returns Nothing directly; resolves once the unsubscription is confirmed (async drivers may return a promise).
    */
   unsubscribe(
     namespace: string,
@@ -142,6 +97,7 @@ export class Driver {
    *
    * @param namespace The namespace to publish the message to.
    * @param data The message data to publish.
+   * @returns Nothing directly; resolves once the message is delivered (async drivers may return a promise).
    */
   publish(namespace: string, data: number[]): void | Promise<void> {
     this.#emitter.emit("publish", namespace, data);
@@ -158,8 +114,6 @@ export class Driver {
 
 /**
  * Defines the internal events emitted by the {@link Driver} class.
- *
- * @group Drivers
  */
 export interface DriverEvents {
   /** The driver has become active. */

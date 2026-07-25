@@ -28,8 +28,6 @@ import { EventEmitter } from "../utils/emitter.js";
  * > module in the browser and the [`socket.io`](https://www.npmjs.com/package/socket.io)
  * > module for server-side use in Node.js.
  *
- * @group Drivers
- *
  * @example
  *
  * Client-side code (browser with Socket.IO client):
@@ -220,7 +218,6 @@ export class SocketIoDriver extends Driver {
  * Interface representing a Socket.IO client instance.
  *
  * @internal
- * @group Drivers
  */
 export interface SocketIoClient {
   on: (event: string, handler: (...args: any[]) => void) => void;

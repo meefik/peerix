@@ -10,8 +10,6 @@ import { EventEmitter } from "../utils/emitter.js";
  * > This driver requires the [`@supabase/supabase-js`](https://www.npmjs.com/package/@supabase/supabase-js)
  * > module in the browser.
  *
- * @group Drivers
- *
  * @example
  * ```js
  * import { createClient } from "@supabase/supabase-js";
@@ -176,7 +174,6 @@ export class SupabaseDriver extends Driver {
  * Interface representing a Supabase client instance.
  *
  * @internal
- * @group Drivers
  */
 export interface SupabaseClient {
   channel: (channelName: string) => SupabaseChannel;
@@ -187,7 +184,6 @@ export interface SupabaseClient {
  * Interface representing a Supabase Realtime channel.
  *
  * @internal
- * @group Drivers
  */
 export interface SupabaseChannel {
   on: (
