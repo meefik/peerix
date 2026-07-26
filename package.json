@@ -1,6 +1,6 @@
 {
   "name": "peerix",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "A front-end library for creating peer-to-peer WebRTC applications with pluggable signaling drivers and add-ons.",
   "author": "Anton Skshidlevsky <anton@meefik.dev>",
   "license": "Apache-2.0",

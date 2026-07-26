@@ -57,16 +57,14 @@ Drivers handle peer discovery and initial connection setup. After the handshake,
 
 ### Built-in Drivers
 
-| Driver                   | Use Case                  | Backend Required                       |
-| ------------------------ | ------------------------- | -------------------------------------- |
-| `MemoryDriver`           | Single-page testing       | None                                   |
-| `BroadcastChannelDriver` | Multi-tab communication   | Same browser origin                    |
-| `NatsDriver`             | Distributed / performance | [NATS](https://nats.io/)               |
-| `MqttDriver`             | Lightweight broker        | [MQTT broker](https://mqtt.org/)       |
-| `CentrifugeDriver`       | Real-time messaging       | [Centrifuge](https://centrifugal.dev/) |
-| `SseDriver`              | Server-Sent Events + POST | [Mercure](https://mercure.rocks/)      |
-| `SupabaseDriver`         | Database + real-time      | [Supabase](https://supabase.com/)      |
-| `SocketIoDriver`         | WebSocket-based signaling | [Socket.IO](https://socket.io/) server |
+- **`MemoryDriver`** — single-page testing (no backend required)
+- **`BroadcastChannelDriver`** — multi-tab communication (same browser origin)
+- **`NatsDriver`** — distributed / performance ([NATS](https://nats.io/))
+- **`MqttDriver`** — lightweight broker ([MQTT broker](https://mqtt.org/))
+- **`CentrifugeDriver`** — real-time messaging ([Centrifuge](https://centrifugal.dev/))
+- **`SseDriver`** — Server-Sent Events + POST ([Mercure](https://mercure.rocks/))
+- **`SupabaseDriver`** — database + real-time ([Supabase](https://supabase.com/))
+- **`SocketIoDriver`** — WebSocket-based signaling ([Socket.IO](https://socket.io/) server)
 
 If no driver is specified, the default is `MemoryDriver`, which only works within a single page. Drivers require their respective client libraries to be installed by you — Peerix itself has zero runtime dependencies.
 
@@ -122,18 +120,16 @@ await room.join();
 
 ### Options
 
-| Option                 | Default        | Description                                              |
-| ---------------------- | -------------- | -------------------------------------------------------- |
-| `id`                   | `"default"`    | Room identifier                                          |
-| `driver`               | `MemoryDriver` | Signaling driver instance                                |
-| `iceServers`           | `[]`           | STUN/TURN servers for NAT traversal                      |
-| `iceTransportPolicy`   | `"all"`        | Set to `"relay"` to enforce TURN-only connectivity       |
-| `connectionTimeout`    | `15`           | Seconds before disconnecting failed peers (`0` disables) |
-| `iceCandidateDebounce` | `50`           | Milliseconds to batch ICE candidates                     |
-| `namespaceHashing`     | `true`         | Hash room namespaces in signaling for privacy            |
-| `signalingCompression` | `true`         | Compress signaling messages                              |
-| `signalingEncryption`  | `true`         | Encrypt signaling with AES-GCM                           |
-| `verify`               | —              | Callback to accept or reject incoming peers              |
+- **`id`** — room identifier (default: `"default"`)
+- **`driver`** — signaling driver instance (default: `MemoryDriver`)
+- **`iceServers`** — STUN/TURN servers for NAT traversal (default: `[]`)
+- **`iceTransportPolicy`** — set to `"relay"` to enforce TURN-only connectivity (default: `"all"`)
+- **`connectionTimeout`** — seconds before disconnecting failed peers, `0` disables (default: `15`)
+- **`iceCandidateDebounce`** — milliseconds to batch ICE candidates (default: `50`)
+- **`namespaceHashing`** — hash room namespaces in signaling for privacy (default: `true`)
+- **`signalingCompression`** — compress signaling messages (default: `true`)
+- **`signalingEncryption`** — encrypt signaling with AES-GCM (default: `true`)
+- **`verify`** — callback to accept or reject incoming peers
 
 Peerix handles collision resolution internally when two peers initiate connection simultaneously, using a polite/rude negotiation strategy.
 
@@ -278,23 +274,32 @@ await room.attach(addon);
 
 Peerix emits typed events for all state changes. Subscribe using `room.on()` with a group prefix (e.g., `"connection"` matches any connection event) or a specific name:
 
-| Prefix       | Suffix          | Meaning                           |
-| ------------ | --------------- | --------------------------------- |
-| `connection` | `:new`          | New peer detected                 |
-|              | `:connecting`   | Negotiation in progress           |
-|              | `:connected`    | Peer connection established       |
-|              | `:disconnected` | Peer disconnected (may reconnect) |
-|              | `:failed`       | Connection attempt failed         |
-|              | `:closed`       | Connection permanently closed     |
-| `channel`    | `:new`          | Data channel created              |
-|              | `:open`         | Channel ready for messaging       |
-|              | `:close`        | Channel closed                    |
-|              | `:message`      | Message received                  |
-|              | `:error`        | Channel error occurred            |
-| `stream`     | `:add`          | Peer shared a media stream        |
-|              | `:remove`       | Peer stopped sharing a stream     |
-| `track`      | `:add`          | Track added to a shared stream    |
-|              | `:remove`       | Track removed from a stream       |
+#### Connection Events (`connection:*`)
+
+- **`:new`** — new peer detected
+- **`:connecting`** — negotiation in progress
+- **`:connected`** — peer connection established
+- **`:disconnected`** — peer disconnected (may reconnect)
+- **`:failed`** — connection attempt failed
+- **`:closed`** — connection permanently closed
+
+#### Channel Events (`channel:*`)
+
+- **`:new`** — data channel created
+- **`:open`** — channel ready for messaging
+- **`:close`** — channel closed
+- **`:message`** — message received
+- **`:error`** — channel error occurred
+
+#### Stream Events (`stream:*`)
+
+- **`:add`** — peer shared a media stream
+- **`:remove`** — peer stopped sharing a stream
+
+#### Track Events (`track:*`)
+
+- **`:add`** — track added to a shared stream
+- **`:remove`** — track removed from a stream
 
 The `"error"` event catches general signaling and connection failures. Subscribe with `room.on("error", ...)`.
 
